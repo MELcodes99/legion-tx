@@ -2,7 +2,7 @@ import { WalletProvider } from '@/components/WalletProvider';
 import { WalletButton } from '@/components/WalletButton';
 import { TransferForm } from '@/components/TransferForm';
 import { FAQ } from '@/components/FAQ';
-
+import { NetworkStatus } from '@/components/NetworkStatus';
 import { Footer } from '@/components/Footer';
 import { Zap } from 'lucide-react';
 
@@ -27,7 +27,10 @@ const Index = () => {
                 </h1>
               </div>
               </div>
-              <WalletButton />
+              <div className="flex items-center gap-3">
+                <NetworkStatus />
+                <WalletButton />
+              </div>
             </nav>
           </header>
 

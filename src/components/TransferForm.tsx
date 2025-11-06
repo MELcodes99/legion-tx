@@ -44,7 +44,7 @@ export const TransferForm = () => {
   const [error, setError] = useState('');
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
-  // Fetch token balances
+  // Fetch token balances with enhanced debugging and reliability
   useEffect(() => {
     const fetchBalances = async () => {
       if (!publicKey) {
@@ -53,49 +53,118 @@ export const TransferForm = () => {
         return;
       }
 
-      console.log('Fetching balances for wallet:', publicKey.toBase58());
+      const timestamp = new Date().toISOString();
+      console.log('=== Balance Fetch Debug Start ===', timestamp);
+      console.log('Connected wallet address:', publicKey.toBase58());
       console.log('RPC endpoint:', connection.rpcEndpoint);
+      console.log('Expected chain: Solana mainnet-beta');
 
       try {
         const usdcMint = new PublicKey(TOKENS.USDC.mint);
         const usdtMint = new PublicKey(TOKENS.USDT.mint);
 
-        const usdcTokenAccount = await getAssociatedTokenAddress(usdcMint, publicKey);
-        const usdtTokenAccount = await getAssociatedTokenAddress(usdtMint, publicKey);
+        console.log('Token mints:');
+        console.log('- USDC mint:', TOKENS.USDC.mint);
+        console.log('- USDT mint:', TOKENS.USDT.mint);
 
-        console.log('USDC Token Account:', usdcTokenAccount.toBase58());
-        console.log('USDT Token Account:', usdtTokenAccount.toBase58());
+        const usdcATA = await getAssociatedTokenAddress(usdcMint, publicKey);
+        const usdtATA = await getAssociatedTokenAddress(usdtMint, publicKey);
+
+        console.log('Associated Token Accounts (ATAs):');
+        console.log('- Expected USDC ATA:', usdcATA.toBase58());
+        console.log('- Expected USDT ATA:', usdtATA.toBase58());
 
         let usdcBalance = 0;
         let usdtBalance = 0;
 
+        // Fetch USDC balance using getParsedTokenAccountsByOwner for more reliability
         try {
-          console.log('Fetching USDC account info...');
-          const usdcAccount = await getAccount(connection, usdcTokenAccount);
-          usdcBalance = Number(usdcAccount.amount) / Math.pow(10, TOKENS.USDC.decimals);
-          console.log('USDC Balance fetched:', usdcBalance);
+          console.log('Fetching USDC token accounts...');
+          const usdcParsed = await connection.getParsedTokenAccountsByOwner(
+            publicKey,
+            { mint: usdcMint }
+          );
+          
+          console.log('USDC parsed accounts length:', usdcParsed.value.length);
+          
+          if (usdcParsed.value.length > 0) {
+            const accountInfo = usdcParsed.value[0].account.data.parsed.info;
+            const tokenAmount = accountInfo.tokenAmount;
+            
+            console.log('USDC account found:');
+            console.log('- Token account pubkey:', usdcParsed.value[0].pubkey.toBase58());
+            console.log('- Raw amount:', tokenAmount.amount);
+            console.log('- Decimals:', tokenAmount.decimals);
+            console.log('- UI amount:', tokenAmount.uiAmount);
+            
+            // Use uiAmount if available (more reliable), otherwise calculate
+            usdcBalance = tokenAmount.uiAmount !== null 
+              ? tokenAmount.uiAmount 
+              : Number(tokenAmount.amount) / Math.pow(10, tokenAmount.decimals);
+            
+            console.log('USDC balance calculated:', usdcBalance);
+          } else {
+            console.log('No USDC token account found - user has not received USDC yet (balance: 0)');
+          }
         } catch (e) {
-          console.error('USDC account error:', e);
-          console.log('USDC account may not exist yet - balance is 0');
+          console.error('Error fetching USDC balance:', e);
+          console.log('USDC account may not exist - balance is 0');
         }
 
+        // Fetch USDT balance using getParsedTokenAccountsByOwner for more reliability
         try {
-          console.log('Fetching USDT account info...');
-          const usdtAccount = await getAccount(connection, usdtTokenAccount);
-          usdtBalance = Number(usdtAccount.amount) / Math.pow(10, TOKENS.USDT.decimals);
-          console.log('USDT Balance fetched:', usdtBalance);
+          console.log('Fetching USDT token accounts...');
+          const usdtParsed = await connection.getParsedTokenAccountsByOwner(
+            publicKey,
+            { mint: usdtMint }
+          );
+          
+          console.log('USDT parsed accounts length:', usdtParsed.value.length);
+          
+          if (usdtParsed.value.length > 0) {
+            const accountInfo = usdtParsed.value[0].account.data.parsed.info;
+            const tokenAmount = accountInfo.tokenAmount;
+            
+            console.log('USDT account found:');
+            console.log('- Token account pubkey:', usdtParsed.value[0].pubkey.toBase58());
+            console.log('- Raw amount:', tokenAmount.amount);
+            console.log('- Decimals:', tokenAmount.decimals);
+            console.log('- UI amount:', tokenAmount.uiAmount);
+            
+            // Use uiAmount if available (more reliable), otherwise calculate
+            usdtBalance = tokenAmount.uiAmount !== null 
+              ? tokenAmount.uiAmount 
+              : Number(tokenAmount.amount) / Math.pow(10, tokenAmount.decimals);
+            
+            console.log('USDT balance calculated:', usdtBalance);
+          } else {
+            console.log('No USDT token account found - user has not received USDT yet (balance: 0)');
+          }
         } catch (e) {
-          console.error('USDT account error:', e);
-          console.log('USDT account may not exist yet - balance is 0');
+          console.error('Error fetching USDT balance:', e);
+          console.log('USDT account may not exist - balance is 0');
         }
 
-        console.log('Setting balances - USDC:', usdcBalance, 'USDT:', usdtBalance);
+        // Also fetch SOL balance for sanity check
+        try {
+          const solBalance = await connection.getBalance(publicKey, 'confirmed');
+          console.log('SOL native balance (lamports):', solBalance);
+          console.log('SOL native balance (SOL):', solBalance / LAMPORTS_PER_SOL);
+        } catch (e) {
+          console.error('Error fetching SOL balance:', e);
+        }
+
+        console.log('Final balances - USDC:', usdcBalance, 'USDT:', usdtBalance);
+        console.log('=== Balance Fetch Debug End ===');
+        
         setBalances({ USDC: usdcBalance, USDT: usdtBalance });
       } catch (error) {
         console.error('Critical error fetching balances:', error);
+        console.log('RPC may be rate-limited or unavailable');
+        
         toast({
-          title: 'Error fetching balances',
-          description: 'Unable to fetch wallet balances. Please check your connection.',
+          title: 'Unable to fetch balances',
+          description: 'Network connection issue. Retrying...',
           variant: 'destructive',
         });
       }
