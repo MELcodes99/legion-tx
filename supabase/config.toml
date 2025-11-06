@@ -1,1 +1,4 @@
 project_id = "jmnyaudcgdanpgctroko"
+
+[functions.gasless-transfer]
+verify_jwt = false
