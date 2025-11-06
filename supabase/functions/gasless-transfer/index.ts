@@ -7,11 +7,11 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
   sendAndConfirmTransaction,
-} from 'https://esm.sh/@solana/web3.js@1.95.8';
+} from 'https://esm.sh/@solana/web3.js@1.98.4';
 import {
   getOrCreateAssociatedTokenAccount,
   getAssociatedTokenAddress,
-  transfer,
+  createTransferInstruction,
 } from 'https://esm.sh/@solana/spl-token@0.4.14';
 
 const corsHeaders = {
@@ -162,13 +162,28 @@ serve(async (req) => {
           amountSmallest: amountSmallest.toString(),
         });
 
-        const recipientSignature = await transfer(
+        // Create transaction to transfer from backend to recipient
+        const { blockhash } = await connection.getLatestBlockhash('confirmed');
+        const backendToRecipientTx = new Transaction({
+          recentBlockhash: blockhash,
+          feePayer: backendWallet.publicKey,
+        });
+
+        backendToRecipientTx.add(
+          createTransferInstruction(
+            backendAtaAddress, // source
+            recipientAta.address, // destination
+            backendWallet.publicKey, // owner
+            amountSmallest // amount
+          )
+        );
+
+        // Sign and send the transaction
+        const recipientSignature = await sendAndConfirmTransaction(
           connection,
-          backendWallet, // payer
-          backendAtaAddress, // source
-          recipientAta.address, // destination
-          backendWallet.publicKey, // owner
-          amountSmallest
+          backendToRecipientTx,
+          [backendWallet],
+          { commitment: 'confirmed' }
         );
 
         console.log('Backend token transfer confirmed:', recipientSignature);
