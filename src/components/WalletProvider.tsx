@@ -12,13 +12,13 @@ interface WalletProviderProps {
 }
 
 export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
-  // Use a more reliable RPC endpoint - Helius free tier or fallback to public
+  // Use a reliable public RPC endpoint - publicnode.com is more stable than the official public endpoint
   const endpoint = useMemo(() => {
-    // Using Solana's mainnet-beta public endpoint
-    // For production, consider using a dedicated RPC provider like Helius, Quicknode, or Alchemy
-    const publicEndpoint = clusterApiUrl('mainnet-beta');
-    console.log('Using RPC endpoint:', publicEndpoint);
-    return publicEndpoint;
+    // Using publicnode.com which has better rate limits and reliability
+    // Fallback endpoints if needed: 'https://solana.api.onfinality.io/public', 'https://solana.drpc.org'
+    const reliableEndpoint = 'https://solana-rpc.publicnode.com';
+    console.log('Using RPC endpoint:', reliableEndpoint);
+    return reliableEndpoint;
   }, []);
 
   const wallets = useMemo(
