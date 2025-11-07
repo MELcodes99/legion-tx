@@ -132,36 +132,66 @@ serve(async (req) => {
       });
 
       try {
-        // Step 1: Deserialize user's partially-signed transaction
+        // Step 1: Get FRESH blockhash immediately (this is critical!)
+        console.log('Getting fresh blockhash for user→backend transfer...');
+        const { blockhash: userTxBlockhash, lastValidBlockHeight: userTxLastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        
+        // Step 2: Deserialize user's signed transaction to extract signature and transfer instruction
         const binaryString = atob(signedTransaction);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-        const userTransaction = Transaction.from(bytes);
+        const oldTransaction = Transaction.from(bytes);
 
-        console.log('Transaction details:', {
-          feePayer: userTransaction.feePayer?.toBase58(),
-          recentBlockhash: userTransaction.recentBlockhash,
-          signatures: userTransaction.signatures.length,
+        console.log('Extracting user signature and transfer instruction...');
+        const userSig = oldTransaction.signatures.find(sig => !sig.publicKey.equals(backendWallet.publicKey));
+        
+        if (!userSig || !userSig.signature) {
+          throw new Error('Valid user signature not found in transaction');
+        }
+
+        // Extract the transfer instruction from old transaction
+        if (oldTransaction.instructions.length === 0) {
+          throw new Error('No instructions found in transaction');
+        }
+        const transferInstruction = oldTransaction.instructions[0];
+
+        // Step 3: Rebuild transaction with FRESH blockhash and same instruction
+        console.log('Rebuilding transaction with fresh blockhash...');
+        
+        const freshTransaction = new Transaction({
+          recentBlockhash: userTxBlockhash,
+          feePayer: backendWallet.publicKey,
         });
-
-        // Step 2: Backend signs as fee payer (this makes it gasless for user!)
+        
+        // Add the exact same transfer instruction
+        freshTransaction.add(transferInstruction);
+        
+        // Step 4: Add user's signature to new transaction
+        console.log('Adding user signature to fresh transaction...');
+        freshTransaction.addSignature(userSig.publicKey, userSig.signature);
+        
+        // Step 5: Backend signs as fee payer
         console.log('Backend signing as fee payer...');
-        userTransaction.partialSign(backendWallet);
+        freshTransaction.partialSign(backendWallet);
 
-        // Step 3: Submit transaction IMMEDIATELY to Solana (user → backend ATA, backend pays gas)
-        console.log('Submitting gasless transaction to Solana (immediate)...');
+        // Step 6: Submit IMMEDIATELY
+        console.log('Submitting gasless transaction with fresh blockhash...');
         const userSignature = await connection.sendRawTransaction(
-          userTransaction.serialize(),
+          freshTransaction.serialize(),
           { 
             skipPreflight: false, 
             preflightCommitment: 'confirmed',
-            maxRetries: 3,
+            maxRetries: 5,
           }
         );
-        console.log('Transaction submitted:', userSignature);
+        console.log('User→Backend transaction submitted:', userSignature);
         
-        // Confirm with same commitment level
-        await connection.confirmTransaction(userSignature, 'confirmed');
+        // Confirm the transaction
+        await connection.confirmTransaction({
+          signature: userSignature,
+          blockhash: userTxBlockhash,
+          lastValidBlockHeight: userTxLastValidBlockHeight,
+        }, 'confirmed');
         console.log('User→Backend transfer confirmed (gasless!)');
 
 
