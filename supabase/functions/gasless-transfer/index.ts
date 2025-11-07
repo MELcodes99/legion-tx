@@ -103,7 +103,7 @@ serve(async (req) => {
       );
     }
 
-    // Action: Relay SPL token transfer (user -> backend already signed)
+    // Action: Relay SPL token transfer (user signed, backend pays gas and forwards)
     if (action === 'relay_transfer_token') {
       const { signedTransaction, recipientPublicKey, amountAfterFee, mint, decimals } = body as {
         signedTransaction?: string;
@@ -120,7 +120,7 @@ serve(async (req) => {
         );
       }
 
-      console.log('Processing token relay:', {
+      console.log('Processing gasless token relay:', {
         recipient: recipientPublicKey,
         amountAfterFee,
         mint,
@@ -128,17 +128,26 @@ serve(async (req) => {
       });
 
       try {
-        // Step 1: Deserialize and submit user's transaction (user → backend ATA)
+        // Step 1: Deserialize user's partially-signed transaction
         const binaryString = atob(signedTransaction);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
         const userTransaction = Transaction.from(bytes);
 
-        console.log('Submitting user token transaction to Solana...');
-        const userSignature = await connection.sendRawTransaction(userTransaction.serialize());
-        console.log('User transaction submitted:', userSignature);
+        // Step 2: Backend signs as fee payer (this makes it gasless for user!)
+        console.log('Backend signing as fee payer...');
+        userTransaction.partialSign(backendWallet);
+
+        // Step 3: Submit transaction to Solana (user → backend ATA, backend pays gas)
+        console.log('Submitting gasless transaction to Solana...');
+        const userSignature = await connection.sendRawTransaction(
+          userTransaction.serialize(),
+          { skipPreflight: false, preflightCommitment: 'confirmed' }
+        );
+        console.log('Transaction submitted:', userSignature);
         await connection.confirmTransaction(userSignature, 'confirmed');
-        console.log('User transaction confirmed');
+        console.log('User→Backend transfer confirmed (gasless!)');
+
 
         // Step 2: Send tokens from backend to final recipient (minus fee)
         const recipientPk = new PublicKey(recipientPublicKey);
