@@ -94,8 +94,8 @@ serve(async (req) => {
         backendWallet.publicKey // owner
       );
 
-      // Get fresh blockhash for immediate use (valid for ~60 seconds)
-      const { blockhash } = await connection.getLatestBlockhash('finalized');
+      // Get VERY fresh blockhash using 'confirmed' for speed (valid for ~60 seconds)
+      const { blockhash } = await connection.getLatestBlockhash('confirmed');
 
       return new Response(
         JSON.stringify({
@@ -138,17 +138,29 @@ serve(async (req) => {
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
         const userTransaction = Transaction.from(bytes);
 
+        console.log('Transaction details:', {
+          feePayer: userTransaction.feePayer?.toBase58(),
+          recentBlockhash: userTransaction.recentBlockhash,
+          signatures: userTransaction.signatures.length,
+        });
+
         // Step 2: Backend signs as fee payer (this makes it gasless for user!)
         console.log('Backend signing as fee payer...');
         userTransaction.partialSign(backendWallet);
 
-        // Step 3: Submit transaction to Solana (user → backend ATA, backend pays gas)
-        console.log('Submitting gasless transaction to Solana...');
+        // Step 3: Submit transaction IMMEDIATELY to Solana (user → backend ATA, backend pays gas)
+        console.log('Submitting gasless transaction to Solana (immediate)...');
         const userSignature = await connection.sendRawTransaction(
           userTransaction.serialize(),
-          { skipPreflight: false, preflightCommitment: 'confirmed' }
+          { 
+            skipPreflight: false, 
+            preflightCommitment: 'confirmed',
+            maxRetries: 3,
+          }
         );
         console.log('Transaction submitted:', userSignature);
+        
+        // Confirm with same commitment level
         await connection.confirmTransaction(userSignature, 'confirmed');
         console.log('User→Backend transfer confirmed (gasless!)');
 

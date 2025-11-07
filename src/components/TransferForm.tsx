@@ -286,7 +286,12 @@ export const TransferForm = () => {
       const tokenInfo = TOKENS[selectedToken];
       const mint = new PublicKey(tokenInfo.mint);
 
-      // Step 1: Get backend info, fresh blockhash, and prepare backend ATA in one call
+      toast({
+        title: 'Preparing transaction...',
+        description: 'Getting fresh blockhash from network',
+      });
+
+      // Step 1: Get backend info, fresh blockhash, and prepare backend ATA
       const prepareResp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gasless-transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -297,31 +302,43 @@ export const TransferForm = () => {
 
       const backendPublicKey = new PublicKey(prepareData.backendPublicKey);
       const backendTokenAccount = new PublicKey(prepareData.backendTokenAccount);
-      const recentBlockhash = prepareData.recentBlockhash; // Fresh blockhash from backend
+      const recentBlockhash = prepareData.recentBlockhash;
 
-      // Step 2: Immediately create transaction with fresh blockhash
+      // Step 2: IMMEDIATELY create transaction (time-sensitive!)
       const userTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
       const amountInSmallest = Math.floor(amountNum * Math.pow(10, tokenInfo.decimals));
 
       const tx = new Transaction({ 
-        recentBlockhash: recentBlockhash, // Use fresh blockhash from backend
-        feePayer: backendPublicKey  // Backend pays ALL gas fees!
+        recentBlockhash: recentBlockhash,
+        feePayer: backendPublicKey
       });
       
       tx.add(
         createTransferInstruction(
           userTokenAccount,
           backendTokenAccount,
-          publicKey,  // User is the owner/authority
+          publicKey,
           BigInt(amountInSmallest)
         )
       );
 
-      // Step 4: User signs the transaction (authorizes token transfer, doesn't need SOL!)
+      // Step 3: IMMEDIATELY ask user to sign (minimize delay!)
+      toast({
+        title: 'Approve in wallet',
+        description: 'Sign the transaction to authorize the transfer',
+      });
+
       const signedTx = await signTransaction(tx);
+      
+      // Step 4: IMMEDIATELY send to backend (time-critical!)
       const serializedTx = Buffer.from(signedTx.serialize({ requireAllSignatures: false })).toString('base64');
 
-      // Step 5: Send to backend - backend will sign as fee payer and forward to recipient
+      toast({
+        title: 'Sending transaction...',
+        description: 'Backend is processing your gasless transfer',
+      });
+
+      // Step 5: Backend signs and submits immediately
       const relayResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gasless-transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
