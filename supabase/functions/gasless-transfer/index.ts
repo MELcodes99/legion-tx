@@ -76,7 +76,7 @@ serve(async (req) => {
       );
     }
 
-    // Action: Ensure backend ATA exists for a given mint
+    // Action: Ensure backend ATA exists for a given mint + provide fresh blockhash
     if (action === 'prepare_backend_ata') {
       const { mint } = body as { mint?: string };
       if (!mint) {
@@ -94,10 +94,14 @@ serve(async (req) => {
         backendWallet.publicKey // owner
       );
 
+      // Get fresh blockhash for immediate use (valid for ~60 seconds)
+      const { blockhash } = await connection.getLatestBlockhash('finalized');
+
       return new Response(
         JSON.stringify({
           backendPublicKey: backendWallet.publicKey.toBase58(),
           backendTokenAccount: ata.address.toBase58(),
+          recentBlockhash: blockhash,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

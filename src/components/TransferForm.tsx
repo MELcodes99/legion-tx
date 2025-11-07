@@ -286,7 +286,7 @@ export const TransferForm = () => {
       const tokenInfo = TOKENS[selectedToken];
       const mint = new PublicKey(tokenInfo.mint);
 
-      // Step 1: Get backend info and prepare backend ATA
+      // Step 1: Get backend info, fresh blockhash, and prepare backend ATA in one call
       const prepareResp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gasless-transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -297,16 +297,14 @@ export const TransferForm = () => {
 
       const backendPublicKey = new PublicKey(prepareData.backendPublicKey);
       const backendTokenAccount = new PublicKey(prepareData.backendTokenAccount);
+      const recentBlockhash = prepareData.recentBlockhash; // Fresh blockhash from backend
 
-      // Step 2: Get fresh blockhash
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      
-      // Step 3: Create token transfer transaction with BACKEND as fee payer (gasless for user!)
+      // Step 2: Immediately create transaction with fresh blockhash
       const userTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
       const amountInSmallest = Math.floor(amountNum * Math.pow(10, tokenInfo.decimals));
 
       const tx = new Transaction({ 
-        recentBlockhash: blockhash, 
+        recentBlockhash: recentBlockhash, // Use fresh blockhash from backend
         feePayer: backendPublicKey  // Backend pays ALL gas fees!
       });
       
