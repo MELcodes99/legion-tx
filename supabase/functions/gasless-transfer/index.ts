@@ -159,36 +159,62 @@ serve(async (req) => {
           feePercent: '0.5%'
         });
 
-        // Get or create all necessary ATAs
+        // Get all ATA addresses (don't create yet - will be done in transaction if needed)
         const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
-        const backendAta = await getOrCreateAssociatedTokenAccount(
-          connection,
-          backendWallet,
-          mintPk,
-          backendWallet.publicKey
-        );
-        const recipientAta = await getOrCreateAssociatedTokenAccount(
-          connection,
-          backendWallet,
-          mintPk,
-          recipientPk
-        );
+        const backendAta = await getAssociatedTokenAddress(mintPk, backendWallet.publicKey);
+        const recipientAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+
+        console.log('Token accounts:', {
+          senderAta: senderAta.toBase58(),
+          backendAta: backendAta.toBase58(),
+          recipientAta: recipientAta.toBase58()
+        });
 
         // Get fresh blockhash
         const { blockhash } = await connection.getLatestBlockhash('confirmed');
 
-        // Build ONE atomic transaction with TWO transfer instructions
+        // Build ONE atomic transaction
         const atomicTx = new Transaction({
           recentBlockhash: blockhash,
           feePayer: backendWallet.publicKey, // Backend pays ALL gas fees
         });
+
+        // Check if backend ATA exists, if not add creation instruction
+        const backendAtaInfo = await connection.getAccountInfo(backendAta);
+        if (!backendAtaInfo) {
+          console.log('Backend ATA does not exist, adding creation instruction');
+          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
+          atomicTx.add(
+            createAssociatedTokenAccountInstruction(
+              backendWallet.publicKey, // payer
+              backendAta,
+              backendWallet.publicKey, // owner
+              mintPk
+            )
+          );
+        }
+
+        // Check if recipient ATA exists, if not add creation instruction
+        const recipientAtaInfo = await connection.getAccountInfo(recipientAta);
+        if (!recipientAtaInfo) {
+          console.log('Recipient ATA does not exist, adding creation instruction');
+          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
+          atomicTx.add(
+            createAssociatedTokenAccountInstruction(
+              backendWallet.publicKey, // payer (backend pays for recipient's ATA creation)
+              recipientAta,
+              recipientPk, // owner
+              mintPk
+            )
+          );
+        }
 
         // Instruction 1: Sender → Backend (FULL amount including fee)
         // User authorizes transfer of full $5
         atomicTx.add(
           createTransferInstruction(
             senderAta,
-            backendAta.address,
+            backendAta,
             senderPk,
             fullAmountSmallest
           )
@@ -198,8 +224,8 @@ serve(async (req) => {
         // Backend forwards only $4.975, keeps $0.025 as fee
         atomicTx.add(
           createTransferInstruction(
-            backendAta.address,
-            recipientAta.address,
+            backendAta,
+            recipientAta,
             backendWallet.publicKey,
             receiverAmountSmallest
           )
