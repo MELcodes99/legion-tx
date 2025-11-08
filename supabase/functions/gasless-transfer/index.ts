@@ -139,11 +139,25 @@ serve(async (req) => {
         const recipientPk = new PublicKey(recipientPublicKey);
         const mintPk = new PublicKey(mint);
 
-        // Calculate fee (0.5%)
-        const fee = amount * 0.005;
-        const amountAfterFee = amount - fee;
-        const fullAmountSmallest = BigInt(Math.floor(amount * Math.pow(10, decimals)));
-        const amountAfterFeeSmallest = BigInt(Math.floor(amountAfterFee * Math.pow(10, decimals)));
+        // CRITICAL: Calculate exact fee (0.5%) and amount receiver gets (99.5%)
+        // User sends: $5.00 (100%)
+        // Backend fee: $0.025 (0.5%)
+        // Receiver gets: $4.975 (99.5%)
+        const feePercent = 0.005; // 0.5%
+        const feeAmount = amount * feePercent;
+        const receiverAmount = amount - feeAmount; // This is 99.5% of the original amount
+        
+        // Convert to smallest units (e.g., 6 decimals for USDC/USDT)
+        const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
+        const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
+        const feeSmallest = fullAmountSmallest - receiverAmountSmallest;
+
+        console.log('Fee calculation:', {
+          userSends: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
+          backendKeeps: `${feeAmount} (${feeSmallest.toString()} smallest units)`,
+          receiverGets: `${receiverAmount} (${receiverAmountSmallest.toString()} smallest units)`,
+          feePercent: '0.5%'
+        });
 
         // Get or create all necessary ATAs
         const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
@@ -166,10 +180,11 @@ serve(async (req) => {
         // Build ONE atomic transaction with TWO transfer instructions
         const atomicTx = new Transaction({
           recentBlockhash: blockhash,
-          feePayer: backendWallet.publicKey, // Backend pays ALL gas
+          feePayer: backendWallet.publicKey, // Backend pays ALL gas fees
         });
 
-        // Instruction 1: User → Backend (full amount)
+        // Instruction 1: Sender → Backend (FULL amount including fee)
+        // User authorizes transfer of full $5
         atomicTx.add(
           createTransferInstruction(
             senderAta,
@@ -179,23 +194,21 @@ serve(async (req) => {
           )
         );
 
-        // Instruction 2: Backend → Recipient (amount minus 0.5% fee)
+        // Instruction 2: Backend → Receiver (99.5% only)
+        // Backend forwards only $4.975, keeps $0.025 as fee
         atomicTx.add(
           createTransferInstruction(
             backendAta.address,
             recipientAta.address,
             backendWallet.publicKey,
-            amountAfterFeeSmallest
+            receiverAmountSmallest
           )
         );
 
-        console.log('Atomic transaction built:', {
-          senderAta: senderAta.toBase58(),
-          backendAta: backendAta.address.toBase58(),
-          recipientAta: recipientAta.address.toBase58(),
-          fullAmount: fullAmountSmallest.toString(),
-          amountAfterFee: amountAfterFeeSmallest.toString(),
-          fee: fee,
+        console.log('Atomic transaction instructions:', {
+          instruction1_sender_to_backend: `${fullAmountSmallest.toString()} smallest units`,
+          instruction2_backend_to_receiver: `${receiverAmountSmallest.toString()} smallest units`,
+          backend_keeps_as_fee: `${feeSmallest.toString()} smallest units`
         });
 
         // Serialize transaction to base64
@@ -205,9 +218,9 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             transaction: base64Tx,
-            fee: fee,
-            amountAfterFee: amountAfterFee,
-            message: 'Atomic transaction built successfully',
+            fee: feeAmount,
+            amountAfterFee: receiverAmount,
+            message: `Atomic transaction built: User sends $${amount}, Receiver gets $${receiverAmount}, Backend fee $${feeAmount}`,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
