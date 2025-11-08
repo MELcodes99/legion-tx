@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PublicKey, LAMPORTS_PER_SOL, Transaction } from '@solana/web3.js';
-import { getAccount, getAssociatedTokenAddress, createTransferInstruction } from '@solana/spl-token';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -244,140 +245,96 @@ export const TransferForm = () => {
     }
 
     setError('');
-    
-    // Validate recipient address
-    try {
-      new PublicKey(recipient);
-    } catch {
-      setError('Invalid recipient wallet address');
-      return;
-    }
-
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      setError('Invalid amount');
-      return;
-    }
-
-    // Validate minimum amount
-    if (!validateAmount(amountNum)) {
-      setError(`Minimum transfer amount is $${MIN_TRANSFER_USD} USD`);
-      return;
-    }
-
-    // Check if user has sufficient balance
-    const currentBalance = balances[selectedToken];
-    if (amountNum > currentBalance) {
-      setError(`Insufficient ${selectedToken} balance. You have $${currentBalance.toFixed(2)}`);
-      toast({
-        title: 'Insufficient balance',
-        description: `You need $${amountNum.toFixed(2)} ${selectedToken} but only have $${currentBalance.toFixed(2)}`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setIsLoading(true);
 
     try {
-      const fee = calculateFee(amountNum);
-      const amountAfterFee = amountNum - fee;
+      const tokenConfig = TOKENS[selectedToken];
+      const fullAmount = parseFloat(amount);
 
-      const tokenInfo = TOKENS[selectedToken];
-      const mint = new PublicKey(tokenInfo.mint);
+      console.log('=== ATOMIC GASLESS TRANSFER START ===');
+      console.log('Token:', selectedToken);
+      console.log('Amount:', fullAmount);
 
-      toast({
-        title: 'Preparing transaction...',
-        description: 'Getting fresh blockhash from network',
+      // Step 1: Build atomic transaction on backend
+      toast({ 
+        title: 'Building transaction...', 
+        description: 'Creating gasless atomic transfer'
       });
 
-      // Step 1: Get backend info, fresh blockhash, and prepare backend ATA
-      const prepareResp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gasless-transfer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'prepare_backend_ata', mint: tokenInfo.mint }),
-      });
-      const prepareData = await prepareResp.json();
-      if (!prepareResp.ok) throw new Error(prepareData.error || 'Failed to prepare backend');
-
-      const backendPublicKey = new PublicKey(prepareData.backendPublicKey);
-      const backendTokenAccount = new PublicKey(prepareData.backendTokenAccount);
-      const recentBlockhash = prepareData.recentBlockhash;
-
-      // Step 2: IMMEDIATELY create transaction (time-sensitive!)
-      const userTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
-      const amountInSmallest = Math.floor(amountNum * Math.pow(10, tokenInfo.decimals));
-
-      const tx = new Transaction({ 
-        recentBlockhash: recentBlockhash,
-        feePayer: backendPublicKey
-      });
-      
-      tx.add(
-        createTransferInstruction(
-          userTokenAccount,
-          backendTokenAccount,
-          publicKey,
-          BigInt(amountInSmallest)
-        )
-      );
-
-      // Step 3: IMMEDIATELY ask user to sign (minimize delay!)
-      toast({
-        title: 'Approve in wallet',
-        description: 'Sign the transaction to authorize the transfer',
-      });
-
-      const signedTx = await signTransaction(tx);
-      
-      // Step 4: IMMEDIATELY send to backend (time-critical!)
-      const serializedTx = Buffer.from(signedTx.serialize({ requireAllSignatures: false })).toString('base64');
-
-      toast({
-        title: 'Sending transaction...',
-        description: 'Backend is processing your gasless transfer',
-      });
-
-      // Step 5: Backend signs and submits immediately
-      const relayResponse = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gasless-transfer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'relay_transfer_token',
-          signedTransaction: serializedTx,
+      const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+        body: {
+          action: 'build_atomic_tx',
+          senderPublicKey: publicKey.toBase58(),
           recipientPublicKey: recipient,
-          amountAfterFee: amountAfterFee,
-          mint: tokenInfo.mint,
-          decimals: tokenInfo.decimals,
-        }),
+          amount: fullAmount,
+          mint: tokenConfig.mint,
+          decimals: tokenConfig.decimals,
+        }
       });
 
-      const relayData = await relayResponse.json();
-
-      if (!relayResponse.ok) {
-        throw new Error(relayData.error || 'Transaction failed');
+      if (buildResponse.error) {
+        throw new Error(buildResponse.error.message);
       }
+
+      const { transaction: base64Tx, fee, amountAfterFee } = buildResponse.data;
+      console.log('Atomic transaction built:', { fee, amountAfterFee });
+
+      // Step 2: Deserialize transaction
+      const binaryString = atob(base64Tx);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+      const transaction = Transaction.from(bytes);
+
+      // Step 3: User signs the atomic transaction
+      toast({ 
+        title: 'Sign the transaction', 
+        description: 'Please approve in your wallet',
+        duration: 60000
+      });
+      
+      const signedTx = await signTransaction(transaction);
+      const serialized = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
+      const signedBase64Tx = btoa(String.fromCharCode(...serialized));
+
+      console.log('User signed atomic transaction');
+
+      // Step 4: Submit to backend for final signing and submission
+      toast({ 
+        title: 'Submitting transaction...', 
+        description: 'Backend is processing your gasless transfer'
+      });
+
+      const submitResponse = await supabase.functions.invoke('gasless-transfer', {
+        body: {
+          action: 'submit_atomic_tx',
+          signedTransaction: signedBase64Tx,
+        }
+      });
+
+      if (submitResponse.error) {
+        throw new Error(submitResponse.error.message);
+      }
+
+      const { signature } = submitResponse.data;
+      console.log('=== ATOMIC TRANSFER COMPLETE ===');
+      console.log('Signature:', signature);
+      console.log('View on Solscan:', `https://solscan.io/tx/${signature}`);
 
       toast({
-        title: 'Transfer successful!',
-        description: `Sent $${amountAfterFee.toFixed(2)} ${selectedToken} to ${recipient.slice(0, 4)}...${recipient.slice(-4)}`,
+        title: 'Transfer Successful!',
+        description: `Sent ${amountAfterFee.toFixed(2)} ${selectedToken} (fee: ${fee.toFixed(2)} ${selectedToken})`,
       });
-
-      // Log transaction signatures for user reference
-      console.log('Transaction signatures:', relayData.signatures);
-      
-      if (relayData.signatures?.backendToRecipient) {
-        console.log('View on Solscan:', `https://solscan.io/tx/${relayData.signatures.backendToRecipient}`);
-      }
 
       // Reset form
       setRecipient('');
       setAmount('');
     } catch (err) {
       console.error('Transfer error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Transfer failed';
+      setError(errorMessage);
       toast({
         title: 'Transfer failed',
-        description: err instanceof Error ? err.message : 'An error occurred',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {

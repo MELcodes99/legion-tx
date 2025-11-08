@@ -107,99 +107,52 @@ serve(async (req) => {
       );
     }
 
-    // Action: Relay SPL token transfer (user signed, backend pays gas and forwards)
-    if (action === 'relay_transfer_token') {
-      const { signedTransaction, recipientPublicKey, amountAfterFee, mint, decimals } = body as {
-        signedTransaction?: string;
+    // Action: Build atomic transaction (user→backend + backend→receiver in ONE tx)
+    if (action === 'build_atomic_tx') {
+      const { senderPublicKey, recipientPublicKey, amount, mint, decimals } = body as {
+        senderPublicKey?: string;
         recipientPublicKey?: string;
-        amountAfterFee?: number;
+        amount?: number;
         mint?: string;
         decimals?: number;
       };
 
-      if (!signedTransaction || !recipientPublicKey || !amountAfterFee || !mint || decimals == null) {
+      if (!senderPublicKey || !recipientPublicKey || !amount || !mint || decimals == null) {
         return new Response(
           JSON.stringify({ error: 'Missing required fields' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log('Processing gasless token relay:', {
-        recipient: recipientPublicKey,
-        amountAfterFee,
-        mint,
-        decimals,
-      });
+      // Validate minimum amount ($5)
+      if (amount < 5) {
+        return new Response(
+          JSON.stringify({ error: 'Minimum transfer amount is $5' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('Building atomic transaction:', { senderPublicKey, recipientPublicKey, amount, mint });
 
       try {
-        // Step 1: Get FRESH blockhash immediately (this is critical!)
-        console.log('Getting fresh blockhash for user→backend transfer...');
-        const { blockhash: userTxBlockhash, lastValidBlockHeight: userTxLastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-        
-        // Step 2: Deserialize user's signed transaction to extract signature and transfer instruction
-        const binaryString = atob(signedTransaction);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-        const oldTransaction = Transaction.from(bytes);
-
-        console.log('Extracting user signature and transfer instruction...');
-        const userSig = oldTransaction.signatures.find(sig => !sig.publicKey.equals(backendWallet.publicKey));
-        
-        if (!userSig || !userSig.signature) {
-          throw new Error('Valid user signature not found in transaction');
-        }
-
-        // Extract the transfer instruction from old transaction
-        if (oldTransaction.instructions.length === 0) {
-          throw new Error('No instructions found in transaction');
-        }
-        const transferInstruction = oldTransaction.instructions[0];
-
-        // Step 3: Rebuild transaction with FRESH blockhash and same instruction
-        console.log('Rebuilding transaction with fresh blockhash...');
-        
-        const freshTransaction = new Transaction({
-          recentBlockhash: userTxBlockhash,
-          feePayer: backendWallet.publicKey,
-        });
-        
-        // Add the exact same transfer instruction
-        freshTransaction.add(transferInstruction);
-        
-        // Step 4: Add user's signature to new transaction
-        console.log('Adding user signature to fresh transaction...');
-        freshTransaction.addSignature(userSig.publicKey, userSig.signature);
-        
-        // Step 5: Backend signs as fee payer
-        console.log('Backend signing as fee payer...');
-        freshTransaction.partialSign(backendWallet);
-
-        // Step 6: Submit IMMEDIATELY
-        console.log('Submitting gasless transaction with fresh blockhash...');
-        const userSignature = await connection.sendRawTransaction(
-          freshTransaction.serialize(),
-          { 
-            skipPreflight: false, 
-            preflightCommitment: 'confirmed',
-            maxRetries: 5,
-          }
-        );
-        console.log('User→Backend transaction submitted:', userSignature);
-        
-        // Confirm the transaction
-        await connection.confirmTransaction({
-          signature: userSignature,
-          blockhash: userTxBlockhash,
-          lastValidBlockHeight: userTxLastValidBlockHeight,
-        }, 'confirmed');
-        console.log('User→Backend transfer confirmed (gasless!)');
-
-
-        // Step 2: Send tokens from backend to final recipient (minus fee)
+        const senderPk = new PublicKey(senderPublicKey);
         const recipientPk = new PublicKey(recipientPublicKey);
         const mintPk = new PublicKey(mint);
 
-        // Ensure recipient ATA exists (backend pays)
+        // Calculate fee (0.5%)
+        const fee = amount * 0.005;
+        const amountAfterFee = amount - fee;
+        const fullAmountSmallest = BigInt(Math.floor(amount * Math.pow(10, decimals)));
+        const amountAfterFeeSmallest = BigInt(Math.floor(amountAfterFee * Math.pow(10, decimals)));
+
+        // Get or create all necessary ATAs
+        const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
+        const backendAta = await getOrCreateAssociatedTokenAccount(
+          connection,
+          backendWallet,
+          mintPk,
+          backendWallet.publicKey
+        );
         const recipientAta = await getOrCreateAssociatedTokenAccount(
           connection,
           backendWallet,
@@ -207,58 +160,123 @@ serve(async (req) => {
           recipientPk
         );
 
-        const backendAtaAddress = await getAssociatedTokenAddress(mintPk, backendWallet.publicKey);
-
-        const amountSmallest = BigInt(Math.floor(amountAfterFee * Math.pow(10, decimals)));
-
-        console.log('Transferring tokens from backend to recipient:', {
-          backendAta: backendAtaAddress.toBase58(),
-          recipientAta: recipientAta.address.toBase58(),
-          amountSmallest: amountSmallest.toString(),
-        });
-
-        // Create transaction to transfer from backend to recipient
+        // Get fresh blockhash
         const { blockhash } = await connection.getLatestBlockhash('confirmed');
-        const backendToRecipientTx = new Transaction({
+
+        // Build ONE atomic transaction with TWO transfer instructions
+        const atomicTx = new Transaction({
           recentBlockhash: blockhash,
-          feePayer: backendWallet.publicKey,
+          feePayer: backendWallet.publicKey, // Backend pays ALL gas
         });
 
-        backendToRecipientTx.add(
+        // Instruction 1: User → Backend (full amount)
+        atomicTx.add(
           createTransferInstruction(
-            backendAtaAddress, // source
-            recipientAta.address, // destination
-            backendWallet.publicKey, // owner
-            amountSmallest // amount
+            senderAta,
+            backendAta.address,
+            senderPk,
+            fullAmountSmallest
           )
         );
 
-        // Sign and send the transaction
-        const recipientSignature = await sendAndConfirmTransaction(
-          connection,
-          backendToRecipientTx,
-          [backendWallet],
-          { commitment: 'confirmed' }
+        // Instruction 2: Backend → Recipient (amount minus 0.5% fee)
+        atomicTx.add(
+          createTransferInstruction(
+            backendAta.address,
+            recipientAta.address,
+            backendWallet.publicKey,
+            amountAfterFeeSmallest
+          )
         );
 
-        console.log('Backend token transfer confirmed:', recipientSignature);
+        console.log('Atomic transaction built:', {
+          senderAta: senderAta.toBase58(),
+          backendAta: backendAta.address.toBase58(),
+          recipientAta: recipientAta.address.toBase58(),
+          fullAmount: fullAmountSmallest.toString(),
+          amountAfterFee: amountAfterFeeSmallest.toString(),
+          fee: fee,
+        });
+
+        // Serialize transaction to base64
+        const serialized = atomicTx.serialize({ requireAllSignatures: false, verifySignatures: false });
+        const base64Tx = btoa(String.fromCharCode(...serialized));
+
+        return new Response(
+          JSON.stringify({
+            transaction: base64Tx,
+            fee: fee,
+            amountAfterFee: amountAfterFee,
+            message: 'Atomic transaction built successfully',
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        console.error('Build transaction error:', error);
+        return new Response(
+          JSON.stringify({
+            error: 'Failed to build transaction',
+            details: error instanceof Error ? error.message : 'Unknown error',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Action: Submit atomic transaction (user already signed, backend signs and submits)
+    if (action === 'submit_atomic_tx') {
+      const { signedTransaction } = body as { signedTransaction?: string };
+
+      if (!signedTransaction) {
+        return new Response(
+          JSON.stringify({ error: 'Missing signed transaction' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('Submitting atomic transaction...');
+
+      try {
+        // Deserialize the user-signed transaction
+        const binaryString = atob(signedTransaction);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        const transaction = Transaction.from(bytes);
+
+        // Backend signs as fee payer
+        console.log('Backend signing as fee payer...');
+        transaction.partialSign(backendWallet);
+
+        // Submit the fully-signed atomic transaction
+        console.log('Submitting fully-signed atomic transaction...');
+        const signature = await connection.sendRawTransaction(
+          transaction.serialize(),
+          {
+            skipPreflight: false,
+            preflightCommitment: 'confirmed',
+            maxRetries: 5,
+          }
+        );
+
+        console.log('Atomic transaction submitted:', signature);
+
+        // Confirm transaction
+        await connection.confirmTransaction(signature, 'confirmed');
+        console.log('Atomic transaction confirmed!');
 
         const balanceLamports = await connection.getBalance(backendWallet.publicKey);
 
         return new Response(
           JSON.stringify({
             success: true,
-            signatures: {
-              userToBackend: userSignature,
-              backendToRecipient: recipientSignature,
-            },
+            signature: signature,
             backendWalletBalance: balanceLamports / LAMPORTS_PER_SOL,
-            message: 'Token transfer completed successfully',
+            message: 'Gasless atomic transfer completed successfully',
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       } catch (txError) {
-        console.error('Token transaction error:', txError);
+        console.error('Atomic transaction error:', txError);
         return new Response(
           JSON.stringify({
             error: 'Transaction failed',
