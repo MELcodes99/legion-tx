@@ -80,10 +80,24 @@ export default {
             height: "0",
           },
         },
+        "pulse-glow": {
+          "0%, 100%": {
+            filter: "drop-shadow(0 0 20px hsl(280 100% 60% / 0.6)) drop-shadow(0 0 40px hsl(195 100% 50% / 0.4))",
+          },
+          "50%": {
+            filter: "drop-shadow(0 0 30px hsl(280 100% 60% / 0.8)) drop-shadow(0 0 60px hsl(195 100% 50% / 0.6))",
+          },
+        },
+        "spin-slow": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
+        "spin-slow": "spin-slow 3s linear infinite",
       },
     },
   },

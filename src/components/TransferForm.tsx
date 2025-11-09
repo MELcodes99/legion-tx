@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Send, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmTransferDialog } from './ConfirmTransferDialog';
+import { ProcessingLogo } from './ProcessingLogo';
 import usdtLogo from '@/assets/usdt-logo.png';
 import usdcLogo from '@/assets/usdc-logo.png';
 
@@ -346,12 +347,15 @@ export const TransferForm = () => {
   const amountAfterFee = amount ? (parseFloat(amount) || 0) - fee : 0;
 
   return (
-    <Card className="glass-card w-full max-w-md">
+    <Card className="glass-card w-full max-w-md border-2 border-primary/30">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-          Legion Transfer
-        </CardTitle>
-        <CardDescription className="text-muted-foreground">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+            Legion Transfer
+          </CardTitle>
+          <ProcessingLogo isProcessing={isLoading} className="w-8 h-8 md:w-10 md:h-10" />
+        </div>
+        <CardDescription className="text-muted-foreground text-sm">
           Send tokens without having gas fees
         </CardDescription>
       </CardHeader>
@@ -459,17 +463,17 @@ export const TransferForm = () => {
         <Button
           onClick={initiateTransfer}
           disabled={!publicKey || isLoading || !recipient || !amount}
-          className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity"
+          className="w-full bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 transition-all hover:shadow-lg hover:shadow-primary/50 text-base md:text-lg font-semibold"
           size="lg"
         >
           {isLoading ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               Processing...
             </>
           ) : (
             <>
-              <Send className="mr-2 h-4 w-4" />
+              <Send className="mr-2 h-5 w-5" />
               Send Transfer
             </>
           )}
