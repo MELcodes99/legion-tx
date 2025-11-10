@@ -771,32 +771,12 @@ serve(async (req) => {
             console.log('Built Sui transaction with same token for gas');
           }
 
-          // Set sender
+          // Set sender - USER pays blockchain gas with their own SUI
           tx.setSender(senderPublicKey);
-          
-          // IMPORTANT: Sponsor the transaction with relayer's SUI for blockchain gas
-          // This enables true "gasless" transfers where users don't need SUI tokens
-          const relayerSuiCoins = await suiClient.getCoins({
-            owner: suiRelayerKeypair.toSuiAddress(),
-            coinType: '0x2::sui::SUI',
-          });
-          
-          if (!relayerSuiCoins.data || relayerSuiCoins.data.length === 0) {
-            throw new Error('Relayer has no SUI tokens to sponsor gas fees');
-          }
-          
-          // Use relayer's SUI to pay for blockchain gas
-          const gasPayment = relayerSuiCoins.data.slice(0, 3).map(coin => ({
-            objectId: coin.coinObjectId,
-            version: coin.version,
-            digest: coin.digest,
-          }));
-          
-          tx.setGasOwner(suiRelayerKeypair.toSuiAddress());
-          tx.setGasPayment(gasPayment);
-          tx.setGasBudget(10000000); // 0.01 SUI gas budget
+          // Note: User must have SUI tokens for blockchain gas
+          // The $0.40 "gas fee" is our service fee, separate from blockchain gas
 
-          console.log('Gas sponsorship configured with relayer SUI coins');
+          console.log('Transaction configured (user pays blockchain gas with own SUI)');
 
           // Build transaction bytes
           const txBytes = await tx.build({ client: suiClient });
@@ -1135,24 +1115,13 @@ serve(async (req) => {
             throw new Error(`Token ${mint} not supported on Sui`);
           }
           
-          // Decode the signed transaction from user
-          const binaryString = atob(signedTransaction);
-          const userSignedTxBytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            userSignedTxBytes[i] = binaryString.charCodeAt(i);
-          }
+          // The user has signed the transaction
+          // Now execute it on the blockchain
+          console.log('Executing user-signed Sui transaction...');
           
-          // Deserialize the user-signed transaction
-          const userSignedTx = SuiTransaction.from(userSignedTxBytes);
-          
-          // Add relayer's signature as the gas sponsor
-          // Since we set gasOwner in build, relayer needs to sign as sponsor
-          const relayerSignature = await suiRelayerKeypair.signTransaction(userSignedTxBytes);
-          
-          // Execute the sponsored transaction with both signatures
           const result = await suiClient.executeTransactionBlock({
-            transactionBlock: userSignedTxBytes,
-            signature: [signedTransaction, relayerSignature.signature], // Both user and sponsor signatures
+            transactionBlock: signedTransaction,
+            signature: signedTransaction,
             options: {
               showEffects: true,
               showEvents: true,
