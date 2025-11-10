@@ -1,20 +1,24 @@
-import { WalletButton as SolanaWalletButton } from './WalletButton';
-import { ConnectButton } from '@mysten/dapp-kit';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { ConnectButton, useConnectWallet, useWallets } from '@mysten/dapp-kit';
 import { useCurrentAccount } from '@mysten/dapp-kit';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Button } from './ui/button';
 import { Wallet } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import solanaLogo from '@/assets/solana-logo.png';
 import suiLogo from '@/assets/sui-logo.png';
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 
 export const UnifiedWalletButton = () => {
   const suiAccount = useCurrentAccount();
-  const { publicKey: solanaPublicKey } = useWallet();
+  const { publicKey: solanaPublicKey, wallets: solanaWallets, select: selectSolanaWallet } = useWallet();
+  const { mutate: connectSuiWallet } = useConnectWallet();
+  const suiWallets = useWallets();
 
   const bothConnected = solanaPublicKey && suiAccount;
   const oneConnected = solanaPublicKey || suiAccount;
 
+  // Show connected state with wallet management
   if (bothConnected) {
     return (
       <DropdownMenu>
@@ -27,9 +31,9 @@ export const UnifiedWalletButton = () => {
             <img src={suiLogo} alt="Sui" className="w-4 h-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="bg-popover border-border p-2 space-y-2 z-50">
-          <div className="space-y-2">
-            <SolanaWalletButton />
+        <DropdownMenuContent className="bg-popover border-border p-2 min-w-[200px] z-50">
+          <div className="space-y-1">
+            <WalletMultiButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !justify-start" />
             <ConnectButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground" />
           </div>
         </DropdownMenuContent>
@@ -49,16 +53,17 @@ export const UnifiedWalletButton = () => {
             {suiAccount && <img src={suiLogo} alt="Sui" className="w-4 h-4" />}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="bg-popover border-border p-2 space-y-2 z-50">
-          <div className="space-y-2">
-            <SolanaWalletButton />
-            <ConnectButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground" />
+        <DropdownMenuContent className="bg-popover border-border p-2 min-w-[200px] z-50">
+          <div className="space-y-1">
+            <WalletMultiButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !justify-start" />
+            <ConnectButton className="!w-full !bg-gradient-to-r !from-primary !via-accent !to-primary hover:!opacity-90 !px-4 !py-2 !rounded-lg !font-medium !transition-all !text-primary-foreground" />
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
     );
   }
 
+  // Show all available wallets directly
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -69,10 +74,49 @@ export const UnifiedWalletButton = () => {
           Connect Wallet
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="bg-popover border-border p-2 space-y-2 z-50">
-        <div className="space-y-2">
-          <SolanaWalletButton />
-          <ConnectButton className="!w-full !bg-gradient-to-r !from-primary !via-accent !to-primary hover:!opacity-90 !px-4 !py-2 !rounded-lg !font-medium !transition-all !text-primary-foreground" />
+      <DropdownMenuContent className="bg-popover border-border p-3 min-w-[240px] z-50">
+        <DropdownMenuLabel className="text-xs text-muted-foreground flex items-center gap-2">
+          <img src={solanaLogo} alt="Solana" className="w-3.5 h-3.5" />
+          Solana Wallets
+        </DropdownMenuLabel>
+        <div className="space-y-1 mt-1 mb-3">
+          {solanaWallets.map((wallet) => (
+            <DropdownMenuItem
+              key={wallet.adapter.name}
+              onClick={() => selectSolanaWallet(wallet.adapter.name)}
+              className="flex items-center gap-2 cursor-pointer hover:bg-secondary/70 px-3 py-2 rounded-md"
+            >
+              <img 
+                src={wallet.adapter.icon} 
+                alt={wallet.adapter.name} 
+                className="w-5 h-5 rounded"
+              />
+              <span className="font-medium">{wallet.adapter.name}</span>
+            </DropdownMenuItem>
+          ))}
+        </div>
+        
+        <DropdownMenuSeparator />
+        
+        <DropdownMenuLabel className="text-xs text-muted-foreground flex items-center gap-2 mt-2">
+          <img src={suiLogo} alt="Sui" className="w-3.5 h-3.5" />
+          Sui Wallets
+        </DropdownMenuLabel>
+        <div className="space-y-1 mt-1">
+          {suiWallets.map((wallet) => (
+            <DropdownMenuItem
+              key={wallet.name}
+              onClick={() => connectSuiWallet({ wallet })}
+              className="flex items-center gap-2 cursor-pointer hover:bg-secondary/70 px-3 py-2 rounded-md"
+            >
+              <img 
+                src={wallet.icon} 
+                alt={wallet.name} 
+                className="w-5 h-5 rounded"
+              />
+              <span className="font-medium">{wallet.name}</span>
+            </DropdownMenuItem>
+          ))}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
