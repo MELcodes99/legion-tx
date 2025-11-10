@@ -422,17 +422,33 @@ serve(async (req) => {
         let validUserToBackend = false;
         let validBackendToRecipient = false;
 
+        console.log('=== TRANSACTION VALIDATION START ===');
+        console.log('Expected values:');
+        console.log('- Full amount (user sends):', fullAmountSmallest.toString());
+        console.log('- Receiver amount (after fee):', receiverAmountSmallest.toString());
+        console.log('- Sender ATA:', senderAta.toBase58());
+        console.log('- Backend ATA:', backendAta.toBase58());
+        console.log('- Recipient ATA:', recipientAta.toBase58());
+        console.log('Total instructions in transaction:', instructions.length);
+
         for (const instruction of instructions) {
           // Check if this is a token transfer instruction
           if (instruction.programId.equals(TOKEN_PROGRAM_ID)) {
+            console.log('Found SPL Token instruction, data length:', instruction.data.length);
+            
             // Parse transfer instruction data (first byte is instruction type)
             if (instruction.data[0] === 3) { // Transfer instruction
               transferInstructionCount++;
+              console.log(`\nTransfer instruction #${transferInstructionCount}:`);
               
               // Validate source and destination accounts
               const source = instruction.keys[0].pubkey;
               const destination = instruction.keys[1].pubkey;
               const authority = instruction.keys[2].pubkey;
+              
+              console.log('- Source:', source.toBase58());
+              console.log('- Destination:', destination.toBase58());
+              console.log('- Authority:', authority.toBase58());
               
               // Extract amount from instruction data (8 bytes after instruction type)
               // CRITICAL FIX: Must create new ArrayBuffer for DataView to read correct bytes
@@ -441,23 +457,41 @@ serve(async (req) => {
               const uint8View = new Uint8Array(buffer);
               uint8View.set(amountBytes);
               const instructionAmount = new DataView(buffer).getBigUint64(0, true);
+              
+              console.log('- Amount:', instructionAmount.toString());
 
               // Check user → backend transfer
               if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
+                console.log('✓ This is user → backend transfer');
+                console.log('  Expected amount:', fullAmountSmallest.toString());
+                console.log('  Actual amount:', instructionAmount.toString());
+                console.log('  Match:', instructionAmount === fullAmountSmallest);
                 if (instructionAmount === fullAmountSmallest) {
                   validUserToBackend = true;
+                  console.log('✓ User → backend validation PASSED');
                 }
               }
 
               // Check backend → recipient transfer
               if (source.equals(backendAta) && destination.equals(recipientAta) && authority.equals(backendWallet.publicKey)) {
+                console.log('✓ This is backend → recipient transfer');
+                console.log('  Expected amount:', receiverAmountSmallest.toString());
+                console.log('  Actual amount:', instructionAmount.toString());
+                console.log('  Match:', instructionAmount === receiverAmountSmallest);
                 if (instructionAmount === receiverAmountSmallest) {
                   validBackendToRecipient = true;
+                  console.log('✓ Backend → recipient validation PASSED');
                 }
               }
             }
           }
         }
+
+        console.log('\n=== VALIDATION SUMMARY ===');
+        console.log('Transfer instructions found:', transferInstructionCount);
+        console.log('Valid user → backend:', validUserToBackend);
+        console.log('Valid backend → recipient:', validBackendToRecipient);
+        console.log('=== TRANSACTION VALIDATION END ===\n');
 
         // SECURITY: Ensure exactly 2 transfer instructions with correct amounts
         if (transferInstructionCount !== 2) {
