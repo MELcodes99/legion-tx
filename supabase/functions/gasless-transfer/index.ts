@@ -64,7 +64,7 @@ const ALLOWED_TOKENS: Record<string, { name: string; decimals: number }> = {
 
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
-const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 transfers per hour per wallet
+const MAX_REQUESTS_PER_WINDOW = 1000; // Max 1000 transfers per hour per wallet
 
 // Price cache to avoid hitting CoinGecko API too frequently
 const priceCache: Record<string, { price: number; timestamp: number }> = {};
