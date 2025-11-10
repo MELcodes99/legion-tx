@@ -384,16 +384,24 @@ serve(async (req) => {
         // Determine the token being used for fee payment
         const feeTokenMint = gasToken || mint; // Use gas token if specified, otherwise use transfer token
         
-        // Get token symbol for price lookup
+        // Get token symbol for price lookup using ALLOWED_TOKENS mapping
         let feeTokenSymbol: string;
-        if (feeTokenMint.includes('usdc') || feeTokenMint.includes('USDC')) {
-          feeTokenSymbol = 'usd-coin'; // CoinGecko ID for USDC
-        } else if (feeTokenMint.includes('usdt') || feeTokenMint.includes('USDT')) {
-          feeTokenSymbol = 'tether'; // CoinGecko ID for USDT
+        const feeTokenInfo = ALLOWED_TOKENS[feeTokenMint as keyof typeof ALLOWED_TOKENS];
+        if (feeTokenInfo) {
+          // Map token name to CoinGecko ID
+          if (feeTokenInfo.name === 'USDC') {
+            feeTokenSymbol = 'usd-coin';
+          } else if (feeTokenInfo.name === 'USDT') {
+            feeTokenSymbol = 'tether';
+          } else if (chain === 'solana') {
+            feeTokenSymbol = 'solana';
+          } else {
+            feeTokenSymbol = 'sui';
+          }
         } else if (chain === 'solana') {
-          feeTokenSymbol = 'solana'; // SOL
+          feeTokenSymbol = 'solana';
         } else {
-          feeTokenSymbol = 'sui'; // SUI
+          feeTokenSymbol = 'sui';
         }
         
         // Fetch token price and calculate fee in token amount
@@ -675,14 +683,20 @@ serve(async (req) => {
           // Determine the token being used for fee payment
           const feeTokenMint = gasToken || mint;
           
-          // Get token symbol for price lookup
+          // Get token symbol for price lookup using ALLOWED_TOKENS mapping
           let feeTokenSymbol: string;
-          if (feeTokenMint.includes('usdc') || feeTokenMint.includes('USDC')) {
-            feeTokenSymbol = 'usd-coin'; // CoinGecko ID for USDC
-          } else if (feeTokenMint.includes('usdt') || feeTokenMint.includes('USDT')) {
-            feeTokenSymbol = 'tether'; // CoinGecko ID for USDT
+          const feeTokenInfo = ALLOWED_TOKENS[feeTokenMint as keyof typeof ALLOWED_TOKENS];
+          if (feeTokenInfo) {
+            // Map token name to CoinGecko ID
+            if (feeTokenInfo.name === 'USDC') {
+              feeTokenSymbol = 'usd-coin';
+            } else if (feeTokenInfo.name === 'USDT') {
+              feeTokenSymbol = 'tether';
+            } else {
+              feeTokenSymbol = 'sui';
+            }
           } else {
-            feeTokenSymbol = 'sui'; // SUI
+            feeTokenSymbol = 'sui';
           }
           
           // Fetch token price and calculate fee in token amount
@@ -947,11 +961,28 @@ serve(async (req) => {
         const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
         const feeAmountUSD = chainConfig.gasFee; // Fixed USD fee
         
-        // Determine which token is used for fee payment
-        const feeTokenSymbol = gasToken && gasToken !== mint ? 
-          (gasToken.includes('usdc') ? 'usd-coin' : gasToken.includes('usdt') ? 'tether' : 'solana') :
-          (mint.includes('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') || mint.includes('usdc') ? 'usd-coin' : 
-           mint.includes('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') || mint.includes('usdt') ? 'tether' : 'solana');
+        // Determine which token is used for fee payment (match build_atomic_tx logic)
+        const feeTokenMint = gasToken || mint;
+        let feeTokenSymbol: string;
+        
+        // Use token name from ALLOWED_TOKENS to determine CoinGecko ID
+        const feeTokenInfo = ALLOWED_TOKENS[feeTokenMint as keyof typeof ALLOWED_TOKENS];
+        if (feeTokenInfo) {
+          // Map token name to CoinGecko ID
+          if (feeTokenInfo.name === 'USDC') {
+            feeTokenSymbol = 'usd-coin';
+          } else if (feeTokenInfo.name === 'USDT') {
+            feeTokenSymbol = 'tether';
+          } else if (chain === 'solana') {
+            feeTokenSymbol = 'solana';
+          } else {
+            feeTokenSymbol = 'sui';
+          }
+        } else if (chain === 'solana') {
+          feeTokenSymbol = 'solana';
+        } else {
+          feeTokenSymbol = 'sui';
+        }
         
         // Convert USD fee to token amount using current price
         const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
