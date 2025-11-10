@@ -48,6 +48,32 @@ export const MultiChainTransferForm = () => {
   const selectedTokenConfig = getTokenConfig(selectedToken);
   const gasFee = selectedTokenConfig?.gasFee || 0.50;
 
+  // Get available tokens based on connected wallets
+  const getAvailableTokens = (): [string, typeof TOKENS[TokenKey]][] => {
+    const hasSolana = !!solanaPublicKey;
+    const hasSui = !!suiAccount;
+    
+    return Object.entries(TOKENS).filter(([_, config]) => {
+      if (config.chain === 'solana') return hasSolana;
+      if (config.chain === 'sui') return hasSui;
+      return false;
+    });
+  };
+
+  const availableTokens = getAvailableTokens();
+
+  // Auto-select first available token when wallets connect/disconnect
+  useEffect(() => {
+    if (availableTokens.length > 0) {
+      const currentTokenAvailable = availableTokens.some(([key]) => key === selectedToken);
+      if (!currentTokenAvailable) {
+        const firstToken = availableTokens[0][0] as TokenKey;
+        setSelectedToken(firstToken);
+        setSelectedGasToken(firstToken);
+      }
+    }
+  }, [solanaPublicKey, suiAccount]);
+
   // Fetch balances for all chains
   useEffect(() => {
     const fetchBalances = async () => {
@@ -438,7 +464,7 @@ export const MultiChainTransferForm = () => {
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              Connect your Solana or Sui wallet to start transferring tokens
+              Connect a wallet to see available tokens and start transferring
             </AlertDescription>
           </Alert>
         )}
@@ -515,12 +541,13 @@ export const MultiChainTransferForm = () => {
               // Auto-select same token for gas payment
               setSelectedGasToken(value);
             }}
+            disabled={availableTokens.length === 0}
           >
             <SelectTrigger id="token" className="bg-secondary/50 border-border/50">
-              <SelectValue />
+              <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select token"} />
             </SelectTrigger>
             <SelectContent className="bg-popover border-border">
-              {Object.entries(TOKENS).map(([key, config]) => (
+              {availableTokens.map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   <div className="flex items-center gap-2">
                     <div className="relative">
@@ -537,12 +564,16 @@ export const MultiChainTransferForm = () => {
 
         <div className="space-y-2">
           <Label htmlFor="gasToken">Pay Gas With</Label>
-          <Select value={selectedGasToken} onValueChange={(value: TokenKey) => setSelectedGasToken(value)}>
+          <Select 
+            value={selectedGasToken} 
+            onValueChange={(value: TokenKey) => setSelectedGasToken(value)}
+            disabled={availableTokens.length === 0}
+          >
             <SelectTrigger id="gasToken" className="bg-secondary/50 border-border/50">
-              <SelectValue />
+              <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select gas token"} />
             </SelectTrigger>
             <SelectContent className="bg-popover border-border">
-              {Object.entries(TOKENS).map(([key, config]) => (
+              {availableTokens.map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   <div className="flex items-center gap-2">
                     <div className="relative">
