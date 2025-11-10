@@ -1,6 +1,7 @@
-import { WalletProvider } from '@/components/WalletProvider';
-import { WalletButton } from '@/components/WalletButton';
+import { MultiWalletProvider } from '@/components/MultiWalletProvider';
+import { MultiChainWalletButton } from '@/components/MultiChainWalletButton';
 import { MultiChainTransferForm } from '@/components/MultiChainTransferForm';
+import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { FAQ } from '@/components/FAQ';
 import { Footer } from '@/components/Footer';
 import legionLogo from '@/assets/legion-logo.png';
@@ -8,7 +9,7 @@ import xLogo from '@/assets/x-logo.png';
 
 const Index = () => {
   return (
-    <WalletProvider>
+    <MultiWalletProvider>
       <div className="min-h-screen bg-background relative overflow-hidden">
         {/* Neon gradient background effects */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,hsl(280_100%_60%/0.2)_0%,transparent_50%)] pointer-events-none" />
@@ -43,7 +44,7 @@ const Index = () => {
                     className="w-8 h-8 md:w-9 md:h-9"
                   />
                 </a>
-                <WalletButton />
+                <MultiChainWalletButton />
               </div>
             </nav>
           </header>
@@ -52,12 +53,17 @@ const Index = () => {
           <main className="container mx-auto px-4 py-8 md:py-12">
             <div className="max-w-4xl mx-auto text-center mb-8 md:mb-12">
               <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-3 md:mb-4 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent animate-pulse-glow">
-                Send Tokens Without Gas Fees
+                Multi-Chain Gasless Transfers
               </h2>
               <p className="text-base md:text-lg text-muted-foreground max-w-2xl mx-auto px-4">
-                Send tokens without having gas fees.
-                Simple, fast, and secure blockchain transfers.
+                Send USDT & USDC across Solana and Sui without gas fees.
+                Simple, fast, and secure multi-chain transfers.
               </p>
+            </div>
+
+            {/* Status Banner */}
+            <div className="max-w-4xl mx-auto mb-8 px-4">
+              <DemoModeBanner />
             </div>
 
 
@@ -102,7 +108,7 @@ const Index = () => {
           <Footer />
         </div>
       </div>
-    </WalletProvider>
+    </MultiWalletProvider>
   );
 };
 

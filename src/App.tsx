@@ -1,3 +1,5 @@
+import '@solana/wallet-adapter-react-ui/styles.css';
+import '@mysten/dapp-kit/dist/index.css';
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";

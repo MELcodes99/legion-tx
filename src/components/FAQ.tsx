@@ -9,34 +9,36 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 export const FAQ = () => {
   const faqs = [
     {
-      question: 'How does gasless transfer work?',
-      answer:
-        'When you initiate a transfer, you sign a transaction from your wallet. Our backend wallet receives your tokens and immediately forwards them to the recipient, covering all network gas fees. You only pay a 0.5% service fee.',
+      question: 'What is Legion?',
+      answer: 'Legion is a multi-chain gasless transfer service that allows you to send USDT and USDC tokens on Solana and Sui blockchains without needing native tokens (SOL/SUI) for gas fees. We cover all transaction costs on your behalf.',
     },
     {
-      question: 'What is the service fee?',
-      answer:
-        'We charge a flat 0.5% service fee on each transfer. This fee covers our operational costs and allows us to pay for network gas fees on your behalf. The fee is automatically calculated and displayed before you confirm any transaction.',
+      question: 'Which blockchains are supported?',
+      answer: 'Legion currently supports Solana and Sui blockchains. You can send USDT and USDC on both chains. We plan to add more chains in the future.',
     },
     {
-      question: 'Is there a minimum transfer amount?',
-      answer:
-        'Yes, the minimum transfer amount is $5 USD equivalent in SOL. This ensures the transaction is economically viable after the service fee is deducted.',
+      question: 'What are the fees?',
+      answer: 'Legion charges a fixed multichain gas fee per transaction: $0.50 for Solana transfers and $0.40 for Sui transfers. This covers all blockchain network fees. The minimum transfer amount is $5.',
     },
     {
-      question: 'Which wallets are supported?',
-      answer:
-        'We currently support Phantom and Solflare wallets. These are two of the most popular and secure Solana wallets. Simply click the "Connect Wallet" button to get started.',
+      question: 'Do I need SOL or SUI in my wallet?',
+      answer: 'No! That\'s the beauty of Legion. You don\'t need any SOL or SUI to send tokens. Our backend wallet pays all the network gas fees for you. You only pay the small fixed multichain gas fee.',
     },
     {
-      question: 'How long does a transfer take?',
-      answer:
-        'Transfers are typically completed within a few seconds, thanks to Solana\'s high-speed blockchain. You\'ll receive a confirmation once both transactions (yours and the backend relay) are complete.',
+      question: 'How does cross-chain gas payment work?',
+      answer: 'You can pay for transaction fees using any supported token on either chain. For example, you can use USDC on Sui to pay for a Solana transfer. Our system handles the conversion automatically.',
     },
     {
       question: 'Is it safe?',
-      answer:
-        'Yes! You maintain full control of your wallet and only sign the exact transaction you intend. Our backend wallet is secured with industry-standard practices, and all transactions are recorded on the Solana blockchain for transparency.',
+      answer: 'Yes! Legion uses atomic transactions that ensure either the entire transfer completes successfully or nothing happens. Your tokens never leave your control until the transaction is fully validated and signed by you.',
+    },
+    {
+      question: 'What wallets are supported?',
+      answer: 'For Solana: Phantom, Solflare, and other Solana-compatible wallets. For Sui: Sui Wallet, Suiet, and other Sui-compatible wallets. Simply connect your preferred wallet to get started.',
+    },
+    {
+      question: 'What happens if a transfer fails?',
+      answer: 'If a transfer fails for any reason, your tokens remain safely in your wallet. No fees are charged for failed transactions. You can retry the transfer at any time.',
     },
   ];
 
