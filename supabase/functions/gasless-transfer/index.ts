@@ -259,13 +259,14 @@ serve(async (req) => {
 
     // Action: Build atomic transaction (user→backend + backend→receiver in ONE tx)
     if (action === 'build_atomic_tx') {
-      const { senderPublicKey, recipientPublicKey, amount, mint, decimals, chain = 'solana' } = body as { 
+      const { senderPublicKey, recipientPublicKey, amount, mint, decimals, chain = 'solana', gasToken } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
         amount?: number;
         mint?: string;
         decimals?: number;
         chain?: 'solana' | 'sui';
+        gasToken?: string;
       };
 
       if (!senderPublicKey || !recipientPublicKey || !amount || !mint || decimals == null) {
@@ -365,25 +366,65 @@ serve(async (req) => {
         // CRITICAL: Use FIXED FEE model (not percentage)
         // Solana: $0.50 fixed fee
         // Sui: $0.40 fixed fee
-        // Example: User sends $5.00
-        // - Backend fee: $0.50 (Solana) or $0.40 (Sui)
-        // - Receiver gets: $4.50 (Solana) or $4.60 (Sui)
         const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
         const feeAmount = chainConfig.gasFee; // Fixed fee in USD
-        const receiverAmount = amount - feeAmount;
         
-        // Convert to smallest units (e.g., 6 decimals for USDC/USDT)
+        // Helper function to get token config
+        function getTokenConfig(tokenKey: string) {
+          const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
+            'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
+            'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
+            'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
+            'USDC_SUI': { mint: '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN', symbol: 'USDC', decimals: 6 },
+            'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6 },
+            'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+          };
+          return tokens[tokenKey];
+        }
+        
+        // Determine if gas token is different from sending token
+        const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
+        
+        // Convert amounts to smallest units
         const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
-        const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
-        const feeSmallest = fullAmountSmallest - receiverAmountSmallest;
-
-        console.log('Fee calculation:', {
-          chain,
-          userSends: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
-          backendKeeps: `${feeAmount} (${feeSmallest.toString()} smallest units)`,
-          receiverGets: `${receiverAmount} (${receiverAmountSmallest.toString()} smallest units)`,
-          fixedFee: `$${feeAmount}`
-        });
+        
+        let receiverAmountSmallest: bigint;
+        let feeSmallest: bigint;
+        let gasTokenFeeSmallest: bigint | null = null;
+        let gasTokenMintPk: PublicKey | null = null;
+        let gasTokenDecimals: number | null = null;
+        
+        if (usesSeparateGasToken && gasTokenConfig) {
+          // Gas is paid with different token - send FULL amount to receiver
+          receiverAmountSmallest = fullAmountSmallest;
+          feeSmallest = BigInt(0);
+          
+          // Calculate gas fee in gas token
+          gasTokenDecimals = gasTokenConfig.decimals;
+          gasTokenMintPk = new PublicKey(gasTokenConfig.mint);
+          gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+          
+          console.log('Using separate gas token:', {
+            sendingToken: mint,
+            gasToken: gasTokenConfig.mint,
+            fullAmountToReceiver: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
+            gasFeeInGasToken: `${feeAmount} (${gasTokenFeeSmallest.toString()} smallest units of ${gasTokenConfig.symbol})`,
+          });
+        } else {
+          // Gas is paid from same token - deduct from sending amount
+          const receiverAmount = amount - feeAmount;
+          receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
+          feeSmallest = fullAmountSmallest - receiverAmountSmallest;
+          
+          console.log('Using same token for gas:', {
+            chain,
+            userSends: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
+            backendKeeps: `${feeAmount} (${feeSmallest.toString()} smallest units)`,
+            receiverGets: `${amount - feeAmount} (${receiverAmountSmallest.toString()} smallest units)`,
+            fixedFee: `$${feeAmount}`
+          });
+        }
 
         // Get all ATA addresses (don't create yet - will be done in transaction if needed)
         const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
@@ -441,33 +482,81 @@ serve(async (req) => {
           );
         }
 
-        // Instruction 1: Sender → Backend (FULL amount including fee)
-        // User authorizes transfer of full $5
-        atomicTx.add(
-          createTransferInstruction(
-            senderAta,
-            backendAta,
-            senderPk,
-            fullAmountSmallest
-          )
-        );
+        if (usesSeparateGasToken && gasTokenMintPk && gasTokenFeeSmallest) {
+          // MODE 1: Separate gas token - send FULL amount directly to receiver + gas fee to backend
+          
+          // Get gas token ATAs
+          const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
+          const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+          
+          // Check if backend gas ATA exists
+          const backendGasAtaInfo = await connection.getAccountInfo(backendGasAta);
+          if (!backendGasAtaInfo) {
+            console.log('Backend gas token ATA does not exist, adding creation instruction');
+            const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
+            atomicTx.add(
+              createAssociatedTokenAccountInstruction(
+                backendWallet.publicKey,
+                backendGasAta,
+                backendWallet.publicKey,
+                gasTokenMintPk
+              )
+            );
+          }
+          
+          // Instruction 1: Sender → Receiver (FULL sending amount)
+          atomicTx.add(
+            createTransferInstruction(
+              senderAta,
+              recipientAta,
+              senderPk,
+              receiverAmountSmallest
+            )
+          );
+          
+          // Instruction 2: Sender → Backend (Gas fee in gas token)
+          atomicTx.add(
+            createTransferInstruction(
+              senderGasAta,
+              backendGasAta,
+              senderPk,
+              gasTokenFeeSmallest
+            )
+          );
+          
+          console.log('Separate gas token transaction:', {
+            instruction1_sender_to_receiver: `${receiverAmountSmallest.toString()} smallest units (FULL amount)`,
+            instruction2_sender_to_backend_gas: `${gasTokenFeeSmallest.toString()} smallest units of gas token`,
+          });
+        } else {
+          // MODE 2: Same token for gas - traditional flow (sender → backend → receiver)
+          
+          // Instruction 1: Sender → Backend (FULL amount including fee)
+          atomicTx.add(
+            createTransferInstruction(
+              senderAta,
+              backendAta,
+              senderPk,
+              fullAmountSmallest
+            )
+          );
 
-        // Instruction 2: Backend → Receiver (99.5% only)
-        // Backend forwards only $4.975, keeps $0.025 as fee
-        atomicTx.add(
-          createTransferInstruction(
-            backendAta,
-            recipientAta,
-            backendWallet.publicKey,
-            receiverAmountSmallest
-          )
-        );
+          // Instruction 2: Backend → Receiver (amount minus fee)
+          atomicTx.add(
+            createTransferInstruction(
+              backendAta,
+              recipientAta,
+              backendWallet.publicKey,
+              receiverAmountSmallest
+            )
+          );
 
-        console.log('Atomic transaction instructions:', {
-          instruction1_sender_to_backend: `${fullAmountSmallest.toString()} smallest units`,
-          instruction2_backend_to_receiver: `${receiverAmountSmallest.toString()} smallest units`,
-          backend_keeps_as_fee: `${feeSmallest.toString()} smallest units`
-        });
+          console.log('Same token transaction:', {
+            instruction1_sender_to_backend: `${fullAmountSmallest.toString()} smallest units`,
+            instruction2_backend_to_receiver: `${receiverAmountSmallest.toString()} smallest units`,
+            backend_keeps_as_fee: `${feeSmallest.toString()} smallest units`
+          });
+        }
 
         // IMPORTANT: Set explicit signer order for Phantom Lighthouse compatibility
         // Phantom requires: user wallet signs first, then additional signers use partialSign
@@ -480,12 +569,16 @@ serve(async (req) => {
         const serialized = atomicTx.serialize({ requireAllSignatures: false, verifySignatures: false });
         const base64Tx = btoa(String.fromCharCode(...serialized));
 
+        const actualReceiverAmount = usesSeparateGasToken ? amount : amount - feeAmount;
+        
         return new Response(
           JSON.stringify({
             transaction: base64Tx,
             fee: feeAmount,
-            amountAfterFee: receiverAmount,
-            message: `Atomic transaction built: User sends $${amount}, Receiver gets $${receiverAmount}, Backend fee $${feeAmount}`,
+            amountAfterFee: actualReceiverAmount,
+            message: usesSeparateGasToken 
+              ? `Transaction built: User sends full $${amount}, gas fee $${feeAmount} paid separately`
+              : `Transaction built: User sends $${amount}, Receiver gets $${actualReceiverAmount}, Backend fee $${feeAmount}`,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -511,6 +604,8 @@ serve(async (req) => {
         try {
           const chainConfig = CHAIN_CONFIG.sui;
           const feeAmount = chainConfig.gasFee;
+          
+          // For now, Sui always uses same token for gas (cross-chain gas not yet implemented)
           const receiverAmount = amount - feeAmount;
           
           const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));

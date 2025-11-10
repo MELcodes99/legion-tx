@@ -364,9 +364,14 @@ export const MultiChainTransferForm = () => {
         }
 
         const { signature } = submitResponse.data;
+        const gasTokenConfig = getTokenConfig(selectedGasToken);
+        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint
+          ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}`
+          : `Fee: $${fee.toFixed(2)}`;
+        
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}`,
+          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}. ${feeMessage}`,
         });
 
         setRecipient('');
@@ -431,9 +436,14 @@ export const MultiChainTransferForm = () => {
         }
 
         const { digest } = submitResponse.data;
+        const gasTokenConfig = getTokenConfig(selectedGasToken);
+        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint
+          ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}`
+          : `Fee: $${fee.toFixed(2)}`;
+        
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}`,
+          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}. ${feeMessage}`,
         });
 
         setRecipient('');
