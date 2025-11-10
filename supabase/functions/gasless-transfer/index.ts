@@ -945,7 +945,17 @@ serve(async (req) => {
         
         // Calculate expected values using FIXED FEE model
         const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
-        const feeAmount = chainConfig.gasFee; // Fixed fee
+        const feeAmountUSD = chainConfig.gasFee; // Fixed USD fee
+        
+        // Determine which token is used for fee payment
+        const feeTokenSymbol = gasToken && gasToken !== mint ? 
+          (gasToken.includes('usdc') ? 'usd-coin' : gasToken.includes('usdt') ? 'tether' : 'solana') :
+          (mint.includes('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') || mint.includes('usdc') ? 'usd-coin' : 
+           mint.includes('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') || mint.includes('usdt') ? 'tether' : 'solana');
+        
+        // Convert USD fee to token amount using current price
+        const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+        const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
         
         // Helper function to get token config (same as in build_atomic_tx)
         function getTokenConfig(tokenKey: string) {
