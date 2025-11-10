@@ -1020,9 +1020,10 @@ serve(async (req) => {
           gasTokenMintPk = new PublicKey(gasTokenConfig.mint);
           gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenConfig.decimals)));
         } else {
-          // Same token: receiver gets amount minus fee
-          const receiverAmount = amount - feeAmount;
-          receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, tokenInfo.decimals)));
+          // Same token: receiver gets FULL amount, fee collected separately
+          receiverAmountSmallest = fullAmountSmallest;
+          gasTokenMintPk = mintPk;
+          gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, tokenInfo.decimals)));
         }
 
         // Get expected ATAs for sending token
@@ -1030,9 +1031,9 @@ serve(async (req) => {
         const backendAta = await getAssociatedTokenAddress(mintPk, backendWallet.publicKey);
         const recipientAta = await getAssociatedTokenAddress(mintPk, recipientPk);
         
-        // Get gas token ATAs if using separate gas token
-        let senderGasAta: PublicKey | null = null;
-        let backendGasAta: PublicKey | null = null;
+        // Get gas token ATAs (needed for validation even when same token)
+        let senderGasAta: PublicKey = senderAta;
+        let backendGasAta: PublicKey = backendAta;
         if (usesSeparateGasToken && gasTokenMintPk) {
           senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
           backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
@@ -1049,14 +1050,12 @@ serve(async (req) => {
         console.log('Expected values:');
         console.log('- Full amount (user sends):', fullAmountSmallest.toString());
         console.log('- Receiver amount:', receiverAmountSmallest.toString());
+        console.log('- Gas fee amount:', gasTokenFeeSmallest?.toString());
         console.log('- Sender ATA:', senderAta.toBase58());
         console.log('- Backend ATA:', backendAta.toBase58());
         console.log('- Recipient ATA:', recipientAta.toBase58());
-        if (usesSeparateGasToken && senderGasAta && backendGasAta) {
-          console.log('- Sender Gas ATA:', senderGasAta.toBase58());
-          console.log('- Backend Gas ATA:', backendGasAta.toBase58());
-          console.log('- Gas fee amount:', gasTokenFeeSmallest?.toString());
-        }
+        console.log('- Sender Gas ATA:', senderGasAta.toBase58());
+        console.log('- Backend Gas ATA:', backendGasAta.toBase58());
         console.log('Total instructions in transaction:', instructions.length);
 
         for (const instruction of instructions) {
@@ -1087,49 +1086,26 @@ serve(async (req) => {
               
               console.log('- Amount:', instructionAmount.toString());
 
-              if (usesSeparateGasToken) {
-                // MODE 1: Separate gas token validation
-                // Transfer 1: sender → recipient (full amount in sending token)
-                // Transfer 2: sender → backend (gas fee in gas token)
-                
-                if (source.equals(senderAta) && destination.equals(recipientAta) && authority.equals(senderPk)) {
-                  console.log('✓ This is sender → recipient transfer (separate gas mode)');
-                  console.log('  Expected amount:', receiverAmountSmallest.toString());
-                  console.log('  Actual amount:', instructionAmount.toString());
-                  if (instructionAmount === receiverAmountSmallest) {
-                    validTransfer1 = true;
-                    console.log('✓ Sender → recipient validation PASSED');
-                  }
-                } else if (senderGasAta && backendGasAta && source.equals(senderGasAta) && destination.equals(backendGasAta) && authority.equals(senderPk)) {
-                  console.log('✓ This is sender → backend gas fee transfer');
-                  console.log('  Expected amount:', gasTokenFeeSmallest?.toString());
-                  console.log('  Actual amount:', instructionAmount.toString());
-                  if (gasTokenFeeSmallest && instructionAmount === gasTokenFeeSmallest) {
-                    validTransfer2 = true;
-                    console.log('✓ Gas fee transfer validation PASSED');
-                  }
+              // UNIFIED VALIDATION: Both modes work the same way now
+              // Transfer 1: sender → recipient (full amount in sending token)
+              // Transfer 2: sender → backend (gas fee in gas token - could be same or different)
+              
+              if (source.equals(senderAta) && destination.equals(recipientAta) && authority.equals(senderPk)) {
+                console.log('✓ This is sender → recipient transfer');
+                console.log('  Expected amount:', receiverAmountSmallest.toString());
+                console.log('  Actual amount:', instructionAmount.toString());
+                if (instructionAmount === receiverAmountSmallest) {
+                  validTransfer1 = true;
+                  console.log('✓ Sender → recipient validation PASSED');
                 }
-              } else {
-                // MODE 2: Same token validation (NEW: fee collected separately)
-                // Transfer 1: sender → recipient (full amount)
-                // Transfer 2: sender → backend (gas fee from same token)
-                
-                if (source.equals(senderAta) && destination.equals(recipientAta) && authority.equals(senderPk)) {
-                  console.log('✓ This is sender → recipient transfer (same token mode)');
-                  console.log('  Expected amount:', receiverAmountSmallest.toString());
-                  console.log('  Actual amount:', instructionAmount.toString());
-                  if (instructionAmount === receiverAmountSmallest) {
-                    validTransfer1 = true;
-                    console.log('✓ Sender → recipient validation PASSED');
-                  }
-                } else if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
-                  console.log('✓ This is sender → backend gas fee transfer (same token mode)');
-                  console.log('  Expected amount:', gasTokenFeeSmallest?.toString());
-                  console.log('  Actual amount:', instructionAmount.toString());
-                  if (gasTokenFeeSmallest && instructionAmount === gasTokenFeeSmallest) {
-                    validTransfer2 = true;
-                    console.log('✓ Gas fee transfer validation PASSED');
-                  }
+              } else if (source.equals(senderGasAta) && destination.equals(backendGasAta) && authority.equals(senderPk)) {
+                console.log('✓ This is sender → backend gas fee transfer');
+                console.log('  Gas token:', usesSeparateGasToken ? 'separate' : 'same as sending token');
+                console.log('  Expected amount:', gasTokenFeeSmallest?.toString());
+                console.log('  Actual amount:', instructionAmount.toString());
+                if (gasTokenFeeSmallest && instructionAmount === gasTokenFeeSmallest) {
+                  validTransfer2 = true;
+                  console.log('✓ Gas fee transfer validation PASSED');
                 }
               }
             }
