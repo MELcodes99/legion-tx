@@ -21,6 +21,7 @@ export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
     return reliableEndpoint;
   }, []);
 
+  // Supported wallets: Phantom and Solflare
   const wallets = useMemo(
     () => [
       new PhantomWalletAdapter(),
