@@ -449,7 +449,8 @@ export const MultiChainTransferForm = () => {
           body: {
             action: 'submit_atomic_tx',
             chain: 'sui',
-            signedTransaction: signedTx.bytes, // Already base64 encoded
+            signedTransaction: signedTx.bytes, // Transaction bytes (base64)
+            userSignature: signedTx.signature, // User's signature (base64)
             senderPublicKey: suiAccount.address,
             recipientPublicKey: recipient,
             amount: fullAmount,
