@@ -260,23 +260,26 @@ export const MultiChainTransferForm = () => {
     // Check gas token wallet and balance
     const gasTokenConfig = getTokenConfig(selectedGasToken);
     if (gasTokenConfig) {
-      // Check wallet connection for gas token
+      // Check wallet connection for gas token's chain
       if (gasTokenConfig.chain === 'solana' && !solanaPublicKey) {
         toast({
-          title: 'Wallet not compatible',
-          description: 'Please connect a Solana wallet to pay gas fees with this token.',
+          title: 'Solana wallet required',
+          description: `Connect a Solana wallet to pay gas with ${gasTokenConfig.symbol}.`,
           variant: 'destructive',
         });
         return;
       }
       if (gasTokenConfig.chain === 'sui' && !suiAccount) {
         toast({
-          title: 'Wallet not compatible',
-          description: 'Please connect a Sui wallet to pay gas fees with this token.',
+          title: 'Sui wallet required',
+          description: `Connect a Sui wallet to pay gas with ${gasTokenConfig.symbol}.`,
           variant: 'destructive',
         });
         return;
       }
+      
+      // Determine fee based on transfer chain (not gas token chain)
+      const transferFee = tokenConfig.gasFee; // $0.50 for Solana transfers, $0.40 for Sui transfers
       
       // Check gas token balance (only if different from sending token)
       if (selectedGasToken !== selectedToken) {
@@ -285,13 +288,13 @@ export const MultiChainTransferForm = () => {
           ? (tokenPrices?.[gasTokenConfig.chain === 'solana' ? 'solana' : 'sui'] || 0)
           : 1; // Stablecoins are $1
         const requiredGasAmount = gasTokenConfig.isNative 
-          ? gasFee / gasTokenPrice 
-          : gasFee;
+          ? transferFee / gasTokenPrice 
+          : transferFee;
         
         if (gasBalance < requiredGasAmount) {
           toast({
-            title: 'Insufficient gas token balance',
-            description: `You need at least ${requiredGasAmount.toFixed(4)} ${gasTokenConfig.symbol} to pay for gas.`,
+            title: 'Insufficient gas balance',
+            description: `You need ${requiredGasAmount.toFixed(4)} ${gasTokenConfig.symbol} to pay $${transferFee.toFixed(2)} gas fee.`,
             variant: 'destructive',
           });
           return;

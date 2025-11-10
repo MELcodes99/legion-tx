@@ -371,28 +371,57 @@ serve(async (req) => {
           const recipientPk = new PublicKey(recipientPublicKey);
           const mintPk = new PublicKey(mint);
 
-        // CRITICAL: Use FIXED FEE model (not percentage)
-        // Solana: $0.50 fixed fee
-        // Sui: $0.40 fixed fee
-        const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
-        const feeAmount = chainConfig.gasFee; // Fixed fee in USD
+        // CRITICAL: Use FIXED FEE model with CROSS-CHAIN support
+        // Solana transfers: $0.50 fee (can be paid with Solana OR Sui tokens)
+        // Sui transfers: $0.40 fee (can be paid with Sui OR Solana tokens)
+        const transferChainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
+        const feeAmount = transferChainConfig.gasFee; // Fee depends on transfer chain
         
-        // Helper function to get token config
+        // Helper function to get token config with chain detection
         function getTokenConfig(tokenKey: string) {
-          const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
-            'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
-            'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
-            'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
-            'USDC_SUI': { mint: '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN', symbol: 'USDC', decimals: 6 },
-            'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6 },
-            'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+          const tokens: Record<string, { mint: string; symbol: string; decimals: number; chain: 'solana' | 'sui' }> = {
+            'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana' },
+            'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana' },
+            'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana' },
+            'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui' },
+            'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6, chain: 'sui' },
+            'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui' },
           };
           return tokens[tokenKey];
         }
         
-        // Determine if gas token is different from sending token
+        // Determine if gas token is on a different chain (true cross-chain gas payment)
         const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        const isGasTokenCrossChain = gasTokenConfig && gasTokenConfig.chain !== chain;
         const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
+        
+        console.log('Gas payment analysis:', {
+          transferChain: chain,
+          transferToken: mint,
+          gasToken: gasToken,
+          gasTokenChain: gasTokenConfig?.chain,
+          isCrossChainGas: isGasTokenCrossChain,
+          usesSeparateToken: usesSeparateGasToken,
+          feeAmount: `$${feeAmount}`,
+        });
+        
+        // For cross-chain gas payment, we need to collect gas fee in a separate transaction
+        // on the gas token's chain BEFORE building the main transfer transaction
+        if (isGasTokenCrossChain && gasTokenConfig) {
+          console.log(`Cross-chain gas payment detected: Collecting $${feeAmount} from ${gasTokenConfig.chain} to pay for ${chain} transfer`);
+          
+          return new Response(
+            JSON.stringify({
+              requiresCrossChainGasCollection: true,
+              gasChain: gasTokenConfig.chain,
+              gasToken: gasTokenConfig.mint,
+              gasTokenSymbol: gasTokenConfig.symbol,
+              gasFeeUSD: feeAmount,
+              message: `To transfer on ${chain}, you need to pay $${feeAmount} gas fee from your ${gasTokenConfig.symbol} on ${gasTokenConfig.chain}. Please confirm both transactions.`,
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
         
         // Convert amounts to smallest units
         const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
@@ -613,22 +642,34 @@ serve(async (req) => {
           const chainConfig = CHAIN_CONFIG.sui;
           const feeAmount = chainConfig.gasFee;
           
-          // Helper function to get token config (same as build_atomic_tx for Solana)
+          // Helper function to get token config with chain info
           function getTokenConfig(tokenKey: string) {
-            const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
-              'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
-              'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
-              'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
-              'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6 },
-              'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6 },
-              'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+            const tokens: Record<string, { mint: string; symbol: string; decimals: number; chain: 'solana' | 'sui' }> = {
+              'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana' },
+              'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana' },
+              'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana' },
+              'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui' },
+              'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6, chain: 'sui' },
+              'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui' },
             };
             return tokens[tokenKey];
           }
           
-          // Determine if gas token is different from sending token
+          // Determine if gas token is on different chain
           const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+          const isGasTokenCrossChain = gasTokenConfig && gasTokenConfig.chain !== chain;
           const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
+          
+          if (isGasTokenCrossChain) {
+            // Cross-chain gas payment requires separate handling
+            return new Response(
+              JSON.stringify({
+                error: 'Cross-chain gas payment requires additional setup',
+                details: `To pay ${chain} transfer gas with ${gasTokenConfig.symbol}, please collect gas fee first`,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
           
           // Convert amounts to smallest units
           const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
@@ -1076,15 +1117,15 @@ serve(async (req) => {
         try {
           console.log('Processing Sui transaction...');
           
-          // Helper function to get token config
+          // Helper function to get token config with chain info
           function getTokenConfig(tokenKey: string) {
-            const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
-              'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
-              'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
-              'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
-              'USDC_SUI': { mint: '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN', symbol: 'USDC', decimals: 6 },
-              'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6 },
-              'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+            const tokens: Record<string, { mint: string; symbol: string; decimals: number; chain: 'solana' | 'sui' }> = {
+              'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana' },
+              'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana' },
+              'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana' },
+              'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui' },
+              'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6, chain: 'sui' },
+              'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui' },
             };
             return tokens[tokenKey];
           }
