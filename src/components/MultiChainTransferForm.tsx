@@ -394,6 +394,8 @@ export const MultiChainTransferForm = () => {
     const symbol = TOKENS[tokenKey].symbol;
     if (symbol === 'USDC') return usdcLogo;
     if (symbol === 'USDT') return usdtLogo;
+    if (symbol === 'SOL') return solanaLogo;
+    if (symbol === 'SUI') return suiLogo;
     return usdcLogo;
   };
 
