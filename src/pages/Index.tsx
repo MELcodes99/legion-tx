@@ -4,6 +4,7 @@ import { TransferForm } from '@/components/TransferForm';
 import { FAQ } from '@/components/FAQ';
 import { Footer } from '@/components/Footer';
 import legionLogo from '@/assets/legion-logo.png';
+import xLogo from '@/assets/x-logo.png';
 
 const Index = () => {
   return (
@@ -30,6 +31,18 @@ const Index = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2 md:gap-3">
+                <a 
+                  href="https://x.com/use_legion" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="hover:opacity-80 transition-opacity"
+                >
+                  <img 
+                    src={xLogo} 
+                    alt="Follow us on X" 
+                    className="w-8 h-8 md:w-9 md:h-9"
+                  />
+                </a>
                 <WalletButton />
               </div>
             </nav>

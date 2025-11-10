@@ -25,7 +25,6 @@ export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
     () => [
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
-      // MetaMask and Jupiter support via wallet adapter auto-detection
     ],
     []
   );
