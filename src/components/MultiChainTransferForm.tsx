@@ -447,19 +447,19 @@ export const MultiChainTransferForm = () => {
   const [balancesOpen, setBalancesOpen] = useState(false);
 
   return (
-    <Card className="glass-card w-full max-w-md border-2 border-primary/30">
-      <CardHeader className="space-y-1">
+    <Card className="glass-card w-full max-w-md border-2 border-primary/30 mx-4 sm:mx-0">
+      <CardHeader className="space-y-1 p-4 sm:p-6">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+          <CardTitle className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
             Legion Transfer
           </CardTitle>
-          <ProcessingLogo isProcessing={isLoading} className="w-8 h-8 md:w-10 md:h-10" />
+          <ProcessingLogo isProcessing={isLoading} className="w-7 h-7 sm:w-8 sm:h-8 md:w-10 md:h-10" />
         </div>
-        <CardDescription className="text-muted-foreground text-sm">
+        <CardDescription className="text-muted-foreground text-xs sm:text-sm">
           Send tokens across multiple chains without gas fees
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 p-4 sm:p-6">
         {!solanaPublicKey && !suiAccount && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
@@ -476,10 +476,10 @@ export const MultiChainTransferForm = () => {
             <CollapsibleTrigger asChild>
               <Button 
                 variant="outline" 
-                className="w-full flex justify-between items-center bg-secondary/30 hover:bg-secondary/50"
+                className="w-full flex justify-between items-center bg-secondary/30 hover:bg-secondary/50 text-xs sm:text-sm"
               >
-                <span className="text-sm font-medium">View Token Balances</span>
-                <ChevronDown className={`h-4 w-4 transition-transform ${balancesOpen ? 'rotate-180' : ''}`} />
+                <span className="font-medium">View Token Balances</span>
+                <ChevronDown className={`h-3.5 w-3.5 sm:h-4 sm:w-4 transition-transform ${balancesOpen ? 'rotate-180' : ''}`} />
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-3">
@@ -533,7 +533,7 @@ export const MultiChainTransferForm = () => {
         )}
 
         <div className="space-y-2">
-          <Label htmlFor="token">Token to Send</Label>
+          <Label htmlFor="token" className="text-sm">Token to Send</Label>
           <Select 
             value={selectedToken} 
             onValueChange={(value: TokenKey) => {
@@ -546,7 +546,7 @@ export const MultiChainTransferForm = () => {
             <SelectTrigger id="token" className="bg-secondary/50 border-border/50">
               <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select token"} />
             </SelectTrigger>
-            <SelectContent className="bg-popover border-border">
+            <SelectContent className="bg-popover border-border z-[100] max-h-[300px]">
               {availableTokens.map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   <div className="flex items-center gap-2">
@@ -563,7 +563,7 @@ export const MultiChainTransferForm = () => {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="gasToken">Pay Gas With</Label>
+          <Label htmlFor="gasToken" className="text-sm">Pay Gas With</Label>
           <Select 
             value={selectedGasToken} 
             onValueChange={(value: TokenKey) => setSelectedGasToken(value)}
@@ -572,7 +572,7 @@ export const MultiChainTransferForm = () => {
             <SelectTrigger id="gasToken" className="bg-secondary/50 border-border/50">
               <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select gas token"} />
             </SelectTrigger>
-            <SelectContent className="bg-popover border-border">
+            <SelectContent className="bg-popover border-border z-[100] max-h-[300px]">
               {availableTokens.map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   <div className="flex items-center gap-2">
@@ -589,19 +589,19 @@ export const MultiChainTransferForm = () => {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="recipient">Recipient Address</Label>
+          <Label htmlFor="recipient" className="text-sm">Recipient Address</Label>
           <Input
             id="recipient"
             placeholder="Enter recipient address"
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
             disabled={(!solanaPublicKey && !suiAccount) || isLoading}
-            className="bg-secondary/50 border-border/50"
+            className="bg-secondary/50 border-border/50 text-sm"
           />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="amount">Amount ($)</Label>
+          <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
           <Input
             id="amount"
             type="number"
@@ -610,7 +610,7 @@ export const MultiChainTransferForm = () => {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             disabled={(!solanaPublicKey && !suiAccount) || isLoading}
-            className="bg-secondary/50 border-border/50"
+            className="bg-secondary/50 border-border/50 text-sm"
           />
         </div>
 
@@ -637,12 +637,12 @@ export const MultiChainTransferForm = () => {
         <Button
           onClick={initiateTransfer}
           disabled={(!solanaPublicKey && !suiAccount) || isLoading || !recipient || !amount}
-          className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90"
+          className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6"
         >
           {isLoading ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Processing...
+              <span className="hidden xs:inline">Processing...</span>
             </>
           ) : (
             <>

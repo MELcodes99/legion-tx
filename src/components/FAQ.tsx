@@ -44,19 +44,19 @@ export const FAQ = () => {
 
   return (
     <Card className="glass-card w-full max-w-3xl mx-auto">
-      <CardHeader>
-        <CardTitle className="text-2xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+      <CardHeader className="p-4 sm:p-6">
+        <CardTitle className="text-xl sm:text-2xl font-bold text-center bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
           Frequently Asked Questions
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 sm:p-6">
         <Accordion type="single" collapsible className="w-full">
           {faqs.map((faq, index) => (
             <AccordionItem key={index} value={`item-${index}`}>
-              <AccordionTrigger className="text-left font-semibold">
+              <AccordionTrigger className="text-left font-semibold text-sm sm:text-base hover:no-underline">
                 {faq.question}
               </AccordionTrigger>
-              <AccordionContent className="text-muted-foreground">
+              <AccordionContent className="text-muted-foreground text-xs sm:text-sm leading-relaxed">
                 {faq.answer}
               </AccordionContent>
             </AccordionItem>

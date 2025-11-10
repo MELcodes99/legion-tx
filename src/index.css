@@ -92,6 +92,26 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Mobile optimizations */
+  @media (max-width: 640px) {
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+  }
+  
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  /* Touch-friendly minimum sizes for interactive elements */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
   }
   
   .glass-card {
