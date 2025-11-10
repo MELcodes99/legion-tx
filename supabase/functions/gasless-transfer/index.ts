@@ -669,32 +669,62 @@ serve(async (req) => {
           // Build Sui transaction with PTB (Programmable Transaction Block)
           const tx = new SuiTransaction();
           
+          // Fetch sender's coin objects for the sending token
+          const senderCoins = await suiClient.getCoins({
+            owner: senderPublicKey,
+            coinType: mint,
+          });
+          
+          if (!senderCoins.data || senderCoins.data.length === 0) {
+            throw new Error(`No ${mint} coins found for sender`);
+          }
+          
+          console.log(`Found ${senderCoins.data.length} coin objects for ${mint}`);
+          
+          // Get the first coin object (or merge multiple if needed)
+          const primaryCoin = tx.object(senderCoins.data[0].coinObjectId);
+          
+          // If there are multiple coin objects, merge them into the primary coin
+          if (senderCoins.data.length > 1) {
+            const otherCoins = senderCoins.data.slice(1).map(coin => tx.object(coin.coinObjectId));
+            tx.mergeCoins(primaryCoin, otherCoins);
+          }
+          
           if (usesSeparateGasToken && gasTokenMint && gasTokenFeeSmallest) {
             // MODE 1: Separate gas token
-            // User sends full amount of sending token to relayer, then gas fee in gas token
+            // Split and send full amount to recipient, then send gas fee to backend
             
-            // Get coins of the sending token type
-            const [sendCoin] = tx.splitCoins(
-              tx.object(mint), // Use the actual token type
-              [fullAmountSmallest]
-            );
-            tx.transferObjects([sendCoin], suiRelayerKeypair.toSuiAddress());
+            // Split sending token for recipient
+            const [sendCoin] = tx.splitCoins(primaryCoin, [fullAmountSmallest]);
+            tx.transferObjects([sendCoin], recipientPublicKey);
             
-            // Get coins of the gas token type for fee
-            const [gasCoin] = tx.splitCoins(
-              tx.object(gasTokenMint),
-              [gasTokenFeeSmallest]
-            );
+            // Fetch sender's gas token coin objects
+            const gasCoins = await suiClient.getCoins({
+              owner: senderPublicKey,
+              coinType: gasTokenMint,
+            });
+            
+            if (!gasCoins.data || gasCoins.data.length === 0) {
+              throw new Error(`No ${gasTokenMint} coins found for gas payment`);
+            }
+            
+            const primaryGasCoin = tx.object(gasCoins.data[0].coinObjectId);
+            
+            // Merge gas coins if multiple
+            if (gasCoins.data.length > 1) {
+              const otherGasCoins = gasCoins.data.slice(1).map(coin => tx.object(coin.coinObjectId));
+              tx.mergeCoins(primaryGasCoin, otherGasCoins);
+            }
+            
+            // Split gas fee for backend
+            const [gasCoin] = tx.splitCoins(primaryGasCoin, [gasTokenFeeSmallest]);
             tx.transferObjects([gasCoin], suiRelayerKeypair.toSuiAddress());
             
             console.log('Built Sui transaction with separate gas token');
           } else {
             // MODE 2: Same token for transfer and gas
-            // User sends full amount to relayer
-            const [coin] = tx.splitCoins(
-              tx.object(mint), // Use the actual token type, not tx.gas!
-              [fullAmountSmallest]
-            );
+            // Split and send full amount to relayer, who will forward to recipient
+            const [coin] = tx.splitCoins(primaryCoin, [fullAmountSmallest]);
             tx.transferObjects([coin], suiRelayerKeypair.toSuiAddress());
             
             console.log('Built Sui transaction with same token for gas');
