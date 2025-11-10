@@ -32,6 +32,8 @@ const CHAIN_CONFIG = {
   solana: {
     rpcUrl: 'https://api.mainnet-beta.solana.com',
     gasFee: 0.50, // Fixed $0.50 fee for Solana
+    coingeckoId: 'solana', // For price fetching
+    decimals: 9, // SOL has 9 decimals
     tokens: {
       'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { name: 'USDC', decimals: 6 },
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
@@ -40,6 +42,8 @@ const CHAIN_CONFIG = {
   sui: {
     rpcUrl: 'https://fullnode.mainnet.sui.io:443',
     gasFee: 0.40, // Fixed $0.40 fee for Sui
+    coingeckoId: 'sui', // For price fetching
+    decimals: 9, // SUI has 9 decimals
     tokens: {
       '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN': { name: 'USDC', decimals: 6 },
       '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN': { name: 'USDT', decimals: 6 },
@@ -53,6 +57,39 @@ const ALLOWED_TOKENS = CHAIN_CONFIG.solana.tokens;
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
 const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 transfers per hour per wallet
+
+// Price fetching from CoinGecko (free API, no key needed)
+async function fetchTokenPrice(tokenId: string): Promise<number> {
+  try {
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${tokenId}&vs_currencies=usd`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`CoinGecko API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const price = data[tokenId]?.usd;
+    
+    if (!price) {
+      throw new Error(`Price not found for ${tokenId}`);
+    }
+    
+    console.log(`Fetched ${tokenId} price: $${price}`);
+    return price;
+  } catch (error) {
+    console.error(`Error fetching ${tokenId} price:`, error);
+    throw new Error(`Failed to fetch current ${tokenId} price. Please try again.`);
+  }
+}
+
+// Calculate token amount needed for USD value
+function calculateTokenAmount(usdAmount: number, tokenPriceUsd: number, decimals: number): bigint {
+  const tokenAmount = usdAmount / tokenPriceUsd;
+  return BigInt(Math.round(tokenAmount * Math.pow(10, decimals)));
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -125,6 +162,40 @@ serve(async (req) => {
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Action: Get current token prices from CoinGecko
+    if (action === 'get_token_prices') {
+      try {
+        const [solPrice, suiPrice] = await Promise.all([
+          fetchTokenPrice(CHAIN_CONFIG.solana.coingeckoId),
+          fetchTokenPrice(CHAIN_CONFIG.sui.coingeckoId),
+        ]);
+
+        return new Response(
+          JSON.stringify({
+            prices: {
+              solana: solPrice,
+              sui: suiPrice,
+            },
+            fees: {
+              solana: CHAIN_CONFIG.solana.gasFee,
+              sui: CHAIN_CONFIG.sui.gasFee,
+            },
+            message: 'Current token prices retrieved successfully',
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        console.error('Error fetching token prices:', error);
+        return new Response(
+          JSON.stringify({
+            error: 'Failed to fetch token prices',
+            details: error instanceof Error ? error.message : 'Unknown error',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Action: Ensure backend ATA exists for a given mint + provide fresh blockhash

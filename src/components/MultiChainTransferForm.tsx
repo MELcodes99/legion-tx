@@ -44,9 +44,24 @@ export const MultiChainTransferForm = () => {
   const [balances, setBalances] = useState<BalanceMap>({} as BalanceMap);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [tokenPrices, setTokenPrices] = useState<{ solana: number; sui: number } | null>(null);
 
   const selectedTokenConfig = getTokenConfig(selectedToken);
+  const selectedGasTokenConfig = getTokenConfig(selectedGasToken);
   const gasFee = selectedTokenConfig?.gasFee || 0.50;
+  
+  // Calculate gas fee in tokens if paying with native token
+  const getGasFeeDisplay = () => {
+    if (!selectedGasTokenConfig || !tokenPrices) return `$${gasFee.toFixed(2)}`;
+    
+    if (selectedGasTokenConfig.isNative) {
+      const price = selectedGasTokenConfig.chain === 'solana' ? tokenPrices.solana : tokenPrices.sui;
+      const tokenAmount = gasFee / price;
+      return `${tokenAmount.toFixed(4)} ${selectedGasTokenConfig.symbol} (~$${gasFee.toFixed(2)})`;
+    }
+    
+    return `$${gasFee.toFixed(2)}`;
+  };
 
   // Get available tokens based on connected wallets
   const getAvailableTokens = (): [string, typeof TOKENS[TokenKey]][] => {
@@ -61,6 +76,30 @@ export const MultiChainTransferForm = () => {
   };
 
   const availableTokens = getAvailableTokens();
+
+  // Fetch token prices from backend
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('gasless-transfer', {
+          body: { action: 'get_token_prices' },
+        });
+        
+        if (error) throw error;
+        if (data?.prices) {
+          setTokenPrices(data.prices);
+          console.log('Token prices fetched:', data.prices);
+        }
+      } catch (error) {
+        console.error('Error fetching token prices:', error);
+      }
+    };
+
+    fetchPrices();
+    // Refresh prices every 60 seconds
+    const interval = setInterval(fetchPrices, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Auto-select first available token when wallets connect/disconnect
   useEffect(() => {
@@ -622,12 +661,15 @@ export const MultiChainTransferForm = () => {
           <div className="rounded-lg bg-secondary/30 p-3 space-y-1 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Multichain Gas Fee:</span>
-              <span className="font-medium">${gasFee.toFixed(2)}</span>
+              <span className="font-medium">{getGasFeeDisplay()}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Recipient receives:</span>
               <span className="font-medium">${amountAfterFee.toFixed(2)}</span>
             </div>
+            {selectedGasTokenConfig?.isNative && !tokenPrices && (
+              <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>
+            )}
           </div>
         )}
 
