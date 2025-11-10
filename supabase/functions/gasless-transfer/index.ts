@@ -664,13 +664,14 @@ serve(async (req) => {
 
     // Action: Submit atomic transaction (user already signed, backend signs and submits)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint, chain = 'solana' } = body as { 
+      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint, chain = 'solana', gasToken } = body as { 
         signedTransaction?: string;
         senderPublicKey?: string;
         recipientPublicKey?: string;
         amount?: number;
         mint?: string;
         chain?: 'solana' | 'sui';
+        gasToken?: string;
       };
 
       if (!signedTransaction || !senderPublicKey || !recipientPublicKey || !amount || !mint) {
@@ -711,28 +712,72 @@ serve(async (req) => {
         // Calculate expected values using FIXED FEE model
         const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
         const feeAmount = chainConfig.gasFee; // Fixed fee
-        const receiverAmount = amount - feeAmount;
+        
+        // Helper function to get token config (same as in build_atomic_tx)
+        function getTokenConfig(tokenKey: string) {
+          const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
+            'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
+            'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
+            'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
+            'USDC_SUI': { mint: '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN', symbol: 'USDC', decimals: 6 },
+            'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6 },
+            'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+          };
+          return tokens[tokenKey];
+        }
+        
+        // Determine if separate gas token is used
+        const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
+        
         const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
-        const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, tokenInfo.decimals)));
+        let receiverAmountSmallest: bigint;
+        let gasTokenMintPk: PublicKey | null = null;
+        let gasTokenFeeSmallest: bigint | null = null;
+        
+        if (usesSeparateGasToken && gasTokenConfig) {
+          // Separate gas token: receiver gets FULL amount
+          receiverAmountSmallest = fullAmountSmallest;
+          gasTokenMintPk = new PublicKey(gasTokenConfig.mint);
+          gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenConfig.decimals)));
+        } else {
+          // Same token: receiver gets amount minus fee
+          const receiverAmount = amount - feeAmount;
+          receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, tokenInfo.decimals)));
+        }
 
-        // Get expected ATAs
+        // Get expected ATAs for sending token
         const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
         const backendAta = await getAssociatedTokenAddress(mintPk, backendWallet.publicKey);
         const recipientAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+        
+        // Get gas token ATAs if using separate gas token
+        let senderGasAta: PublicKey | null = null;
+        let backendGasAta: PublicKey | null = null;
+        if (usesSeparateGasToken && gasTokenMintPk) {
+          senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
+          backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+        }
 
         // SECURITY: Validate transaction structure
         const instructions = transaction.instructions;
         let transferInstructionCount = 0;
-        let validUserToBackend = false;
-        let validBackendToRecipient = false;
+        let validTransfer1 = false;
+        let validTransfer2 = false;
 
         console.log('=== TRANSACTION VALIDATION START ===');
+        console.log('Mode:', usesSeparateGasToken ? 'Separate gas token' : 'Same token');
         console.log('Expected values:');
         console.log('- Full amount (user sends):', fullAmountSmallest.toString());
-        console.log('- Receiver amount (after fee):', receiverAmountSmallest.toString());
+        console.log('- Receiver amount:', receiverAmountSmallest.toString());
         console.log('- Sender ATA:', senderAta.toBase58());
         console.log('- Backend ATA:', backendAta.toBase58());
         console.log('- Recipient ATA:', recipientAta.toBase58());
+        if (usesSeparateGasToken && senderGasAta && backendGasAta) {
+          console.log('- Sender Gas ATA:', senderGasAta.toBase58());
+          console.log('- Backend Gas ATA:', backendGasAta.toBase58());
+          console.log('- Gas fee amount:', gasTokenFeeSmallest?.toString());
+        }
         console.log('Total instructions in transaction:', instructions.length);
 
         for (const instruction of instructions) {
@@ -755,7 +800,6 @@ serve(async (req) => {
               console.log('- Authority:', authority.toBase58());
               
               // Extract amount from instruction data (8 bytes after instruction type)
-              // CRITICAL FIX: Must create new ArrayBuffer for DataView to read correct bytes
               const amountBytes = instruction.data.slice(1, 9);
               const buffer = new ArrayBuffer(8);
               const uint8View = new Uint8Array(buffer);
@@ -764,27 +808,49 @@ serve(async (req) => {
               
               console.log('- Amount:', instructionAmount.toString());
 
-              // Check user → backend transfer
-              if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
-                console.log('✓ This is user → backend transfer');
-                console.log('  Expected amount:', fullAmountSmallest.toString());
-                console.log('  Actual amount:', instructionAmount.toString());
-                console.log('  Match:', instructionAmount === fullAmountSmallest);
-                if (instructionAmount === fullAmountSmallest) {
-                  validUserToBackend = true;
-                  console.log('✓ User → backend validation PASSED');
+              if (usesSeparateGasToken) {
+                // MODE 1: Separate gas token validation
+                // Transfer 1: sender → recipient (full amount in sending token)
+                // Transfer 2: sender → backend (gas fee in gas token)
+                
+                if (source.equals(senderAta) && destination.equals(recipientAta) && authority.equals(senderPk)) {
+                  console.log('✓ This is sender → recipient transfer (separate gas mode)');
+                  console.log('  Expected amount:', receiverAmountSmallest.toString());
+                  console.log('  Actual amount:', instructionAmount.toString());
+                  if (instructionAmount === receiverAmountSmallest) {
+                    validTransfer1 = true;
+                    console.log('✓ Sender → recipient validation PASSED');
+                  }
+                } else if (senderGasAta && backendGasAta && source.equals(senderGasAta) && destination.equals(backendGasAta) && authority.equals(senderPk)) {
+                  console.log('✓ This is sender → backend gas fee transfer');
+                  console.log('  Expected amount:', gasTokenFeeSmallest?.toString());
+                  console.log('  Actual amount:', instructionAmount.toString());
+                  if (gasTokenFeeSmallest && instructionAmount === gasTokenFeeSmallest) {
+                    validTransfer2 = true;
+                    console.log('✓ Gas fee transfer validation PASSED');
+                  }
                 }
-              }
-
-              // Check backend → recipient transfer
-              if (source.equals(backendAta) && destination.equals(recipientAta) && authority.equals(backendWallet.publicKey)) {
-                console.log('✓ This is backend → recipient transfer');
-                console.log('  Expected amount:', receiverAmountSmallest.toString());
-                console.log('  Actual amount:', instructionAmount.toString());
-                console.log('  Match:', instructionAmount === receiverAmountSmallest);
-                if (instructionAmount === receiverAmountSmallest) {
-                  validBackendToRecipient = true;
-                  console.log('✓ Backend → recipient validation PASSED');
+              } else {
+                // MODE 2: Same token validation (traditional flow)
+                // Transfer 1: sender → backend (full amount)
+                // Transfer 2: backend → recipient (amount - fee)
+                
+                if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
+                  console.log('✓ This is user → backend transfer (same token mode)');
+                  console.log('  Expected amount:', fullAmountSmallest.toString());
+                  console.log('  Actual amount:', instructionAmount.toString());
+                  if (instructionAmount === fullAmountSmallest) {
+                    validTransfer1 = true;
+                    console.log('✓ User → backend validation PASSED');
+                  }
+                } else if (source.equals(backendAta) && destination.equals(recipientAta) && authority.equals(backendWallet.publicKey)) {
+                  console.log('✓ This is backend → recipient transfer');
+                  console.log('  Expected amount:', receiverAmountSmallest.toString());
+                  console.log('  Actual amount:', instructionAmount.toString());
+                  if (instructionAmount === receiverAmountSmallest) {
+                    validTransfer2 = true;
+                    console.log('✓ Backend → recipient validation PASSED');
+                  }
                 }
               }
             }
@@ -793,8 +859,8 @@ serve(async (req) => {
 
         console.log('\n=== VALIDATION SUMMARY ===');
         console.log('Transfer instructions found:', transferInstructionCount);
-        console.log('Valid user → backend:', validUserToBackend);
-        console.log('Valid backend → recipient:', validBackendToRecipient);
+        console.log('Valid transfer 1:', validTransfer1);
+        console.log('Valid transfer 2:', validTransfer2);
         console.log('=== TRANSACTION VALIDATION END ===\n');
 
         // SECURITY: Ensure exactly 2 transfer instructions with correct amounts
@@ -808,7 +874,7 @@ serve(async (req) => {
           );
         }
 
-        if (!validUserToBackend || !validBackendToRecipient) {
+        if (!validTransfer1 || !validTransfer2) {
           return new Response(
             JSON.stringify({ 
               error: 'Transaction validation failed',

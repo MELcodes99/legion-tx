@@ -356,6 +356,7 @@ export const MultiChainTransferForm = () => {
             recipientPublicKey: recipient,
             amount: fullAmount,
             mint: tokenConfig.mint,
+            gasToken: selectedGasToken,
           }
         });
 
@@ -428,6 +429,7 @@ export const MultiChainTransferForm = () => {
             recipientPublicKey: recipient,
             amount: fullAmount,
             mint: tokenConfig.mint,
+            gasToken: selectedGasToken,
           }
         });
 
