@@ -173,16 +173,20 @@ export const MultiChainTransferForm = () => {
           
           console.log('All Sui balances:', allBalances);
           
-          // Process all balances
+          // Process all balances and show ANY token with balance > 0
           for (const balance of allBalances) {
             const balanceAmount = Number(balance.totalBalance);
             
-            // Match coin type to our tokens
+            if (balanceAmount <= 0) continue;
+            
+            // Match coin type to our predefined tokens
             if (balance.coinType === '0x2::sui::SUI') {
               newBalances.SUI = balanceAmount / 1e9;
-            } else if (balance.coinType === TOKENS.USDC_SUI.mint) {
+            } else if (balance.coinType === TOKENS.USDC_SUI.mint || 
+                       balance.coinType.toLowerCase().includes('usdc')) {
               newBalances.USDC_SUI = balanceAmount / 1e6;
-            } else if (balance.coinType === TOKENS.USDT_SUI.mint) {
+            } else if (balance.coinType === TOKENS.USDT_SUI.mint || 
+                       balance.coinType.toLowerCase().includes('usdt')) {
               newBalances.USDT_SUI = balanceAmount / 1e6;
             }
           }
@@ -253,9 +257,10 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
-    // Check gas token wallet compatibility
+    // Check gas token wallet and balance
     const gasTokenConfig = getTokenConfig(selectedGasToken);
     if (gasTokenConfig) {
+      // Check wallet connection for gas token
       if (gasTokenConfig.chain === 'solana' && !solanaPublicKey) {
         toast({
           title: 'Wallet not compatible',
@@ -271,6 +276,26 @@ export const MultiChainTransferForm = () => {
           variant: 'destructive',
         });
         return;
+      }
+      
+      // Check gas token balance (only if different from sending token)
+      if (selectedGasToken !== selectedToken) {
+        const gasBalance = balances[selectedGasToken] || 0;
+        const gasTokenPrice = gasTokenConfig.isNative 
+          ? (tokenPrices?.[gasTokenConfig.chain === 'solana' ? 'solana' : 'sui'] || 0)
+          : 1; // Stablecoins are $1
+        const requiredGasAmount = gasTokenConfig.isNative 
+          ? gasFee / gasTokenPrice 
+          : gasFee;
+        
+        if (gasBalance < requiredGasAmount) {
+          toast({
+            title: 'Insufficient gas token balance',
+            description: `You need at least ${requiredGasAmount.toFixed(4)} ${gasTokenConfig.symbol} to pay for gas.`,
+            variant: 'destructive',
+          });
+          return;
+        }
       }
     }
 
