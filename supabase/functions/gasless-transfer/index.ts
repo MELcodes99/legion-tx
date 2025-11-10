@@ -103,6 +103,40 @@ serve(async (req) => {
 
     console.log('Gasless transfer request:', { action });
 
+    // Action: Get current token prices from CoinGecko (no wallet needed)
+    if (action === 'get_token_prices') {
+      try {
+        const [solPrice, suiPrice] = await Promise.all([
+          fetchTokenPrice(CHAIN_CONFIG.solana.coingeckoId),
+          fetchTokenPrice(CHAIN_CONFIG.sui.coingeckoId),
+        ]);
+
+        return new Response(
+          JSON.stringify({
+            prices: {
+              solana: solPrice,
+              sui: suiPrice,
+            },
+            fees: {
+              solana: CHAIN_CONFIG.solana.gasFee,
+              sui: CHAIN_CONFIG.sui.gasFee,
+            },
+            message: 'Current token prices retrieved successfully',
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        console.error('Error fetching token prices:', error);
+        return new Response(
+          JSON.stringify({
+            error: 'Failed to fetch token prices',
+            details: error instanceof Error ? error.message : 'Unknown error',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Initialize Supabase client for rate limiting
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -162,40 +196,6 @@ serve(async (req) => {
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
-    }
-
-    // Action: Get current token prices from CoinGecko
-    if (action === 'get_token_prices') {
-      try {
-        const [solPrice, suiPrice] = await Promise.all([
-          fetchTokenPrice(CHAIN_CONFIG.solana.coingeckoId),
-          fetchTokenPrice(CHAIN_CONFIG.sui.coingeckoId),
-        ]);
-
-        return new Response(
-          JSON.stringify({
-            prices: {
-              solana: solPrice,
-              sui: suiPrice,
-            },
-            fees: {
-              solana: CHAIN_CONFIG.solana.gasFee,
-              sui: CHAIN_CONFIG.sui.gasFee,
-            },
-            message: 'Current token prices retrieved successfully',
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } catch (error) {
-        console.error('Error fetching token prices:', error);
-        return new Response(
-          JSON.stringify({
-            error: 'Failed to fetch token prices',
-            details: error instanceof Error ? error.message : 'Unknown error',
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
     }
 
     // Action: Ensure backend ATA exists for a given mint + provide fresh blockhash
