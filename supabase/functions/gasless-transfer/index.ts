@@ -58,8 +58,19 @@ const ALLOWED_TOKENS = CHAIN_CONFIG.solana.tokens;
 const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
 const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 transfers per hour per wallet
 
-// Price fetching from CoinGecko (free API, no key needed)
+// Price cache to avoid hitting CoinGecko API too frequently
+const priceCache: Record<string, { price: number; timestamp: number }> = {};
+const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
+
+// Price fetching from CoinGecko with caching (free API, no key needed)
 async function fetchTokenPrice(tokenId: string): Promise<number> {
+  // Check cache first
+  const cached = priceCache[tokenId];
+  if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
+    console.log(`Using cached ${tokenId} price: $${cached.price}`);
+    return cached.price;
+  }
+
   try {
     const response = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${tokenId}&vs_currencies=usd`,
@@ -67,6 +78,11 @@ async function fetchTokenPrice(tokenId: string): Promise<number> {
     );
     
     if (!response.ok) {
+      // If rate limited and we have a cached value (even expired), use it
+      if (response.status === 429 && cached) {
+        console.log(`Rate limited, using stale cache for ${tokenId}: $${cached.price}`);
+        return cached.price;
+      }
       throw new Error(`CoinGecko API error: ${response.status}`);
     }
     
@@ -74,12 +90,24 @@ async function fetchTokenPrice(tokenId: string): Promise<number> {
     const price = data[tokenId]?.usd;
     
     if (!price) {
+      // If no price found but we have cache, use it
+      if (cached) {
+        console.log(`Price not found, using stale cache for ${tokenId}: $${cached.price}`);
+        return cached.price;
+      }
       throw new Error(`Price not found for ${tokenId}`);
     }
     
+    // Update cache
+    priceCache[tokenId] = { price, timestamp: Date.now() };
     console.log(`Fetched ${tokenId} price: $${price}`);
     return price;
   } catch (error) {
+    // Last resort: use stale cache if available
+    if (cached) {
+      console.log(`Error occurred, using stale cache for ${tokenId}: $${cached.price}`);
+      return cached.price;
+    }
     console.error(`Error fetching ${tokenId} price:`, error);
     throw new Error(`Failed to fetch current ${tokenId} price. Please try again.`);
   }

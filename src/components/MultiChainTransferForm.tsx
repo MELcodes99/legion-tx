@@ -96,8 +96,8 @@ export const MultiChainTransferForm = () => {
     };
 
     fetchPrices();
-    // Refresh prices every 60 seconds
-    const interval = setInterval(fetchPrices, 60000);
+    // Refresh prices every 5 minutes (to avoid rate limiting)
+    const interval = setInterval(fetchPrices, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
