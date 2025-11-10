@@ -5,8 +5,10 @@ import { Wallet, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export const BackendWalletMonitor = () => {
-  const [balance, setBalance] = useState<number | null>(null);
-  const [publicKey, setPublicKey] = useState<string>('');
+  const [solanaBalance, setSolanaBalance] = useState<number | null>(null);
+  const [solanaPublicKey, setSolanaPublicKey] = useState<string>('');
+  const [suiBalance, setSuiBalance] = useState<number | null>(null);
+  const [suiAddress, setSuiAddress] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
 
@@ -29,7 +31,8 @@ export const BackendWalletMonitor = () => {
         const data = await response.json();
 
         if (response.ok) {
-          setPublicKey(data.publicKey);
+          setSolanaPublicKey(data.publicKey || '');
+          setSuiAddress(data.suiAddress || '');
           setError('');
         } else {
           setError(data.error || 'Failed to fetch backend wallet info');
@@ -49,7 +52,8 @@ export const BackendWalletMonitor = () => {
   }
 
   const LOW_BALANCE_THRESHOLD = 0.1;
-  const isLowBalance = balance !== null && balance < LOW_BALANCE_THRESHOLD;
+  const isSolanaLowBalance = solanaBalance !== null && solanaBalance < LOW_BALANCE_THRESHOLD;
+  const isSuiLowBalance = suiBalance !== null && suiBalance < LOW_BALANCE_THRESHOLD;
 
   return (
     <Card className="glass-card">
@@ -59,10 +63,10 @@ export const BackendWalletMonitor = () => {
           Backend Wallet Status
         </CardTitle>
         <CardDescription>
-          Monitoring the wallet that covers gas fees
+          Multi-chain wallets that cover gas fees
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         {error ? (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
@@ -70,45 +74,96 @@ export const BackendWalletMonitor = () => {
           </Alert>
         ) : (
           <>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">Public Key:</span>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {publicKey.slice(0, 4)}...{publicKey.slice(-4)}
-                </Badge>
+            {/* Solana Backend Wallet */}
+            {solanaPublicKey && (
+              <div className="space-y-2 pb-4 border-b border-border/30">
+                <h4 className="text-sm font-semibold text-primary">Solana Network</h4>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Address:</span>
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {solanaPublicKey.slice(0, 4)}...{solanaPublicKey.slice(-4)}
+                  </Badge>
+                </div>
+                
+                {solanaBalance !== null && (
+                  <>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">Balance:</span>
+                      <span className={`font-semibold ${isSolanaLowBalance ? 'text-yellow-500' : 'text-primary'}`}>
+                        {solanaBalance.toFixed(4)} SOL
+                      </span>
+                    </div>
+
+                    {isSolanaLowBalance && (
+                      <Alert className="border-yellow-500/50 bg-yellow-500/10">
+                        <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                        <AlertDescription className="text-sm">
+                          Solana backend wallet balance is low. Please add more SOL.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </>
+                )}
+                
+                <a
+                  href={`https://solscan.io/account/${solanaPublicKey}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  View on Solscan →
+                </a>
               </div>
-              
-              {balance !== null && (
-                <>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Balance:</span>
-                    <span className={`font-semibold ${isLowBalance ? 'text-yellow-500' : 'text-primary'}`}>
-                      {balance.toFixed(4)} SOL
-                    </span>
-                  </div>
+            )}
 
-                  {isLowBalance && (
-                    <Alert className="border-yellow-500/50 bg-yellow-500/10">
-                      <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                      <AlertDescription className="text-sm">
-                        Backend wallet balance is low. Please add more SOL to continue covering gas fees.
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </>
-              )}
-            </div>
+            {/* Sui Backend Wallet */}
+            {suiAddress && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-primary">Sui Network</h4>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Address:</span>
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {suiAddress.slice(0, 6)}...{suiAddress.slice(-4)}
+                  </Badge>
+                </div>
+                
+                {suiBalance !== null && (
+                  <>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">Balance:</span>
+                      <span className={`font-semibold ${isSuiLowBalance ? 'text-yellow-500' : 'text-primary'}`}>
+                        {suiBalance.toFixed(4)} SUI
+                      </span>
+                    </div>
 
-            <div className="pt-3 border-t border-border/30">
-              <a
-                href={`https://solscan.io/account/${publicKey}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-primary hover:underline flex items-center gap-1"
-              >
-                View on Solscan →
-              </a>
-            </div>
+                    {isSuiLowBalance && (
+                      <Alert className="border-yellow-500/50 bg-yellow-500/10">
+                        <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                        <AlertDescription className="text-sm">
+                          Sui backend wallet balance is low. Please add more SUI.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </>
+                )}
+                
+                <a
+                  href={`https://suiscan.xyz/mainnet/account/${suiAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  View on Suiscan →
+                </a>
+                
+                <Alert className="border-blue-500/50 bg-blue-500/10 mt-3">
+                  <AlertDescription className="text-xs">
+                    ⚠️ This wallet needs SUI tokens to pay for gas when forwarding transfers. 
+                    Recommended: Add at least 0.5 SUI
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
           </>
         )}
       </CardContent>

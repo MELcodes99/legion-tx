@@ -228,7 +228,8 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           publicKey: backendWallet.publicKey.toBase58(),
-          message: 'Backend wallet public key retrieved',
+          suiAddress: suiRelayerKeypair?.toSuiAddress() || null,
+          message: 'Backend wallet addresses retrieved',
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -1192,6 +1193,25 @@ serve(async (req) => {
             usesSeparateGasToken,
           });
 
+          // Check if backend has sufficient SUI for gas
+          const backendSuiCoins = await suiClient.getCoins({
+            owner: suiRelayerKeypair.toSuiAddress(),
+            coinType: '0x2::sui::SUI',
+          });
+          
+          const backendSuiBalance = backendSuiCoins.data.reduce((sum, coin) => 
+            sum + BigInt(coin.balance), 0n);
+          const minRequiredSui = 10000000n; // 0.01 SUI minimum for gas
+          
+          if (backendSuiBalance < minRequiredSui) {
+            throw new Error(
+              `Backend wallet has insufficient SUI for gas. Balance: ${Number(backendSuiBalance) / 1e9} SUI. ` +
+              `Please fund the backend wallet (${suiRelayerKeypair.toSuiAddress()}) with at least 0.1 SUI.`
+            );
+          }
+          
+          console.log(`Backend SUI balance: ${Number(backendSuiBalance) / 1e9} SUI`);
+
           // Now send the appropriate amount to the recipient using the correct token type
           // Fetch relayer's coin objects for the token
           const relayerCoins = await suiClient.getCoins({
@@ -1214,6 +1234,11 @@ serve(async (req) => {
           
           const [coin] = tx2.splitCoins(primaryCoin, [receiverAmountSmallest]);
           tx2.transferObjects([coin], recipientPublicKey);
+          
+          // Set gas budget for the forwarding transaction
+          tx2.setGasBudget(10000000); // 0.01 SUI
+          
+          console.log('Forwarding tokens from backend to recipient...');
           
           const result2 = await suiClient.signAndExecuteTransaction({
             signer: suiRelayerKeypair,
