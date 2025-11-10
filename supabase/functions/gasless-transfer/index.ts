@@ -605,25 +605,92 @@ serve(async (req) => {
           const chainConfig = CHAIN_CONFIG.sui;
           const feeAmount = chainConfig.gasFee;
           
-          // For now, Sui always uses same token for gas (cross-chain gas not yet implemented)
-          const receiverAmount = amount - feeAmount;
+          // Helper function to get token config (same as build_atomic_tx for Solana)
+          function getTokenConfig(tokenKey: string) {
+            const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
+              'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
+              'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
+              'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
+              'USDC_SUI': { mint: '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN', symbol: 'USDC', decimals: 6 },
+              'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6 },
+              'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+            };
+            return tokens[tokenKey];
+          }
           
+          // Determine if gas token is different from sending token
+          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+          const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
+          
+          // Convert amounts to smallest units
           const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
-          const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
-
-          console.log('Sui fee calculation:', {
-            userSends: `${amount}`,
-            backendKeeps: `${feeAmount}`,
-            receiverGets: `${receiverAmount}`,
-            relayerAddress: suiRelayerKeypair.toSuiAddress(),
-          });
+          
+          let receiverAmountSmallest: bigint;
+          let gasTokenMint: string | null = null;
+          let gasTokenDecimals: number | null = null;
+          let gasTokenFeeSmallest: bigint | null = null;
+          
+          if (usesSeparateGasToken && gasTokenConfig) {
+            // Gas is paid with different token - send FULL amount to receiver
+            receiverAmountSmallest = fullAmountSmallest;
+            
+            // Calculate gas fee in gas token
+            gasTokenMint = gasTokenConfig.mint;
+            gasTokenDecimals = gasTokenConfig.decimals;
+            gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+            
+            console.log('Sui: Using separate gas token:', {
+              sendingToken: mint,
+              gasToken: gasTokenMint,
+              fullAmountToReceiver: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
+              gasFeeInGasToken: `${feeAmount} (${gasTokenFeeSmallest.toString()} smallest units of ${gasTokenConfig.symbol})`,
+            });
+          } else {
+            // Gas is paid from same token - deduct from sending amount
+            const receiverAmount = amount - feeAmount;
+            receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
+            
+            console.log('Sui: Using same token for gas:', {
+              userSends: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
+              backendKeeps: `${feeAmount}`,
+              receiverGets: `${amount - feeAmount} (${receiverAmountSmallest.toString()} smallest units)`,
+              relayerAddress: suiRelayerKeypair.toSuiAddress(),
+            });
+          }
 
           // Build Sui transaction with PTB (Programmable Transaction Block)
           const tx = new SuiTransaction();
           
-          // User sends full amount to relayer
-          const [coin] = tx.splitCoins(tx.gas, [fullAmountSmallest]);
-          tx.transferObjects([coin], suiRelayerKeypair.toSuiAddress());
+          if (usesSeparateGasToken && gasTokenMint && gasTokenFeeSmallest) {
+            // MODE 1: Separate gas token
+            // User sends full amount of sending token to relayer, then gas fee in gas token
+            
+            // Get coins of the sending token type
+            const [sendCoin] = tx.splitCoins(
+              tx.object(mint), // Use the actual token type
+              [fullAmountSmallest]
+            );
+            tx.transferObjects([sendCoin], suiRelayerKeypair.toSuiAddress());
+            
+            // Get coins of the gas token type for fee
+            const [gasCoin] = tx.splitCoins(
+              tx.object(gasTokenMint),
+              [gasTokenFeeSmallest]
+            );
+            tx.transferObjects([gasCoin], suiRelayerKeypair.toSuiAddress());
+            
+            console.log('Built Sui transaction with separate gas token');
+          } else {
+            // MODE 2: Same token for transfer and gas
+            // User sends full amount to relayer
+            const [coin] = tx.splitCoins(
+              tx.object(mint), // Use the actual token type, not tx.gas!
+              [fullAmountSmallest]
+            );
+            tx.transferObjects([coin], suiRelayerKeypair.toSuiAddress());
+            
+            console.log('Built Sui transaction with same token for gas');
+          }
 
           // Set sender
           tx.setSender(senderPublicKey);
@@ -635,12 +702,16 @@ serve(async (req) => {
           // Encode to base64
           const base64Tx = btoa(String.fromCharCode(...txBytes));
 
+          const actualReceiverAmount = usesSeparateGasToken ? amount : amount - feeAmount;
+
           return new Response(
             JSON.stringify({
               transaction: base64Tx,
               fee: feeAmount,
-              amountAfterFee: receiverAmount,
-              message: `Sui transaction built: User sends $${amount}, Receiver gets $${receiverAmount}, Backend fee $${feeAmount}`,
+              amountAfterFee: actualReceiverAmount,
+              message: usesSeparateGasToken
+                ? `Sui transaction built: User sends full $${amount}, gas fee $${feeAmount} paid separately`
+                : `Sui transaction built: User sends $${amount}, Receiver gets $${actualReceiverAmount}, Backend fee $${feeAmount}`,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -944,6 +1015,24 @@ serve(async (req) => {
         try {
           console.log('Processing Sui transaction...');
           
+          // Helper function to get token config
+          function getTokenConfig(tokenKey: string) {
+            const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
+              'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
+              'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
+              'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
+              'USDC_SUI': { mint: '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN', symbol: 'USDC', decimals: 6 },
+              'USDT_SUI': { mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', symbol: 'USDT', decimals: 6 },
+              'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+            };
+            return tokens[tokenKey];
+          }
+          
+          const tokenInfo = CHAIN_CONFIG.sui.tokens[mint as keyof typeof CHAIN_CONFIG.sui.tokens];
+          if (!tokenInfo) {
+            throw new Error(`Token ${mint} not supported on Sui`);
+          }
+          
           // Decode the signed transaction from user
           const binaryString = atob(signedTransaction);
           const txBytes = new Uint8Array(binaryString.length);
@@ -951,7 +1040,7 @@ serve(async (req) => {
             txBytes[i] = binaryString.charCodeAt(i);
           }
           
-          // Relayer signs and executes the transaction
+          // Relayer signs and executes the transaction (receives tokens from user)
           const result = await suiClient.signAndExecuteTransaction({
             signer: suiRelayerKeypair,
             transaction: txBytes,
@@ -965,16 +1054,32 @@ serve(async (req) => {
             throw new Error(`Sui transaction failed: ${result.effects?.status?.error || 'Unknown error'}`);
           }
 
-          console.log('Sui transaction confirmed:', result.digest);
+          console.log('Sui transaction confirmed (user → relayer):', result.digest);
           
-          // Now send the amount minus fee to the recipient
+          // Determine if separate gas token was used
+          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+          const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
+          
+          // Calculate amounts
           const chainConfig = CHAIN_CONFIG.sui;
           const feeAmount = chainConfig.gasFee;
-          const receiverAmount = amount - feeAmount;
-          const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, 6))); // USDC/USDT = 6 decimals
+          const receiverAmount = usesSeparateGasToken ? amount : amount - feeAmount;
+          const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, tokenInfo.decimals)));
+          
+          console.log('Sending to recipient:', {
+            receiverAmount,
+            receiverAmountSmallest: receiverAmountSmallest.toString(),
+            tokenMint: mint,
+            tokenDecimals: tokenInfo.decimals,
+            usesSeparateGasToken,
+          });
 
+          // Now send the appropriate amount to the recipient using the correct token type
           const tx2 = new SuiTransaction();
-          const [coin] = tx2.splitCoins(tx2.gas, [receiverAmountSmallest]);
+          const [coin] = tx2.splitCoins(
+            tx2.object(mint), // Use the actual token type
+            [receiverAmountSmallest]
+          );
           tx2.transferObjects([coin], recipientPublicKey);
           
           const result2 = await suiClient.signAndExecuteTransaction({

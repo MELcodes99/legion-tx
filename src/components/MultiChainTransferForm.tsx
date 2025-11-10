@@ -166,34 +166,31 @@ export const MultiChainTransferForm = () => {
       // Fetch Sui balances
       if (suiAccount) {
         try {
-          // Get all balances for the Sui account
-          const balance = await suiClient.getBalance({
+          // Get all coin balances for the Sui account
+          const allBalances = await suiClient.getAllBalances({
             owner: suiAccount.address,
-            coinType: '0x2::sui::SUI',
           });
-          newBalances.SUI = Number(balance.totalBalance) / 1e9; // SUI has 9 decimals
-
-          // Fetch USDC on Sui
-          try {
-            const usdcBalance = await suiClient.getBalance({
-              owner: suiAccount.address,
-              coinType: TOKENS.USDC_SUI.mint,
-            });
-            newBalances.USDC_SUI = Number(usdcBalance.totalBalance) / 1e6;
-          } catch {
-            newBalances.USDC_SUI = 0;
+          
+          console.log('All Sui balances:', allBalances);
+          
+          // Process all balances
+          for (const balance of allBalances) {
+            const balanceAmount = Number(balance.totalBalance);
+            
+            // Match coin type to our tokens
+            if (balance.coinType === '0x2::sui::SUI') {
+              newBalances.SUI = balanceAmount / 1e9;
+            } else if (balance.coinType === TOKENS.USDC_SUI.mint) {
+              newBalances.USDC_SUI = balanceAmount / 1e6;
+            } else if (balance.coinType === TOKENS.USDT_SUI.mint) {
+              newBalances.USDT_SUI = balanceAmount / 1e6;
+            }
           }
-
-          // Fetch USDT on Sui
-          try {
-            const usdtBalance = await suiClient.getBalance({
-              owner: suiAccount.address,
-              coinType: TOKENS.USDT_SUI.mint,
-            });
-            newBalances.USDT_SUI = Number(usdtBalance.totalBalance) / 1e6;
-          } catch {
-            newBalances.USDT_SUI = 0;
-          }
+          
+          // Set to 0 if not found
+          if (newBalances.SUI === undefined) newBalances.SUI = 0;
+          if (newBalances.USDC_SUI === undefined) newBalances.USDC_SUI = 0;
+          if (newBalances.USDT_SUI === undefined) newBalances.USDT_SUI = 0;
         } catch (error) {
           console.error('Error fetching Sui balances:', error);
           newBalances.USDC_SUI = 0;
