@@ -54,8 +54,13 @@ const CHAIN_CONFIG = {
   }
 } as const;
 
-// Legacy support - map to solana tokens
-const ALLOWED_TOKENS = CHAIN_CONFIG.solana.tokens;
+// Combined whitelist for all supported tokens across chains
+const ALLOWED_TOKENS: Record<string, { name: string; decimals: number }> = {
+  // Solana tokens
+  ...CHAIN_CONFIG.solana.tokens,
+  // Sui tokens
+  ...CHAIN_CONFIG.sui.tokens,
+};
 
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
