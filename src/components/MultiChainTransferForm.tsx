@@ -500,7 +500,9 @@ export const MultiChainTransferForm = () => {
                           </div>
                           <span className="text-muted-foreground">{config.symbol}:</span>
                         </div>
-                        <span className="font-medium">${(balances[key as TokenKey] || 0).toFixed(2)}</span>
+                        <span className="font-medium">
+                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 4 : 2)} {config.symbol}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -522,7 +524,9 @@ export const MultiChainTransferForm = () => {
                           </div>
                           <span className="text-muted-foreground">{config.symbol}:</span>
                         </div>
-                        <span className="font-medium">${(balances[key as TokenKey] || 0).toFixed(2)}</span>
+                        <span className="font-medium">
+                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 4 : 2)} {config.symbol}
+                        </span>
                       </div>
                     ))}
                   </div>
