@@ -291,23 +291,27 @@ export const TransferForm = () => {
       for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
       const transaction = Transaction.from(bytes);
 
-      // Step 3: User signs the atomic transaction
+      // Step 3: User signs the atomic transaction FIRST (Phantom requirement)
+      // This follows Phantom's Lighthouse security recommendation:
+      // "Phantom wallet signs first, then additional signers sign afterward using partialSign"
       toast({ 
         title: 'Sign the transaction', 
         description: 'Please approve in your wallet',
         duration: 60000
       });
       
+      // User wallet signs FIRST - this is critical for Phantom Lighthouse compatibility
       const signedTx = await signTransaction(transaction);
       const serialized = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
       const signedBase64Tx = btoa(String.fromCharCode(...serialized));
 
-      console.log('User signed atomic transaction');
+      console.log('User signed atomic transaction (first signer)');
 
       // Step 4: Submit to backend for final signing and submission
+      // Backend will add its signature SECOND using partialSign (Phantom requirement)
       toast({ 
         title: 'Submitting transaction...', 
-        description: 'Backend is processing your gasless transfer'
+        description: 'Backend is adding signature and processing your gasless transfer'
       });
 
       const submitResponse = await supabase.functions.invoke('gasless-transfer', {
