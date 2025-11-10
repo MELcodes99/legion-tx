@@ -21,6 +21,9 @@ import usdcLogo from '@/assets/usdc-logo.png';
 import solanaLogo from '@/assets/solana-logo.png';
 import suiLogo from '@/assets/sui-logo.png';
 import { SuiClient } from '@mysten/sui/client';
+import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChevronDown } from 'lucide-react';
 
 type TokenKey = keyof typeof TOKENS;
 type BalanceMap = Record<TokenKey, number>;
@@ -283,21 +286,11 @@ export const MultiChainTransferForm = () => {
         setRecipient('');
         setAmount('');
       } else if (tokenConfig.chain === 'sui') {
-        if (!suiAccount) throw new Error('Sui wallet not connected');
-
-        toast({ 
-          title: 'Building transaction...', 
-          description: 'Creating gasless transfer on Sui'
-        });
-
-        // TODO: Implement full Sui transaction logic with backend
-        // For now, show that Sui is ready but needs full implementation
         toast({
-          title: 'Sui transfers ready!',
-          description: 'Backend integration for Sui transfers is being finalized.',
+          title: 'Sui Support Coming Soon',
+          description: 'Sui transfers require backend configuration. Contact support for setup.',
           variant: 'default',
         });
-
         setRecipient('');
         setAmount('');
       }
@@ -330,6 +323,20 @@ export const MultiChainTransferForm = () => {
 
   const solanaTokens = getTokensByChain('solana');
   const suiTokens = getTokensByChain('sui');
+  
+  // Filter tokens with balance > 0 for display (only show tokens above $0)
+  const tokensWithBalance = Object.entries(balances)
+    .filter(([_, balance]) => balance > 0)
+    .map(([key]) => {
+      const config = getTokenConfig(key);
+      return { key, config };
+    })
+    .filter((item): item is { key: string; config: import('@/config/tokens').TokenConfig } => item.config !== undefined);
+
+  const solanaTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'solana');
+  const suiTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'sui');
+
+  const [balancesOpen, setBalancesOpen] = useState(false);
 
   return (
     <Card className="glass-card w-full max-w-md border-2 border-primary/30">
@@ -356,54 +363,65 @@ export const MultiChainTransferForm = () => {
 
         <ConnectedWalletInfo />
 
-        {(solanaPublicKey || suiAccount) && (
-          <div className="space-y-3">
-            {/* Solana Balances */}
-            <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
-              <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                <img src={solanaLogo} alt="Solana" className="w-4 h-4" />
-                Solana Balances
-              </div>
-              {solanaTokens.map((token) => {
-                const key = Object.keys(TOKENS).find(k => TOKENS[k as TokenKey] === token) as TokenKey;
-                return (
-                  <div key={key} className="flex justify-between items-center text-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
-                        <img src={getTokenLogo(key)} alt={token.symbol} className="w-5 h-5" />
-                        <img src={solanaLogo} alt="Solana" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full" />
-                      </div>
-                      <span className="text-muted-foreground">{token.symbol}:</span>
+        {(solanaPublicKey || suiAccount) && tokensWithBalance.length > 0 && (
+          <Collapsible open={balancesOpen} onOpenChange={setBalancesOpen}>
+            <CollapsibleTrigger asChild>
+              <Button 
+                variant="outline" 
+                className="w-full flex justify-between items-center bg-secondary/30 hover:bg-secondary/50"
+              >
+                <span className="text-sm font-medium">View Token Balances</span>
+                <ChevronDown className={`h-4 w-4 transition-transform ${balancesOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3">
+              <div className="space-y-3">
+                {/* Solana Balances */}
+                {solanaTokensWithBalance.length > 0 && (
+                  <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
+                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                      <img src={solanaLogo} alt="Solana" className="w-4 h-4 rounded-full" />
+                      Solana Balances
                     </div>
-                    <span className="font-medium">${(balances[key] || 0).toFixed(2)}</span>
+                    {solanaTokensWithBalance.map(({ key, config }) => (
+                      <div key={key} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
+                            <img src={solanaLogo} alt="Solana" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                          </div>
+                          <span className="text-muted-foreground">{config.symbol}:</span>
+                        </div>
+                        <span className="font-medium">${(balances[key as TokenKey] || 0).toFixed(2)}</span>
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                )}
 
-            {/* Sui Balances */}
-            <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
-              <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                <img src={suiLogo} alt="Sui" className="w-4 h-4" />
-                Sui Balances
-              </div>
-              {suiTokens.map((token) => {
-                const key = Object.keys(TOKENS).find(k => TOKENS[k as TokenKey] === token) as TokenKey;
-                return (
-                  <div key={key} className="flex justify-between items-center text-sm">
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
-                        <img src={getTokenLogo(key)} alt={token.symbol} className="w-5 h-5" />
-                        <img src={suiLogo} alt="Sui" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full" />
-                      </div>
-                      <span className="text-muted-foreground">{token.symbol}:</span>
+                {/* Sui Balances */}
+                {suiTokensWithBalance.length > 0 && (
+                  <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
+                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                      <img src={suiLogo} alt="Sui" className="w-4 h-4 rounded-full" />
+                      Sui Balances
                     </div>
-                    <span className="font-medium">${(balances[key] || 0).toFixed(2)}</span>
+                    {suiTokensWithBalance.map(({ key, config }) => (
+                      <div key={key} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
+                            <img src={suiLogo} alt="Sui" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                          </div>
+                          <span className="text-muted-foreground">{config.symbol}:</span>
+                        </div>
+                        <span className="font-medium">${(balances[key as TokenKey] || 0).toFixed(2)}</span>
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         )}
 
         <div className="space-y-2">
@@ -419,13 +437,13 @@ export const MultiChainTransferForm = () => {
             <SelectTrigger id="token" className="bg-secondary/50 border-border/50">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="bg-popover border-border">
               {Object.entries(TOKENS).map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   <div className="flex items-center gap-2">
                     <div className="relative">
-                      <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4" />
-                      <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full" />
+                      <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4 rounded-full" />
+                      <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
                     </div>
                     <span>{getTokenDisplayName(key)}</span>
                   </div>
@@ -441,13 +459,13 @@ export const MultiChainTransferForm = () => {
             <SelectTrigger id="gasToken" className="bg-secondary/50 border-border/50">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="bg-popover border-border">
               {Object.entries(TOKENS).map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   <div className="flex items-center gap-2">
                     <div className="relative">
-                      <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4" />
-                      <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full" />
+                      <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4 rounded-full" />
+                      <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
                     </div>
                     <span>{getTokenDisplayName(key)}</span>
                   </div>

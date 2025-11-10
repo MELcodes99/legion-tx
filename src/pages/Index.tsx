@@ -1,7 +1,6 @@
 import { MultiWalletProvider } from '@/components/MultiWalletProvider';
-import { MultiChainWalletButton } from '@/components/MultiChainWalletButton';
+import { UnifiedWalletButton } from '@/components/UnifiedWalletButton';
 import { MultiChainTransferForm } from '@/components/MultiChainTransferForm';
-import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { FAQ } from '@/components/FAQ';
 import { Footer } from '@/components/Footer';
 import legionLogo from '@/assets/legion-logo.png';
@@ -44,7 +43,7 @@ const Index = () => {
                     className="w-8 h-8 md:w-9 md:h-9"
                   />
                 </a>
-                <MultiChainWalletButton />
+                <UnifiedWalletButton />
               </div>
             </nav>
           </header>
@@ -60,12 +59,6 @@ const Index = () => {
                 Simple, fast, and secure multi-chain transfers.
               </p>
             </div>
-
-            {/* Status Banner */}
-            <div className="max-w-4xl mx-auto mb-8 px-4">
-              <DemoModeBanner />
-            </div>
-
 
             {/* Transfer Form */}
             <div className="flex justify-center">

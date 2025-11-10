@@ -15,6 +15,9 @@ import {
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
 } from 'https://esm.sh/@solana/spl-token@0.4.14';
+import { SuiClient } from 'https://esm.sh/@mysten/sui@1.44.0/client';
+import { Transaction as SuiTransaction } from 'https://esm.sh/@mysten/sui@1.44.0/transactions';
+import { Ed25519Keypair } from 'https://esm.sh/@mysten/sui@1.44.0/keypairs/ed25519';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -70,6 +73,7 @@ serve(async (req) => {
 
     // Get backend wallet configuration
     const backendWalletPrivateKey = Deno.env.get('BACKEND_WALLET_PRIVATE_KEY');
+    const suiRelayerWalletJson = Deno.env.get('SUI_RELAYER_WALLET_JSON');
     
     if (!backendWalletPrivateKey) {
       return new Response(
@@ -80,14 +84,14 @@ serve(async (req) => {
       );
     }
 
-    // Parse private key (should be array of numbers as JSON string)
+    // Parse Solana private key (should be array of numbers as JSON string)
     let backendWallet: Keypair;
     try {
       const privateKeyArray = JSON.parse(backendWalletPrivateKey);
       backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
-      console.log('Backend wallet loaded:', backendWallet.publicKey.toBase58());
+      console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
     } catch (error) {
-      console.error('Error parsing backend wallet:', error);
+      console.error('Error parsing Solana backend wallet:', error);
       return new Response(
         JSON.stringify({ 
           error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
@@ -96,8 +100,21 @@ serve(async (req) => {
       );
     }
 
-    // Initialize Solana connection
+    // Parse Sui relayer wallet if provided
+    let suiRelayerKeypair: Ed25519Keypair | null = null;
+    if (suiRelayerWalletJson) {
+      try {
+        const suiWalletData = JSON.parse(suiRelayerWalletJson);
+        suiRelayerKeypair = Ed25519Keypair.fromSecretKey(new Uint8Array(suiWalletData));
+        console.log('Sui relayer wallet loaded:', suiRelayerKeypair.toSuiAddress());
+      } catch (error) {
+        console.error('Error parsing Sui relayer wallet:', error);
+      }
+    }
+
+    // Initialize blockchain clients
     const connection = new Connection(SOLANA_RPC, 'confirmed');
+    const suiClient = new SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl });
 
     // Action: Get backend wallet public key
     if (action === 'get_backend_wallet') {
@@ -237,12 +254,14 @@ serve(async (req) => {
         );
       }
 
-      console.log('Building atomic transaction:', { senderPublicKey, recipientPublicKey, amount, mint });
+      console.log('Building atomic transaction:', { senderPublicKey, recipientPublicKey, amount, mint, chain });
 
-      try {
-        const senderPk = new PublicKey(senderPublicKey);
-        const recipientPk = new PublicKey(recipientPublicKey);
-        const mintPk = new PublicKey(mint);
+      if (chain === 'solana') {
+        // Solana transaction building logic
+        try {
+          const senderPk = new PublicKey(senderPublicKey);
+          const recipientPk = new PublicKey(recipientPublicKey);
+          const mintPk = new PublicKey(mint);
 
         // CRITICAL: Use FIXED FEE model (not percentage)
         // Solana: $0.50 fixed fee
@@ -372,15 +391,80 @@ serve(async (req) => {
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       } catch (error) {
-        console.error('Build transaction error:', error);
+        console.error('Solana build transaction error:', error);
         return new Response(
           JSON.stringify({
-            error: 'Failed to build transaction',
+            error: 'Failed to build Solana transaction',
             details: error instanceof Error ? error.message : 'Unknown error',
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      } else if (chain === 'sui') {
+        // Sui transaction building logic
+        if (!suiRelayerKeypair) {
+          return new Response(
+            JSON.stringify({ error: 'Sui relayer wallet not configured' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        try {
+          const chainConfig = CHAIN_CONFIG.sui;
+          const feeAmount = chainConfig.gasFee;
+          const receiverAmount = amount - feeAmount;
+          
+          const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
+          const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
+
+          console.log('Sui fee calculation:', {
+            userSends: `${amount}`,
+            backendKeeps: `${feeAmount}`,
+            receiverGets: `${receiverAmount}`,
+          });
+
+          // Build Sui transaction
+          const tx = new SuiTransaction();
+          
+          // Split coin for transfer (sender pays full amount to relayer)
+          const [coin] = tx.splitCoins(tx.gas, [fullAmountSmallest]);
+          tx.transferObjects([coin], suiRelayerKeypair.toSuiAddress());
+
+          // Relayer sends amount minus fee to recipient
+          const [recipientCoin] = tx.splitCoins(tx.gas, [receiverAmountSmallest]);
+          tx.transferObjects([recipientCoin], recipientPublicKey);
+
+          // Set sender as the one who pays gas initially
+          tx.setSender(senderPublicKey);
+
+          // Serialize transaction
+          const txBytes = await tx.build({ client: suiClient });
+
+          return new Response(
+            JSON.stringify({
+              transaction: Array.from(txBytes),
+              fee: feeAmount,
+              amountAfterFee: receiverAmount,
+              message: `Sui atomic transaction built: User sends $${amount}, Receiver gets $${receiverAmount}, Backend fee $${feeAmount}`,
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        } catch (error) {
+          console.error('Sui build transaction error:', error);
+          return new Response(
+            JSON.stringify({
+              error: 'Failed to build Sui transaction',
+              details: error instanceof Error ? error.message : 'Unknown error',
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ error: 'Unsupported chain' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Action: Submit atomic transaction (user already signed, backend signs and submits)
@@ -414,7 +498,9 @@ serve(async (req) => {
 
       console.log('Submitting and validating atomic transaction...');
 
-      try {
+      if (chain === 'solana') {
+        // Solana transaction submission logic
+        try {
         // Deserialize the user-signed transaction
         const binaryString = atob(signedTransaction);
         const bytes = new Uint8Array(binaryString.length);
@@ -576,7 +662,7 @@ serve(async (req) => {
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       } catch (txError) {
-        console.error('Atomic transaction error:', txError);
+        console.error('Solana transaction error:', txError);
         return new Response(
           JSON.stringify({
             error: 'Transaction failed',
@@ -585,6 +671,21 @@ serve(async (req) => {
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      } else if (chain === 'sui') {
+        // Sui transaction submission - requires SUI_RELAYER_WALLET_JSON secret
+        return new Response(
+          JSON.stringify({ 
+            error: 'Sui integration requires SUI_RELAYER_WALLET_JSON secret to be configured',
+            details: 'Please add the Sui relayer wallet JSON array as a secret'
+          }),
+          { status: 501, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({ error: 'Unsupported chain' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Legacy SOL relay (kept for compatibility)

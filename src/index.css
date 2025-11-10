@@ -138,4 +138,14 @@ All colors MUST be HSL.
   .animate-spin-slow {
     animation: spin-slow 3s linear infinite;
   }
+
+  /* Round token logos */
+  img[alt*="USDC"],
+  img[alt*="USDT"],
+  img[alt*="Solana"],
+  img[alt*="Sui"],
+  img[alt*="SOL"],
+  img[alt*="SUI"] {
+    border-radius: 9999px;
+  }
 }
