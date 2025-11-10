@@ -372,11 +372,37 @@ serve(async (req) => {
           const recipientPk = new PublicKey(recipientPublicKey);
           const mintPk = new PublicKey(mint);
 
-        // CRITICAL: Use FIXED FEE model with CROSS-CHAIN support
-        // Solana transfers: $0.50 fee (can be paid with Solana OR Sui tokens)
-        // Sui transfers: $0.40 fee (can be paid with Sui OR Solana tokens)
+        // CRITICAL: Use FIXED FEE model with token price conversion
+        // Solana transfers: $0.50 fee (converted to token amount based on current price)
+        // Sui transfers: $0.40 fee (converted to token amount based on current price)
         const transferChainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
-        const feeAmount = transferChainConfig.gasFee; // Fee depends on transfer chain
+        const feeAmountUSD = transferChainConfig.gasFee; // Fee in USD
+        
+        // Determine the token being used for fee payment
+        const feeTokenMint = gasToken || mint; // Use gas token if specified, otherwise use transfer token
+        
+        // Get token symbol for price lookup
+        let feeTokenSymbol: string;
+        if (feeTokenMint.includes('usdc') || feeTokenMint.includes('USDC')) {
+          feeTokenSymbol = 'usd-coin'; // CoinGecko ID for USDC
+        } else if (feeTokenMint.includes('usdt') || feeTokenMint.includes('USDT')) {
+          feeTokenSymbol = 'tether'; // CoinGecko ID for USDT
+        } else if (chain === 'solana') {
+          feeTokenSymbol = 'solana'; // SOL
+        } else {
+          feeTokenSymbol = 'sui'; // SUI
+        }
+        
+        // Fetch token price and calculate fee in token amount
+        const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+        const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
+        
+        console.log('Fee calculation:', {
+          feeUSD: `$${feeAmountUSD}`,
+          tokenPrice: `$${tokenPrice}`,
+          feeInTokens: feeAmount,
+          tokenSymbol: feeTokenSymbol,
+        });
         
         // Helper function to get token config with chain detection
         function getTokenConfig(tokenKey: string) {
@@ -641,7 +667,31 @@ serve(async (req) => {
 
         try {
           const chainConfig = CHAIN_CONFIG.sui;
-          const feeAmount = chainConfig.gasFee;
+          const feeAmountUSD = chainConfig.gasFee; // Fee in USD
+          
+          // Determine the token being used for fee payment
+          const feeTokenMint = gasToken || mint;
+          
+          // Get token symbol for price lookup
+          let feeTokenSymbol: string;
+          if (feeTokenMint.includes('usdc') || feeTokenMint.includes('USDC')) {
+            feeTokenSymbol = 'usd-coin'; // CoinGecko ID for USDC
+          } else if (feeTokenMint.includes('usdt') || feeTokenMint.includes('USDT')) {
+            feeTokenSymbol = 'tether'; // CoinGecko ID for USDT
+          } else {
+            feeTokenSymbol = 'sui'; // SUI
+          }
+          
+          // Fetch token price and calculate fee in token amount
+          const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+          const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
+          
+          console.log('Sui fee calculation:', {
+            feeUSD: `$${feeAmountUSD}`,
+            tokenPrice: `$${tokenPrice}`,
+            feeInTokens: feeAmount,
+            tokenSymbol: feeTokenSymbol,
+          });
           
           // Helper function to get token config with chain info
           function getTokenConfig(tokenKey: string) {
