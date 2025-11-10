@@ -5,6 +5,8 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { Button } from './ui/button';
 import { Wallet } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import solanaLogo from '@/assets/solana-logo.png';
+import suiLogo from '@/assets/sui-logo.png';
 
 export const UnifiedWalletButton = () => {
   const suiAccount = useCurrentAccount();
@@ -18,10 +20,11 @@ export const UnifiedWalletButton = () => {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button 
-            className="bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 px-4 py-2 rounded-lg font-medium transition-all text-primary-foreground"
+            className="bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 px-4 py-2 rounded-lg font-medium transition-all text-primary-foreground flex items-center gap-2"
           >
-            <Wallet className="w-4 h-4 mr-2" />
-            Connected
+            <Wallet className="w-4 h-4" />
+            <img src={solanaLogo} alt="Solana" className="w-4 h-4" />
+            <img src={suiLogo} alt="Sui" className="w-4 h-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="bg-popover border-border p-2 space-y-2 z-50">
@@ -39,10 +42,11 @@ export const UnifiedWalletButton = () => {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button 
-            className="bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 px-4 py-2 rounded-lg font-medium transition-all text-primary-foreground"
+            className="bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 px-4 py-2 rounded-lg font-medium transition-all text-primary-foreground flex items-center gap-2"
           >
-            <Wallet className="w-4 h-4 mr-2" />
-            {solanaPublicKey ? 'Solana' : 'Sui'} Connected
+            <Wallet className="w-4 h-4" />
+            {solanaPublicKey && <img src={solanaLogo} alt="Solana" className="w-4 h-4" />}
+            {suiAccount && <img src={suiLogo} alt="Sui" className="w-4 h-4" />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="bg-popover border-border p-2 space-y-2 z-50">

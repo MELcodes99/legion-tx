@@ -191,6 +191,27 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
+    // Check gas token wallet compatibility
+    const gasTokenConfig = getTokenConfig(selectedGasToken);
+    if (gasTokenConfig) {
+      if (gasTokenConfig.chain === 'solana' && !solanaPublicKey) {
+        toast({
+          title: 'Wallet not compatible',
+          description: 'Please connect a Solana wallet to pay gas fees with this token.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (gasTokenConfig.chain === 'sui' && !suiAccount) {
+        toast({
+          title: 'Wallet not compatible',
+          description: 'Please connect a Sui wallet to pay gas fees with this token.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
     await handleTransfer();
   };
 
