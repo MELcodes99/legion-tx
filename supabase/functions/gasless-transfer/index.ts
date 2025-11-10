@@ -24,11 +24,28 @@ const corsHeaders = {
 // Solana RPC endpoint - use mainnet-beta for production
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 
-// Token mint whitelist - ONLY these tokens are allowed
-const ALLOWED_TOKENS = {
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { name: 'USDC', decimals: 6 },
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
+// Token configuration for multi-chain support
+const CHAIN_CONFIG = {
+  solana: {
+    rpcUrl: 'https://api.mainnet-beta.solana.com',
+    gasFee: 0.50, // Fixed $0.50 fee for Solana
+    tokens: {
+      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { name: 'USDC', decimals: 6 },
+      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
+    }
+  },
+  sui: {
+    rpcUrl: 'https://fullnode.mainnet.sui.io:443',
+    gasFee: 0.40, // Fixed $0.40 fee for Sui
+    tokens: {
+      '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN': { name: 'USDC', decimals: 6 },
+      '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN': { name: 'USDT', decimals: 6 },
+    }
+  }
 } as const;
+
+// Legacy support - map to solana tokens
+const ALLOWED_TOKENS = CHAIN_CONFIG.solana.tokens;
 
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
@@ -126,12 +143,13 @@ serve(async (req) => {
 
     // Action: Build atomic transaction (user→backend + backend→receiver in ONE tx)
     if (action === 'build_atomic_tx') {
-      const { senderPublicKey, recipientPublicKey, amount, mint, decimals } = body as {
+      const { senderPublicKey, recipientPublicKey, amount, mint, decimals, chain = 'solana' } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
         amount?: number;
         mint?: string;
         decimals?: number;
+        chain?: 'solana' | 'sui';
       };
 
       if (!senderPublicKey || !recipientPublicKey || !amount || !mint || decimals == null) {
@@ -226,13 +244,15 @@ serve(async (req) => {
         const recipientPk = new PublicKey(recipientPublicKey);
         const mintPk = new PublicKey(mint);
 
-        // CRITICAL: Calculate exact fee (0.5%) and amount receiver gets (99.5%)
-        // User sends: $5.00 (100%)
-        // Backend fee: $0.025 (0.5%)
-        // Receiver gets: $4.975 (99.5%)
-        const feePercent = 0.005; // 0.5%
-        const feeAmount = amount * feePercent;
-        const receiverAmount = amount - feeAmount; // This is 99.5% of the original amount
+        // CRITICAL: Use FIXED FEE model (not percentage)
+        // Solana: $0.50 fixed fee
+        // Sui: $0.40 fixed fee
+        // Example: User sends $5.00
+        // - Backend fee: $0.50 (Solana) or $0.40 (Sui)
+        // - Receiver gets: $4.50 (Solana) or $4.60 (Sui)
+        const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
+        const feeAmount = chainConfig.gasFee; // Fixed fee in USD
+        const receiverAmount = amount - feeAmount;
         
         // Convert to smallest units (e.g., 6 decimals for USDC/USDT)
         const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
@@ -240,10 +260,11 @@ serve(async (req) => {
         const feeSmallest = fullAmountSmallest - receiverAmountSmallest;
 
         console.log('Fee calculation:', {
+          chain,
           userSends: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
           backendKeeps: `${feeAmount} (${feeSmallest.toString()} smallest units)`,
           receiverGets: `${receiverAmount} (${receiverAmountSmallest.toString()} smallest units)`,
-          feePercent: '0.5%'
+          fixedFee: `$${feeAmount}`
         });
 
         // Get all ATA addresses (don't create yet - will be done in transaction if needed)
@@ -364,12 +385,13 @@ serve(async (req) => {
 
     // Action: Submit atomic transaction (user already signed, backend signs and submits)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint } = body as { 
+      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint, chain = 'solana' } = body as { 
         signedTransaction?: string;
         senderPublicKey?: string;
         recipientPublicKey?: string;
         amount?: number;
         mint?: string;
+        chain?: 'solana' | 'sui';
       };
 
       if (!signedTransaction || !senderPublicKey || !recipientPublicKey || !amount || !mint) {
@@ -405,9 +427,10 @@ serve(async (req) => {
         const mintPk = new PublicKey(mint);
         const tokenInfo = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
         
-        // Calculate expected values
-        const feePercent = 0.005;
-        const receiverAmount = amount - (amount * feePercent);
+        // Calculate expected values using FIXED FEE model
+        const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
+        const feeAmount = chainConfig.gasFee; // Fixed fee
+        const receiverAmount = amount - feeAmount;
         const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
         const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, tokenInfo.decimals)));
 

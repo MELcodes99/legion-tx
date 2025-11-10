@@ -1,0 +1,433 @@
+import { useState, useEffect } from 'react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
+import { Loader2, Send, AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ProcessingLogo } from './ProcessingLogo';
+import { TOKENS, getTokensByChain, getTokenConfig, getTokenDisplayName, MIN_TRANSFER_USD } from '@/config/tokens';
+import type { ChainType } from '@/config/tokens';
+import usdtLogo from '@/assets/usdt-logo.png';
+import usdcLogo from '@/assets/usdc-logo.png';
+import solanaLogo from '@/assets/solana-logo.png';
+import suiLogo from '@/assets/sui-logo.png';
+
+type TokenKey = keyof typeof TOKENS;
+type BalanceMap = Record<TokenKey, number>;
+
+export const MultiChainTransferForm = () => {
+  const { connection } = useConnection();
+  const { publicKey: solanaPublicKey, signTransaction: solanaSignTransaction } = useWallet();
+  const { toast } = useToast();
+  
+  const [recipient, setRecipient] = useState('');
+  const [amount, setAmount] = useState('');
+  const [selectedToken, setSelectedToken] = useState<TokenKey>('USDC_SOL');
+  const [selectedGasToken, setSelectedGasToken] = useState<TokenKey>('USDC_SOL');
+  const [balances, setBalances] = useState<BalanceMap>({} as BalanceMap);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const selectedTokenConfig = getTokenConfig(selectedToken);
+  const gasFee = selectedTokenConfig?.gasFee || 0.50;
+
+  // Fetch balances for all chains
+  useEffect(() => {
+    const fetchBalances = async () => {
+      const newBalances: Partial<BalanceMap> = {};
+
+      // Fetch Solana balances
+      if (solanaPublicKey) {
+        try {
+          // Fetch SOL balance
+          const solBalance = await connection.getBalance(solanaPublicKey, 'confirmed');
+          newBalances.SOL = solBalance / LAMPORTS_PER_SOL;
+
+          // Fetch USDC (Solana)
+          try {
+            const usdcMint = new PublicKey(TOKENS.USDC_SOL.mint);
+            const usdcParsed = await connection.getParsedTokenAccountsByOwner(
+              solanaPublicKey,
+              { mint: usdcMint }
+            );
+            if (usdcParsed.value.length > 0) {
+              const tokenAmount = usdcParsed.value[0].account.data.parsed.info.tokenAmount;
+              newBalances.USDC_SOL = tokenAmount.uiAmount || 0;
+            } else {
+              newBalances.USDC_SOL = 0;
+            }
+          } catch {
+            newBalances.USDC_SOL = 0;
+          }
+
+          // Fetch USDT (Solana)
+          try {
+            const usdtMint = new PublicKey(TOKENS.USDT_SOL.mint);
+            const usdtParsed = await connection.getParsedTokenAccountsByOwner(
+              solanaPublicKey,
+              { mint: usdtMint }
+            );
+            if (usdtParsed.value.length > 0) {
+              const tokenAmount = usdtParsed.value[0].account.data.parsed.info.tokenAmount;
+              newBalances.USDT_SOL = tokenAmount.uiAmount || 0;
+            } else {
+              newBalances.USDT_SOL = 0;
+            }
+          } catch {
+            newBalances.USDT_SOL = 0;
+          }
+        } catch (error) {
+          console.error('Error fetching Solana balances:', error);
+        }
+      }
+
+      // TODO: Fetch Sui balances when Sui wallet is connected
+      // For now, set Sui balances to 0
+      newBalances.USDC_SUI = 0;
+      newBalances.USDT_SUI = 0;
+      newBalances.SUI = 0;
+
+      setBalances(newBalances as BalanceMap);
+    };
+
+    fetchBalances();
+    const interval = setInterval(fetchBalances, 10000);
+    return () => clearInterval(interval);
+  }, [solanaPublicKey, connection]);
+
+  const initiateTransfer = async () => {
+    if (!solanaPublicKey) {
+      toast({
+        title: 'Wallet not connected',
+        description: 'Please connect your wallet first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setError('');
+    
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      setError('Invalid amount');
+      return;
+    }
+
+    if (amountNum < MIN_TRANSFER_USD) {
+      setError(`Minimum transfer amount is $${MIN_TRANSFER_USD} USD`);
+      return;
+    }
+
+    const currentBalance = balances[selectedToken] || 0;
+    if (amountNum > currentBalance) {
+      setError(`Insufficient balance. You have $${currentBalance.toFixed(2)} ${selectedTokenConfig?.symbol}`);
+      return;
+    }
+
+    await handleTransfer();
+  };
+
+  const handleTransfer = async () => {
+    if (!solanaPublicKey || !solanaSignTransaction) {
+      return;
+    }
+
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const tokenConfig = selectedTokenConfig;
+      if (!tokenConfig) throw new Error('Invalid token selected');
+
+      const fullAmount = parseFloat(amount);
+
+      console.log('=== MULTI-CHAIN GASLESS TRANSFER START ===');
+      console.log('Chain:', tokenConfig.chain);
+      console.log('Token:', selectedToken);
+      console.log('Amount:', fullAmount);
+      console.log('Gas token:', selectedGasToken);
+
+      if (tokenConfig.chain === 'solana') {
+        // Solana transfer logic (same as before)
+        toast({ 
+          title: 'Building transaction...', 
+          description: 'Creating gasless transfer on Solana'
+        });
+
+        const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
+            action: 'build_atomic_tx',
+            chain: 'solana',
+            senderPublicKey: solanaPublicKey.toBase58(),
+            recipientPublicKey: recipient,
+            amount: fullAmount,
+            mint: tokenConfig.mint,
+            decimals: tokenConfig.decimals,
+            gasToken: selectedGasToken,
+          }
+        });
+
+        if (buildResponse.error) {
+          throw new Error(buildResponse.error.message);
+        }
+
+        const { transaction: base64Tx, fee, amountAfterFee } = buildResponse.data;
+
+        // Deserialize and sign
+        const binaryString = atob(base64Tx);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        
+        const { Transaction } = await import('@solana/web3.js');
+        const transaction = Transaction.from(bytes);
+
+        toast({ title: 'Sign the transaction', description: 'Please approve in your wallet' });
+        const signedTx = await solanaSignTransaction(transaction);
+        const serialized = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
+        const signedBase64Tx = btoa(String.fromCharCode(...serialized));
+
+        toast({ title: 'Submitting transaction...', description: 'Processing your transfer' });
+
+        const submitResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
+            action: 'submit_atomic_tx',
+            chain: 'solana',
+            signedTransaction: signedBase64Tx,
+            senderPublicKey: solanaPublicKey.toBase58(),
+            recipientPublicKey: recipient,
+            amount: fullAmount,
+            mint: tokenConfig.mint,
+          }
+        });
+
+        if (submitResponse.error) {
+          throw new Error(submitResponse.error.message);
+        }
+
+        const { signature } = submitResponse.data;
+        toast({
+          title: 'Transfer Successful!',
+          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}`,
+        });
+
+        setRecipient('');
+        setAmount('');
+      } else if (tokenConfig.chain === 'sui') {
+        // TODO: Implement Sui transfer logic
+        throw new Error('Sui transfers coming soon!');
+      }
+    } catch (err) {
+      console.error('Transfer error:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Transfer failed';
+      setError(errorMessage);
+      toast({
+        title: 'Transfer failed',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const amountAfterFee = amount ? (parseFloat(amount) || 0) - gasFee : 0;
+
+  const getTokenLogo = (tokenKey: TokenKey) => {
+    const symbol = TOKENS[tokenKey].symbol;
+    if (symbol === 'USDC') return usdcLogo;
+    if (symbol === 'USDT') return usdtLogo;
+    return usdcLogo;
+  };
+
+  const getChainLogo = (chain: ChainType) => {
+    return chain === 'solana' ? solanaLogo : suiLogo;
+  };
+
+  const solanaTokens = getTokensByChain('solana');
+  const suiTokens = getTokensByChain('sui');
+
+  return (
+    <Card className="glass-card w-full max-w-md border-2 border-primary/30">
+      <CardHeader className="space-y-1">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+            Legion Transfer
+          </CardTitle>
+          <ProcessingLogo isProcessing={isLoading} className="w-8 h-8 md:w-10 md:h-10" />
+        </div>
+        <CardDescription className="text-muted-foreground text-sm">
+          Send tokens across multiple chains without gas fees
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!solanaPublicKey && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Connect your wallet to start transferring tokens
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {solanaPublicKey && (
+          <div className="space-y-3">
+            {/* Solana Balances */}
+            <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
+              <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                <img src={solanaLogo} alt="Solana" className="w-4 h-4" />
+                Solana Balances
+              </div>
+              {solanaTokens.map((token) => {
+                const key = Object.keys(TOKENS).find(k => TOKENS[k as TokenKey] === token) as TokenKey;
+                return (
+                  <div key={key} className="flex justify-between items-center text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <img src={getTokenLogo(key)} alt={token.symbol} className="w-5 h-5" />
+                        <img src={solanaLogo} alt="Solana" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full" />
+                      </div>
+                      <span className="text-muted-foreground">{token.symbol}:</span>
+                    </div>
+                    <span className="font-medium">${(balances[key] || 0).toFixed(2)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Sui Balances */}
+            <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
+              <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                <img src={suiLogo} alt="Sui" className="w-4 h-4" />
+                Sui Balances
+              </div>
+              {suiTokens.map((token) => {
+                const key = Object.keys(TOKENS).find(k => TOKENS[k as TokenKey] === token) as TokenKey;
+                return (
+                  <div key={key} className="flex justify-between items-center text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <img src={getTokenLogo(key)} alt={token.symbol} className="w-5 h-5" />
+                        <img src={suiLogo} alt="Sui" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full" />
+                      </div>
+                      <span className="text-muted-foreground">{token.symbol}:</span>
+                    </div>
+                    <span className="font-medium">${(balances[key] || 0).toFixed(2)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="token">Token to Send</Label>
+          <Select value={selectedToken} onValueChange={(value: TokenKey) => setSelectedToken(value)}>
+            <SelectTrigger id="token" className="bg-secondary/50 border-border/50">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(TOKENS).map(([key, config]) => (
+                <SelectItem key={key} value={key}>
+                  <div className="flex items-center gap-2">
+                    <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4" />
+                    <span>{getTokenDisplayName(key)}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="gasToken">Pay Gas With</Label>
+          <Select value={selectedGasToken} onValueChange={(value: TokenKey) => setSelectedGasToken(value)}>
+            <SelectTrigger id="gasToken" className="bg-secondary/50 border-border/50">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(TOKENS).map(([key, config]) => (
+                <SelectItem key={key} value={key}>
+                  <div className="flex items-center gap-2">
+                    <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4" />
+                    <span>{getTokenDisplayName(key)}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="recipient">Recipient Address</Label>
+          <Input
+            id="recipient"
+            placeholder="Enter recipient address"
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+            disabled={!solanaPublicKey || isLoading}
+            className="bg-secondary/50 border-border/50"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="amount">Amount ($)</Label>
+          <Input
+            id="amount"
+            type="number"
+            step="0.01"
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={!solanaPublicKey || isLoading}
+            className="bg-secondary/50 border-border/50"
+          />
+        </div>
+
+        {amount && parseFloat(amount) > 0 && (
+          <div className="rounded-lg bg-secondary/30 p-3 space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Multichain Gas Fee:</span>
+              <span className="font-medium">${gasFee.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Recipient receives:</span>
+              <span className="font-medium">${amountAfterFee.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <Button
+          onClick={initiateTransfer}
+          disabled={!solanaPublicKey || isLoading || !recipient || !amount}
+          className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Processing...
+            </>
+          ) : (
+            <>
+              <Send className="h-4 w-4" />
+              Send Now
+            </>
+          )}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+};

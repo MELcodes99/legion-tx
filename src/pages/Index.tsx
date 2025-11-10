@@ -1,6 +1,6 @@
 import { WalletProvider } from '@/components/WalletProvider';
 import { WalletButton } from '@/components/WalletButton';
-import { TransferForm } from '@/components/TransferForm';
+import { MultiChainTransferForm } from '@/components/MultiChainTransferForm';
 import { FAQ } from '@/components/FAQ';
 import { Footer } from '@/components/Footer';
 import legionLogo from '@/assets/legion-logo.png';
@@ -63,7 +63,7 @@ const Index = () => {
 
             {/* Transfer Form */}
             <div className="flex justify-center">
-              <TransferForm />
+              <MultiChainTransferForm />
             </div>
 
             {/* Features */}
@@ -74,12 +74,12 @@ const Index = () => {
                   description: 'We cover all transaction fees so you can focus on what matters',
                 },
                 {
-                  title: '0.5% Service Fee',
-                  description: 'Transparent pricing with automatic fee calculation',
+                  title: 'Multichain Gas Fee',
+                  description: 'Fixed fee: $0.50 (Solana) | $0.40 (Sui) - transparent and predictable',
                 },
                 {
-                  title: 'Secure & Fast',
-                  description: 'Built on Solana for lightning-fast, secure transactions',
+                  title: 'Multi-Chain Support',
+                  description: 'Send USDT & USDC across Solana and Sui blockchains',
                 },
               ].map((feature, i) => (
                 <div
