@@ -464,40 +464,41 @@ serve(async (req) => {
         // Convert amounts to smallest units
         const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
         
-        let receiverAmountSmallest: bigint;
+        // CRITICAL FOR SOLANA: Fee is ALWAYS collected separately from gas token
+        // Receiver gets the FULL amount entered, fee is separate deduction
+        let receiverAmountSmallest: bigint = fullAmountSmallest;
         let feeSmallest: bigint;
         let gasTokenFeeSmallest: bigint | null = null;
         let gasTokenMintPk: PublicKey | null = null;
         let gasTokenDecimals: number | null = null;
         
         if (usesSeparateGasToken && gasTokenConfig) {
-          // Gas is paid with different token - send FULL amount to receiver
-          receiverAmountSmallest = fullAmountSmallest;
-          feeSmallest = BigInt(0);
-          
-          // Calculate gas fee in gas token
+          // Gas is paid with different token
+          feeSmallest = BigInt(0); // No fee deducted from sending token
           gasTokenDecimals = gasTokenConfig.decimals;
           gasTokenMintPk = new PublicKey(gasTokenConfig.mint);
           gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
           
-          console.log('Using separate gas token:', {
+          console.log('Solana: Using separate gas token:', {
             sendingToken: mint,
             gasToken: gasTokenConfig.mint,
             fullAmountToReceiver: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
             gasFeeInGasToken: `${feeAmount} (${gasTokenFeeSmallest.toString()} smallest units of ${gasTokenConfig.symbol})`,
           });
         } else {
-          // Gas is paid from same token - deduct from sending amount
-          const receiverAmount = amount - feeAmount;
-          receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
-          feeSmallest = fullAmountSmallest - receiverAmountSmallest;
+          // Gas is paid from SAME token - fee still collected separately
+          // User needs: amount (to send) + feeAmount (for gas) in same token
+          gasTokenMintPk = mintPk;
+          gasTokenDecimals = decimals;
+          gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, decimals)));
+          feeSmallest = gasTokenFeeSmallest;
           
-          console.log('Using same token for gas:', {
+          console.log('Solana: Using same token for gas (collected separately):', {
             chain,
-            userSends: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
-            backendKeeps: `${feeAmount} (${feeSmallest.toString()} smallest units)`,
-            receiverGets: `${amount - feeAmount} (${receiverAmountSmallest.toString()} smallest units)`,
-            fixedFee: `$${feeAmount}`
+            sendingToken: mint,
+            receiverGets: `${amount} (${fullAmountSmallest.toString()} smallest units) - FULL amount`,
+            gasFeeDeducted: `${feeAmount} (${gasTokenFeeSmallest.toString()} smallest units) - separate`,
+            userNeedsTotal: `${amount + feeAmount} total in wallet`,
           });
         }
 
@@ -604,32 +605,35 @@ serve(async (req) => {
             instruction2_sender_to_backend_gas: `${gasTokenFeeSmallest.toString()} smallest units of gas token`,
           });
         } else {
-          // MODE 2: Same token for gas - traditional flow (sender → backend → receiver)
+          // MODE 2: Same token for gas - collect fee separately
+          // Sender sends FULL amount to receiver + fee to backend (both from same token)
           
-          // Instruction 1: Sender → Backend (FULL amount including fee)
+          // Instruction 1: Sender → Recipient (FULL amount)
           atomicTx.add(
             createTransferInstruction(
               senderAta,
-              backendAta,
-              senderPk,
-              fullAmountSmallest
-            )
-          );
-
-          // Instruction 2: Backend → Receiver (amount minus fee)
-          atomicTx.add(
-            createTransferInstruction(
-              backendAta,
               recipientAta,
-              backendWallet.publicKey,
+              senderPk,
               receiverAmountSmallest
             )
           );
-
-          console.log('Same token transaction:', {
-            instruction1_sender_to_backend: `${fullAmountSmallest.toString()} smallest units`,
-            instruction2_backend_to_receiver: `${receiverAmountSmallest.toString()} smallest units`,
-            backend_keeps_as_fee: `${feeSmallest.toString()} smallest units`
+          
+          // Instruction 2: Sender → Backend (Gas fee from same token)
+          if (gasTokenFeeSmallest) {
+            atomicTx.add(
+              createTransferInstruction(
+                senderAta,
+                backendAta,
+                senderPk,
+                gasTokenFeeSmallest
+              )
+            );
+          }
+          
+          console.log('Same token transaction (fee collected separately):', {
+            instruction1_sender_to_receiver: `${receiverAmountSmallest.toString()} smallest units (FULL amount)`,
+            instruction2_sender_to_backend_fee: `${gasTokenFeeSmallest?.toString()} smallest units (separate gas fee)`,
+            user_needs_total: `${receiverAmountSmallest + (gasTokenFeeSmallest || BigInt(0))} smallest units total`
           });
         }
 
@@ -1106,25 +1110,25 @@ serve(async (req) => {
                   }
                 }
               } else {
-                // MODE 2: Same token validation (traditional flow)
-                // Transfer 1: sender → backend (full amount)
-                // Transfer 2: backend → recipient (amount - fee)
+                // MODE 2: Same token validation (NEW: fee collected separately)
+                // Transfer 1: sender → recipient (full amount)
+                // Transfer 2: sender → backend (gas fee from same token)
                 
-                if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
-                  console.log('✓ This is user → backend transfer (same token mode)');
-                  console.log('  Expected amount:', fullAmountSmallest.toString());
-                  console.log('  Actual amount:', instructionAmount.toString());
-                  if (instructionAmount === fullAmountSmallest) {
-                    validTransfer1 = true;
-                    console.log('✓ User → backend validation PASSED');
-                  }
-                } else if (source.equals(backendAta) && destination.equals(recipientAta) && authority.equals(backendWallet.publicKey)) {
-                  console.log('✓ This is backend → recipient transfer');
+                if (source.equals(senderAta) && destination.equals(recipientAta) && authority.equals(senderPk)) {
+                  console.log('✓ This is sender → recipient transfer (same token mode)');
                   console.log('  Expected amount:', receiverAmountSmallest.toString());
                   console.log('  Actual amount:', instructionAmount.toString());
                   if (instructionAmount === receiverAmountSmallest) {
+                    validTransfer1 = true;
+                    console.log('✓ Sender → recipient validation PASSED');
+                  }
+                } else if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
+                  console.log('✓ This is sender → backend gas fee transfer (same token mode)');
+                  console.log('  Expected amount:', gasTokenFeeSmallest?.toString());
+                  console.log('  Actual amount:', instructionAmount.toString());
+                  if (gasTokenFeeSmallest && instructionAmount === gasTokenFeeSmallest) {
                     validTransfer2 = true;
-                    console.log('✓ Backend → recipient validation PASSED');
+                    console.log('✓ Gas fee transfer validation PASSED');
                   }
                 }
               }
