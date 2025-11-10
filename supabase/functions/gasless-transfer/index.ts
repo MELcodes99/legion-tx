@@ -764,12 +764,18 @@ serve(async (req) => {
             
             console.log('Built Sui transaction with separate gas token');
           } else {
-            // MODE 2: Same token for transfer and gas
-            // Split and send full amount to relayer, who will forward to recipient
-            const [coin] = tx.splitCoins(primaryCoin, [fullAmountSmallest]);
-            tx.transferObjects([coin], suiRelayerKeypair.toSuiAddress());
+            // MODE 2: Same token for transfer and gas - ATOMIC SPLIT
+            // Split into two parts: fee for backend, remainder for recipient
+            // All happens in ONE transaction - true atomic transfer
+            const feeAmountSmallest = fullAmountSmallest - receiverAmountSmallest;
             
-            console.log('Built Sui transaction with same token for gas');
+            const [feeCoin, recipientCoin] = tx.splitCoins(primaryCoin, [feeAmountSmallest, receiverAmountSmallest]);
+            
+            // Transfer fee to backend and amount to recipient - both in same transaction
+            tx.transferObjects([feeCoin], suiRelayerKeypair.toSuiAddress());
+            tx.transferObjects([recipientCoin], recipientPublicKey);
+            
+            console.log('Built ATOMIC Sui transaction: fee to backend, tokens to recipient in one tx');
           }
 
           // Set sender
@@ -1173,89 +1179,18 @@ serve(async (req) => {
             throw new Error(`Sui transaction failed: ${result.effects?.status?.error || 'Unknown error'}`);
           }
 
-          console.log('Sui transaction confirmed (user → relayer):', result.digest);
+          console.log(`✅ ATOMIC Sui transaction confirmed: ${result.digest}`);
+          console.log(`   - Transaction splits coins automatically:`);
+          console.log(`   - Fee sent to backend wallet`);
+          console.log(`   - Tokens sent directly to recipient`);
+          console.log(`   - All in ONE atomic transaction`);
           
-          // Determine if separate gas token was used
-          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
-          const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
-          
-          // Calculate amounts
-          const chainConfig = CHAIN_CONFIG.sui;
-          const feeAmount = chainConfig.gasFee;
-          const receiverAmount = usesSeparateGasToken ? amount : amount - feeAmount;
-          const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, tokenInfo.decimals)));
-          
-          console.log('Sending to recipient:', {
-            receiverAmount,
-            receiverAmountSmallest: receiverAmountSmallest.toString(),
-            tokenMint: mint,
-            tokenDecimals: tokenInfo.decimals,
-            usesSeparateGasToken,
-          });
-
-          // Check if backend has sufficient SUI for gas
-          const backendSuiCoins = await suiClient.getCoins({
-            owner: suiRelayerKeypair.toSuiAddress(),
-            coinType: '0x2::sui::SUI',
-          });
-          
-          const backendSuiBalance = backendSuiCoins.data.reduce((sum, coin) => 
-            sum + BigInt(coin.balance), 0n);
-          const minRequiredSui = 10000000n; // 0.01 SUI minimum for gas
-          
-          if (backendSuiBalance < minRequiredSui) {
-            throw new Error(
-              `Backend wallet has insufficient SUI for gas. Balance: ${Number(backendSuiBalance) / 1e9} SUI. ` +
-              `Please fund the backend wallet (${suiRelayerKeypair.toSuiAddress()}) with at least 0.1 SUI.`
-            );
-          }
-          
-          console.log(`Backend SUI balance: ${Number(backendSuiBalance) / 1e9} SUI`);
-
-          // Now send the appropriate amount to the recipient using the correct token type
-          // Fetch relayer's coin objects for the token
-          const relayerCoins = await suiClient.getCoins({
-            owner: suiRelayerKeypair.toSuiAddress(),
-            coinType: mint,
-          });
-          
-          if (!relayerCoins.data || relayerCoins.data.length === 0) {
-            throw new Error(`Relayer has no ${mint} coins to forward to recipient`);
-          }
-          
-          const tx2 = new SuiTransaction();
-          const primaryCoin = tx2.object(relayerCoins.data[0].coinObjectId);
-          
-          // Merge coins if multiple
-          if (relayerCoins.data.length > 1) {
-            const otherCoins = relayerCoins.data.slice(1).map(coin => tx2.object(coin.coinObjectId));
-            tx2.mergeCoins(primaryCoin, otherCoins);
-          }
-          
-          const [coin] = tx2.splitCoins(primaryCoin, [receiverAmountSmallest]);
-          tx2.transferObjects([coin], recipientPublicKey);
-          
-          // Set gas budget for the forwarding transaction
-          tx2.setGasBudget(10000000); // 0.01 SUI
-          
-          console.log('Forwarding tokens from backend to recipient...');
-          
-          const result2 = await suiClient.signAndExecuteTransaction({
-            signer: suiRelayerKeypair,
-            transaction: tx2,
-            options: {
-              showEffects: true,
-            },
-          });
-
-          console.log('Sui payout to recipient confirmed:', result2.digest);
-
           return new Response(
             JSON.stringify({
               success: true,
-              digest: result.digest,
-              payoutDigest: result2.digest,
-              message: 'Gasless Sui transfer completed successfully',
+              txHash: result.digest,
+              explorerUrl: `https://suiscan.xyz/testnet/tx/${result.digest}`,
+              message: 'Atomic transaction complete: fee to backend, tokens to recipient in one transaction',
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
