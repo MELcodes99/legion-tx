@@ -771,12 +771,32 @@ serve(async (req) => {
             console.log('Built Sui transaction with same token for gas');
           }
 
-          // Set sender - USER pays blockchain gas with their own SUI
+          // Set sender
           tx.setSender(senderPublicKey);
-          // Note: User must have SUI tokens for blockchain gas
-          // The $0.40 "gas fee" is our service fee, separate from blockchain gas
+          
+          // IMPORTANT: Sponsor the transaction with relayer's SUI for blockchain gas
+          // This enables true "gasless" transfers where users don't need SUI tokens
+          const relayerSuiCoins = await suiClient.getCoins({
+            owner: suiRelayerKeypair.toSuiAddress(),
+            coinType: '0x2::sui::SUI',
+          });
+          
+          if (!relayerSuiCoins.data || relayerSuiCoins.data.length === 0) {
+            throw new Error('Relayer has no SUI tokens to sponsor gas fees');
+          }
+          
+          // Use relayer's SUI to pay for blockchain gas
+          const gasPayment = relayerSuiCoins.data.slice(0, 3).map(coin => ({
+            objectId: coin.coinObjectId,
+            version: coin.version,
+            digest: coin.digest,
+          }));
+          
+          tx.setGasOwner(suiRelayerKeypair.toSuiAddress());
+          tx.setGasPayment(gasPayment);
+          tx.setGasBudget(10000000); // 0.01 SUI gas budget
 
-          console.log('Transaction configured (user pays blockchain gas with own SUI)');
+          console.log('Gas sponsorship configured - relayer will pay blockchain gas');
 
           // Build transaction bytes
           const txBytes = await tx.build({ client: suiClient });
@@ -817,7 +837,7 @@ serve(async (req) => {
 
     // Action: Submit atomic transaction (user already signed, backend signs and submits)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint, chain = 'solana', gasToken } = body as { 
+      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint, chain = 'solana', gasToken, userSignature } = body as { 
         signedTransaction?: string;
         senderPublicKey?: string;
         recipientPublicKey?: string;
@@ -825,6 +845,7 @@ serve(async (req) => {
         mint?: string;
         chain?: 'solana' | 'sui';
         gasToken?: string;
+        userSignature?: string; // Sui: separate signature from transaction bytes
       };
 
       if (!signedTransaction || !senderPublicKey || !recipientPublicKey || !amount || !mint) {
@@ -1115,13 +1136,32 @@ serve(async (req) => {
             throw new Error(`Token ${mint} not supported on Sui`);
           }
           
-          // The user has signed the transaction
-          // Now execute it on the blockchain
-          console.log('Executing user-signed Sui transaction...');
+          // Validate userSignature is present for Sui transactions
+          if (!userSignature) {
+            throw new Error('User signature is required for Sui transactions');
+          }
+          
+          // For gas-sponsored transactions, BOTH sender and gas owner must sign
+          // 1. User has already signed (userSignature)
+          // 2. Now relayer must also sign the same transaction bytes
+          console.log('Adding relayer signature for gas sponsorship...');
+          
+          // Decode transaction bytes
+          const binaryString = atob(signedTransaction);
+          const txBytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            txBytes[i] = binaryString.charCodeAt(i);
+          }
+          
+          // Relayer signs as gas sponsor
+          const relayerSignature = await suiRelayerKeypair.signTransaction(txBytes);
+          
+          // Execute with both signatures: [userSignature, sponsorSignature]
+          console.log('Executing gas-sponsored Sui transaction with dual signatures...');
           
           const result = await suiClient.executeTransactionBlock({
             transactionBlock: signedTransaction,
-            signature: signedTransaction,
+            signature: [userSignature, relayerSignature.signature],
             options: {
               showEffects: true,
               showEvents: true,
