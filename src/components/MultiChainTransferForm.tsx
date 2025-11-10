@@ -286,11 +286,70 @@ export const MultiChainTransferForm = () => {
         setRecipient('');
         setAmount('');
       } else if (tokenConfig.chain === 'sui') {
-        toast({
-          title: 'Sui Support Coming Soon',
-          description: 'Sui transfers require backend configuration. Contact support for setup.',
-          variant: 'default',
+        if (!suiAccount) throw new Error('Sui wallet not connected');
+
+        toast({ 
+          title: 'Building transaction...', 
+          description: 'Creating gasless transfer on Sui'
         });
+
+        const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
+            action: 'build_atomic_tx',
+            chain: 'sui',
+            senderPublicKey: suiAccount.address,
+            recipientPublicKey: recipient,
+            amount: fullAmount,
+            mint: tokenConfig.mint,
+            decimals: tokenConfig.decimals,
+            gasToken: selectedGasToken,
+          }
+        });
+
+        if (buildResponse.error) {
+          throw new Error(buildResponse.error.message);
+        }
+
+        const { transaction: base64Tx, fee, amountAfterFee } = buildResponse.data;
+
+        toast({ title: 'Sign the transaction', description: 'Please approve in your Sui wallet' });
+        
+        // Decode and sign the Sui transaction
+        const binaryString = atob(base64Tx);
+        const txBytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          txBytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        const signedTx = await signSuiTransaction({
+          transaction: SuiTransaction.from(txBytes),
+          chain: 'sui:mainnet',
+        });
+
+        toast({ title: 'Submitting transaction...', description: 'Processing your transfer' });
+
+        const submitResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
+            action: 'submit_atomic_tx',
+            chain: 'sui',
+            signedTransaction: signedTx.bytes, // Already base64 encoded
+            senderPublicKey: suiAccount.address,
+            recipientPublicKey: recipient,
+            amount: fullAmount,
+            mint: tokenConfig.mint,
+          }
+        });
+
+        if (submitResponse.error) {
+          throw new Error(submitResponse.error.message);
+        }
+
+        const { digest } = submitResponse.data;
+        toast({
+          title: 'Transfer Successful!',
+          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}`,
+        });
+
         setRecipient('');
         setAmount('');
       }

@@ -421,31 +421,32 @@ serve(async (req) => {
             userSends: `${amount}`,
             backendKeeps: `${feeAmount}`,
             receiverGets: `${receiverAmount}`,
+            relayerAddress: suiRelayerKeypair.toSuiAddress(),
           });
 
-          // Build Sui transaction
+          // Build Sui transaction with PTB (Programmable Transaction Block)
           const tx = new SuiTransaction();
           
-          // Split coin for transfer (sender pays full amount to relayer)
+          // User sends full amount to relayer
           const [coin] = tx.splitCoins(tx.gas, [fullAmountSmallest]);
           tx.transferObjects([coin], suiRelayerKeypair.toSuiAddress());
 
-          // Relayer sends amount minus fee to recipient
-          const [recipientCoin] = tx.splitCoins(tx.gas, [receiverAmountSmallest]);
-          tx.transferObjects([recipientCoin], recipientPublicKey);
-
-          // Set sender as the one who pays gas initially
+          // Set sender
           tx.setSender(senderPublicKey);
+          tx.setGasBudget(10000000); // 0.01 SUI gas budget
 
-          // Serialize transaction
+          // Build transaction bytes
           const txBytes = await tx.build({ client: suiClient });
+          
+          // Encode to base64
+          const base64Tx = btoa(String.fromCharCode(...txBytes));
 
           return new Response(
             JSON.stringify({
-              transaction: Array.from(txBytes),
+              transaction: base64Tx,
               fee: feeAmount,
               amountAfterFee: receiverAmount,
-              message: `Sui atomic transaction built: User sends $${amount}, Receiver gets $${receiverAmount}, Backend fee $${feeAmount}`,
+              message: `Sui transaction built: User sends $${amount}, Receiver gets $${receiverAmount}, Backend fee $${feeAmount}`,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -672,14 +673,79 @@ serve(async (req) => {
         );
       }
       } else if (chain === 'sui') {
-        // Sui transaction submission - requires SUI_RELAYER_WALLET_JSON secret
-        return new Response(
-          JSON.stringify({ 
-            error: 'Sui integration requires SUI_RELAYER_WALLET_JSON secret to be configured',
-            details: 'Please add the Sui relayer wallet JSON array as a secret'
-          }),
-          { status: 501, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        // Sui transaction submission logic
+        if (!suiRelayerKeypair) {
+          return new Response(
+            JSON.stringify({ error: 'Sui relayer wallet not configured' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        try {
+          console.log('Processing Sui transaction...');
+          
+          // Decode the signed transaction from user
+          const binaryString = atob(signedTransaction);
+          const txBytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            txBytes[i] = binaryString.charCodeAt(i);
+          }
+          
+          // Relayer signs and executes the transaction
+          const result = await suiClient.signAndExecuteTransaction({
+            signer: suiRelayerKeypair,
+            transaction: txBytes,
+            options: {
+              showEffects: true,
+              showEvents: true,
+            },
+          });
+
+          if (result.effects?.status?.status !== 'success') {
+            throw new Error(`Sui transaction failed: ${result.effects?.status?.error || 'Unknown error'}`);
+          }
+
+          console.log('Sui transaction confirmed:', result.digest);
+          
+          // Now send the amount minus fee to the recipient
+          const chainConfig = CHAIN_CONFIG.sui;
+          const feeAmount = chainConfig.gasFee;
+          const receiverAmount = amount - feeAmount;
+          const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, 6))); // USDC/USDT = 6 decimals
+
+          const tx2 = new SuiTransaction();
+          const [coin] = tx2.splitCoins(tx2.gas, [receiverAmountSmallest]);
+          tx2.transferObjects([coin], recipientPublicKey);
+          
+          const result2 = await suiClient.signAndExecuteTransaction({
+            signer: suiRelayerKeypair,
+            transaction: tx2,
+            options: {
+              showEffects: true,
+            },
+          });
+
+          console.log('Sui payout to recipient confirmed:', result2.digest);
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              digest: result.digest,
+              payoutDigest: result2.digest,
+              message: 'Gasless Sui transfer completed successfully',
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        } catch (txError) {
+          console.error('Sui transaction error:', txError);
+          return new Response(
+            JSON.stringify({
+              error: 'Sui transaction failed',
+              details: txError instanceof Error ? txError.message : 'Unknown error',
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
       }
 
       return new Response(
