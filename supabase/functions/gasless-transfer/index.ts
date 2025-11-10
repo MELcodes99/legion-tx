@@ -435,8 +435,12 @@ serve(async (req) => {
               const authority = instruction.keys[2].pubkey;
               
               // Extract amount from instruction data (8 bytes after instruction type)
+              // CRITICAL FIX: Must create new ArrayBuffer for DataView to read correct bytes
               const amountBytes = instruction.data.slice(1, 9);
-              const instructionAmount = new DataView(amountBytes.buffer).getBigUint64(0, true);
+              const buffer = new ArrayBuffer(8);
+              const uint8View = new Uint8Array(buffer);
+              uint8View.set(amountBytes);
+              const instructionAmount = new DataView(buffer).getBigUint64(0, true);
 
               // Check user → backend transfer
               if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
