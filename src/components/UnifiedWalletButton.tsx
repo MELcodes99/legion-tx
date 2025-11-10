@@ -1,22 +1,38 @@
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { ConnectButton, useConnectWallet, useWallets } from '@mysten/dapp-kit';
+import { ConnectButton, useConnectWallet, useWallets, useDisconnectWallet } from '@mysten/dapp-kit';
 import { useCurrentAccount } from '@mysten/dapp-kit';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Button } from './ui/button';
-import { Wallet } from 'lucide-react';
+import { Wallet, LogOut } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import solanaLogo from '@/assets/solana-logo.png';
 import suiLogo from '@/assets/sui-logo.png';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { useToast } from '@/hooks/use-toast';
 
 export const UnifiedWalletButton = () => {
   const suiAccount = useCurrentAccount();
-  const { publicKey: solanaPublicKey, wallets: solanaWallets, select: selectSolanaWallet } = useWallet();
+  const { publicKey: solanaPublicKey, wallets: solanaWallets, select: selectSolanaWallet, disconnect: disconnectSolana } = useWallet();
   const { mutate: connectSuiWallet } = useConnectWallet();
+  const { mutate: disconnectSui } = useDisconnectWallet();
   const suiWallets = useWallets();
+  const { toast } = useToast();
 
   const bothConnected = solanaPublicKey && suiAccount;
   const oneConnected = solanaPublicKey || suiAccount;
+
+  const handleDisconnectAll = async () => {
+    if (solanaPublicKey) {
+      await disconnectSolana();
+    }
+    if (suiAccount) {
+      disconnectSui();
+    }
+    toast({
+      title: "Wallets Disconnected",
+      description: "All wallets have been disconnected successfully.",
+    });
+  };
 
   // Show connected state with wallet management
   if (bothConnected) {
@@ -35,6 +51,14 @@ export const UnifiedWalletButton = () => {
           <div className="space-y-1">
             <WalletMultiButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !justify-start !text-sm" />
             <ConnectButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !text-sm" />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleDisconnectAll}
+              className="flex items-center gap-2 cursor-pointer text-destructive hover:!text-destructive hover:!bg-destructive/10 px-3 py-2 rounded-lg"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="font-medium text-sm">Disconnect All</span>
+            </DropdownMenuItem>
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -57,6 +81,14 @@ export const UnifiedWalletButton = () => {
           <div className="space-y-1">
             <WalletMultiButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !justify-start !text-sm" />
             <ConnectButton className="!w-full !bg-gradient-to-r !from-primary !via-accent !to-primary hover:!opacity-90 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-primary-foreground !text-sm" />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleDisconnectAll}
+              className="flex items-center gap-2 cursor-pointer text-destructive hover:!text-destructive hover:!bg-destructive/10 px-3 py-2 rounded-lg"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="font-medium text-sm">Disconnect</span>
+            </DropdownMenuItem>
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
