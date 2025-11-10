@@ -262,14 +262,19 @@ export const TransferForm = () => {
         description: 'Creating gasless atomic transfer'
       });
 
+      // Store transfer data for validation in submit step
+      const transferData = {
+        senderPublicKey: publicKey.toBase58(),
+        recipientPublicKey: recipient,
+        amount: fullAmount,
+        mint: tokenConfig.mint,
+        decimals: tokenConfig.decimals,
+      };
+
       const buildResponse = await supabase.functions.invoke('gasless-transfer', {
         body: {
           action: 'build_atomic_tx',
-          senderPublicKey: publicKey.toBase58(),
-          recipientPublicKey: recipient,
-          amount: fullAmount,
-          mint: tokenConfig.mint,
-          decimals: tokenConfig.decimals,
+          ...transferData,
         }
       });
 
@@ -309,6 +314,11 @@ export const TransferForm = () => {
         body: {
           action: 'submit_atomic_tx',
           signedTransaction: signedBase64Tx,
+          // Include validation data for backend security checks
+          senderPublicKey: transferData.senderPublicKey,
+          recipientPublicKey: transferData.recipientPublicKey,
+          amount: transferData.amount,
+          mint: transferData.mint,
         }
       });
 

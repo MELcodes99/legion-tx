@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.79.0';
 import {
   Connection,
   Keypair,
@@ -12,6 +13,7 @@ import {
   getOrCreateAssociatedTokenAccount,
   getAssociatedTokenAddress,
   createTransferInstruction,
+  TOKEN_PROGRAM_ID,
 } from 'https://esm.sh/@solana/spl-token@0.4.14';
 
 const corsHeaders = {
@@ -21,6 +23,16 @@ const corsHeaders = {
 
 // Solana RPC endpoint - use mainnet-beta for production
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+
+// Token mint whitelist - ONLY these tokens are allowed
+const ALLOWED_TOKENS = {
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { name: 'USDC', decimals: 6 },
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
+} as const;
+
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
+const MAX_REQUESTS_PER_WINDOW = 10; // Max 10 transfers per hour per wallet
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -33,6 +45,11 @@ serve(async (req) => {
     const { action } = body;
 
     console.log('Gasless transfer request:', { action });
+
+    // Initialize Supabase client for rate limiting
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get backend wallet configuration
     const backendWalletPrivateKey = Deno.env.get('BACKEND_WALLET_PRIVATE_KEY');
@@ -122,6 +139,76 @@ serve(async (req) => {
           JSON.stringify({ error: 'Missing required fields' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
+      }
+
+      // SECURITY: Validate token mint against whitelist
+      if (!(mint in ALLOWED_TOKENS)) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid token mint',
+            details: 'Only USDC and USDT are supported'
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // SECURITY: Validate decimals match expected value
+      const allowedToken = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
+      if (decimals !== allowedToken.decimals) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid token decimals',
+            details: `${allowedToken.name} requires ${allowedToken.decimals} decimals`
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // SECURITY: Rate limiting - check requests from this wallet
+      const now = new Date();
+      const windowStart = new Date(now.getTime() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000);
+
+      // Get or create rate limit record
+      const { data: rateLimitData, error: rateLimitError } = await supabase
+        .from('transfer_rate_limits')
+        .select('*')
+        .eq('wallet_address', senderPublicKey)
+        .gte('window_start', windowStart.toISOString())
+        .order('window_start', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (rateLimitError && rateLimitError.code !== 'PGRST116') {
+        console.error('Rate limit check error:', rateLimitError);
+      }
+
+      if (rateLimitData) {
+        if (rateLimitData.request_count >= MAX_REQUESTS_PER_WINDOW) {
+          return new Response(
+            JSON.stringify({ 
+              error: 'Rate limit exceeded',
+              details: `Maximum ${MAX_REQUESTS_PER_WINDOW} transfers per hour. Please try again later.`
+            }),
+            { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        // Update counter
+        await supabase
+          .from('transfer_rate_limits')
+          .update({ 
+            request_count: rateLimitData.request_count + 1,
+            updated_at: now.toISOString()
+          })
+          .eq('id', rateLimitData.id);
+      } else {
+        // Create new rate limit record
+        await supabase
+          .from('transfer_rate_limits')
+          .insert({ 
+            wallet_address: senderPublicKey,
+            request_count: 1,
+            window_start: now.toISOString()
+          });
       }
 
       // Validate minimum amount ($5)
@@ -264,16 +351,33 @@ serve(async (req) => {
 
     // Action: Submit atomic transaction (user already signed, backend signs and submits)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction } = body as { signedTransaction?: string };
+      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint } = body as { 
+        signedTransaction?: string;
+        senderPublicKey?: string;
+        recipientPublicKey?: string;
+        amount?: number;
+        mint?: string;
+      };
 
-      if (!signedTransaction) {
+      if (!signedTransaction || !senderPublicKey || !recipientPublicKey || !amount || !mint) {
         return new Response(
-          JSON.stringify({ error: 'Missing signed transaction' }),
+          JSON.stringify({ error: 'Missing required validation fields' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log('Submitting atomic transaction...');
+      // SECURITY: Validate token mint against whitelist
+      if (!(mint in ALLOWED_TOKENS)) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid token mint',
+            details: 'Only USDC and USDT are supported'
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('Submitting and validating atomic transaction...');
 
       try {
         // Deserialize the user-signed transaction
@@ -281,6 +385,85 @@ serve(async (req) => {
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
         const transaction = Transaction.from(bytes);
+
+        // SECURITY: Validate transaction contents before signing
+        const senderPk = new PublicKey(senderPublicKey);
+        const recipientPk = new PublicKey(recipientPublicKey);
+        const mintPk = new PublicKey(mint);
+        const tokenInfo = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
+        
+        // Calculate expected values
+        const feePercent = 0.005;
+        const receiverAmount = amount - (amount * feePercent);
+        const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
+        const receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, tokenInfo.decimals)));
+
+        // Get expected ATAs
+        const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
+        const backendAta = await getAssociatedTokenAddress(mintPk, backendWallet.publicKey);
+        const recipientAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+
+        // SECURITY: Validate transaction structure
+        const instructions = transaction.instructions;
+        let transferInstructionCount = 0;
+        let validUserToBackend = false;
+        let validBackendToRecipient = false;
+
+        for (const instruction of instructions) {
+          // Check if this is a token transfer instruction
+          if (instruction.programId.equals(TOKEN_PROGRAM_ID)) {
+            // Parse transfer instruction data (first byte is instruction type)
+            if (instruction.data[0] === 3) { // Transfer instruction
+              transferInstructionCount++;
+              
+              // Validate source and destination accounts
+              const source = instruction.keys[0].pubkey;
+              const destination = instruction.keys[1].pubkey;
+              const authority = instruction.keys[2].pubkey;
+              
+              // Extract amount from instruction data (8 bytes after instruction type)
+              const amountBytes = instruction.data.slice(1, 9);
+              const instructionAmount = new DataView(amountBytes.buffer).getBigUint64(0, true);
+
+              // Check user → backend transfer
+              if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
+                if (instructionAmount === fullAmountSmallest) {
+                  validUserToBackend = true;
+                }
+              }
+
+              // Check backend → recipient transfer
+              if (source.equals(backendAta) && destination.equals(recipientAta) && authority.equals(backendWallet.publicKey)) {
+                if (instructionAmount === receiverAmountSmallest) {
+                  validBackendToRecipient = true;
+                }
+              }
+            }
+          }
+        }
+
+        // SECURITY: Ensure exactly 2 transfer instructions with correct amounts
+        if (transferInstructionCount !== 2) {
+          return new Response(
+            JSON.stringify({ 
+              error: 'Invalid transaction structure',
+              details: 'Transaction must contain exactly 2 token transfers'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        if (!validUserToBackend || !validBackendToRecipient) {
+          return new Response(
+            JSON.stringify({ 
+              error: 'Transaction validation failed',
+              details: 'Transfer amounts or accounts do not match expected values'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        console.log('Transaction validation passed');
 
         // Backend signs as fee payer
         console.log('Backend signing as fee payer...');
