@@ -54,7 +54,7 @@ export const TOKENS: Record<string, TokenConfig> = {
   'USDT_SUI': {
     name: 'Tether USD',
     symbol: 'USDT',
-    mint: '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN', // Native Sui USDT
+    mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', // Native Sui USDT
     decimals: 6,
     chain: 'sui',
     gasFee: 0.40,
