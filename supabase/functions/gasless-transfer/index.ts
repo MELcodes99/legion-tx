@@ -732,7 +732,30 @@ serve(async (req) => {
 
           // Set sender
           tx.setSender(senderPublicKey);
+          
+          // IMPORTANT: Sponsor the transaction with relayer's SUI for blockchain gas
+          // This enables true "gasless" transfers where users don't need SUI tokens
+          const relayerSuiCoins = await suiClient.getCoins({
+            owner: suiRelayerKeypair.toSuiAddress(),
+            coinType: '0x2::sui::SUI',
+          });
+          
+          if (!relayerSuiCoins.data || relayerSuiCoins.data.length === 0) {
+            throw new Error('Relayer has no SUI tokens to sponsor gas fees');
+          }
+          
+          // Use relayer's SUI to pay for blockchain gas
+          const gasPayment = relayerSuiCoins.data.slice(0, 3).map(coin => ({
+            objectId: coin.coinObjectId,
+            version: coin.version,
+            digest: coin.digest,
+          }));
+          
+          tx.setGasOwner(suiRelayerKeypair.toSuiAddress());
+          tx.setGasPayment(gasPayment);
           tx.setGasBudget(10000000); // 0.01 SUI gas budget
+
+          console.log('Gas sponsorship configured with relayer SUI coins');
 
           // Build transaction bytes
           const txBytes = await tx.build({ client: suiClient });
@@ -1073,15 +1096,22 @@ serve(async (req) => {
           
           // Decode the signed transaction from user
           const binaryString = atob(signedTransaction);
-          const txBytes = new Uint8Array(binaryString.length);
+          const userSignedTxBytes = new Uint8Array(binaryString.length);
           for (let i = 0; i < binaryString.length; i++) {
-            txBytes[i] = binaryString.charCodeAt(i);
+            userSignedTxBytes[i] = binaryString.charCodeAt(i);
           }
           
-          // Relayer signs and executes the transaction (receives tokens from user)
-          const result = await suiClient.signAndExecuteTransaction({
-            signer: suiRelayerKeypair,
-            transaction: txBytes,
+          // Deserialize the user-signed transaction
+          const userSignedTx = SuiTransaction.from(userSignedTxBytes);
+          
+          // Add relayer's signature as the gas sponsor
+          // Since we set gasOwner in build, relayer needs to sign as sponsor
+          const relayerSignature = await suiRelayerKeypair.signTransaction(userSignedTxBytes);
+          
+          // Execute the sponsored transaction with both signatures
+          const result = await suiClient.executeTransactionBlock({
+            transactionBlock: userSignedTxBytes,
+            signature: [signedTransaction, relayerSignature.signature], // Both user and sponsor signatures
             options: {
               showEffects: true,
               showEvents: true,
@@ -1113,11 +1143,26 @@ serve(async (req) => {
           });
 
           // Now send the appropriate amount to the recipient using the correct token type
+          // Fetch relayer's coin objects for the token
+          const relayerCoins = await suiClient.getCoins({
+            owner: suiRelayerKeypair.toSuiAddress(),
+            coinType: mint,
+          });
+          
+          if (!relayerCoins.data || relayerCoins.data.length === 0) {
+            throw new Error(`Relayer has no ${mint} coins to forward to recipient`);
+          }
+          
           const tx2 = new SuiTransaction();
-          const [coin] = tx2.splitCoins(
-            tx2.object(mint), // Use the actual token type
-            [receiverAmountSmallest]
-          );
+          const primaryCoin = tx2.object(relayerCoins.data[0].coinObjectId);
+          
+          // Merge coins if multiple
+          if (relayerCoins.data.length > 1) {
+            const otherCoins = relayerCoins.data.slice(1).map(coin => tx2.object(coin.coinObjectId));
+            tx2.mergeCoins(primaryCoin, otherCoins);
+          }
+          
+          const [coin] = tx2.splitCoins(primaryCoin, [receiverAmountSmallest]);
           tx2.transferObjects([coin], recipientPublicKey);
           
           const result2 = await suiClient.signAndExecuteTransaction({
