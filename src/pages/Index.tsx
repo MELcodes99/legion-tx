@@ -1,8 +1,10 @@
 import { MultiWalletProvider } from '@/components/MultiWalletProvider';
 import { UnifiedWalletButton } from '@/components/UnifiedWalletButton';
 import { MultiChainTransferForm } from '@/components/MultiChainTransferForm';
+import { CrossChainGasTransfer } from '@/components/CrossChainGasTransfer';
 import { FAQ } from '@/components/FAQ';
 import { Footer } from '@/components/Footer';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import legionLogo from '@/assets/legion-logo.png';
 import xLogo from '@/assets/x-logo.png';
 
@@ -62,7 +64,18 @@ const Index = () => {
 
             {/* Transfer Form */}
             <div className="flex justify-center px-2">
-              <MultiChainTransferForm />
+              <Tabs defaultValue="gasless" className="w-full max-w-2xl">
+                <TabsList className="grid w-full grid-cols-2 mb-6">
+                  <TabsTrigger value="gasless">Regular Gasless</TabsTrigger>
+                  <TabsTrigger value="crosschain">Cross-Chain Gas</TabsTrigger>
+                </TabsList>
+                <TabsContent value="gasless">
+                  <MultiChainTransferForm />
+                </TabsContent>
+                <TabsContent value="crosschain">
+                  <CrossChainGasTransfer />
+                </TabsContent>
+              </Tabs>
             </div>
 
             {/* Features */}
