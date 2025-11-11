@@ -64,10 +64,14 @@ const Index = () => {
 
             {/* Transfer Form */}
             <div className="flex justify-center px-2">
-              <Tabs defaultValue="gasless" className="w-full max-w-2xl">
-                <TabsList className="grid w-full grid-cols-2 mb-6">
-                  <TabsTrigger value="gasless">Regular Gasless</TabsTrigger>
-                  <TabsTrigger value="crosschain">Cross-Chain Gas</TabsTrigger>
+              <Tabs defaultValue="gasless" className="w-full max-w-4xl">
+                <TabsList className="grid w-full grid-cols-2 mb-6 h-auto p-1">
+                  <TabsTrigger value="gasless" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-3">
+                    Regular Gasless
+                  </TabsTrigger>
+                  <TabsTrigger value="crosschain" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground py-3">
+                    Cross-Chain Gas
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="gasless">
                   <MultiChainTransferForm />
