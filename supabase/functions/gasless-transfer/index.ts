@@ -993,8 +993,29 @@ serve(async (req) => {
         const chainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
         const feeAmountUSD = chainConfig.gasFee; // Fixed USD fee
         
+        // Helper function to get token config (needed before we use it)
+        function getTokenConfig(tokenKey: string) {
+          const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
+            'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
+            'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
+            'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
+            'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6 },
+            'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6 },
+            'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
+          };
+          return tokens[tokenKey];
+        }
+        
         // Determine which token is used for fee payment (match build_atomic_tx logic)
-        const feeTokenMint = gasToken || mint;
+        const feeTokenKey = gasToken || mint;
+        
+        // If gasToken is a token key (like "USDT_SOL"), convert it to mint address
+        let feeTokenMint = feeTokenKey;
+        const submitFeeGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        if (submitFeeGasTokenConfig) {
+          feeTokenMint = submitFeeGasTokenConfig.mint;
+        }
+        
         let feeTokenSymbol: string;
         
         // Use token name from ALLOWED_TOKENS to determine CoinGecko ID
@@ -1019,19 +1040,6 @@ serve(async (req) => {
         // Convert USD fee to token amount using current price
         const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
         const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
-        
-        // Helper function to get token config (same as in build_atomic_tx)
-        function getTokenConfig(tokenKey: string) {
-          const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
-            'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
-            'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
-            'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
-            'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6 },
-            'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6 },
-            'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
-          };
-          return tokens[tokenKey];
-        }
         
         // Determine if separate gas token is used
         const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
