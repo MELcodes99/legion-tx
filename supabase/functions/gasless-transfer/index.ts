@@ -386,7 +386,15 @@ serve(async (req) => {
         
         // Get token symbol for price lookup using ALLOWED_TOKENS mapping
         let feeTokenSymbol: string;
-        const feeTokenInfo = ALLOWED_TOKENS[feeTokenMint as keyof typeof ALLOWED_TOKENS];
+        
+        // If gasToken is a token key (like "USDT_SOL"), convert it to mint address
+        let actualFeeTokenMint = feeTokenMint;
+        const feeGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        if (feeGasTokenConfig) {
+          actualFeeTokenMint = feeGasTokenConfig.mint;
+        }
+        
+        const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
         if (feeTokenInfo) {
           // Map token name to CoinGecko ID
           if (feeTokenInfo.name === 'USDC') {
@@ -685,11 +693,31 @@ serve(async (req) => {
           const feeAmountUSD = chainConfig.gasFee; // Fee in USD
           
           // Determine the token being used for fee payment
-          const feeTokenMint = gasToken || mint;
+          const feeTokenKey = gasToken || mint;
+          
+          console.log('Sui gas token detection:', {
+            gasToken,
+            mint,
+            feeTokenKey,
+          });
+          
+          // If gasToken is a token key (like "USDT_SUI"), convert it to mint address
+          let feeTokenMint = feeTokenKey;
+          const suiFeeGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+          if (suiFeeGasTokenConfig) {
+            feeTokenMint = suiFeeGasTokenConfig.mint;
+          }
           
           // Get token symbol for price lookup using ALLOWED_TOKENS mapping
           let feeTokenSymbol: string;
           const feeTokenInfo = ALLOWED_TOKENS[feeTokenMint as keyof typeof ALLOWED_TOKENS];
+          
+          console.log('Sui token info lookup:', {
+            feeTokenMint,
+            found: !!feeTokenInfo,
+            tokenName: feeTokenInfo?.name,
+          });
+          
           if (feeTokenInfo) {
             // Map token name to CoinGecko ID
             if (feeTokenInfo.name === 'USDC') {
