@@ -696,15 +696,28 @@ export const MultiChainTransferForm = () => {
         </div>
 
         {amount && parseFloat(amount) > 0 && (
-          <div className="rounded-lg bg-secondary/30 p-3 space-y-1 text-sm">
+          <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Multichain Gas Fee:</span>
+              <span className="text-muted-foreground">Transfer Amount:</span>
+              <span className="font-medium">${parseFloat(amount).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Gas Fee ({selectedGasTokenConfig?.symbol || 'token'}):</span>
               <span className="font-medium">{getGasFeeDisplay()}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Recipient receives:</span>
-              <span className="font-medium">${amountAfterFee.toFixed(2)}</span>
+            <div className="h-px bg-border/50 my-1" />
+            <div className="flex justify-between font-semibold text-base">
+              <span>Recipient Receives:</span>
+              <span className="text-primary">${parseFloat(amount).toFixed(2)}</span>
             </div>
+            {selectedToken === selectedGasToken && (
+              <div className="mt-2 pt-2 border-t border-border/50">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Total Needed ({selectedTokenConfig?.symbol}):</span>
+                  <span className="font-semibold text-accent">${(parseFloat(amount) + gasFee).toFixed(2)}</span>
+                </div>
+              </div>
+            )}
             {selectedGasTokenConfig?.isNative && !tokenPrices && (
               <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>
             )}

@@ -513,6 +513,83 @@ serve(async (req) => {
           }
         });
 
+        // CRITICAL: Validate sender has sufficient balance for both transfer and fee
+        const usesSameTokenForGas = gasTokenMint === mint;
+        const transferTokenInfo = ALLOWED_TOKENS[mint];
+        
+        if (usesSameTokenForGas) {
+          // Check if sender has enough of the transfer token for BOTH transfer and fee
+          const senderTransferBalance = await connection.getTokenAccountBalance(senderTransferAta);
+          const senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
+          const totalNeeded = transferAmountSmallest + feeSmallest;
+          
+          console.log('Balance validation (same token for transfer & fee):', {
+            senderBalance: senderTransferBalanceSmallest.toString(),
+            transferAmount: transferAmountSmallest.toString(),
+            feeAmount: feeSmallest.toString(),
+            totalNeeded: totalNeeded.toString(),
+            hasSufficient: senderTransferBalanceSmallest >= totalNeeded,
+          });
+          
+          if (senderTransferBalanceSmallest < totalNeeded) {
+            const senderBalanceReadable = Number(senderTransferBalanceSmallest) / Math.pow(10, decimals);
+            const totalNeededReadable = Number(totalNeeded) / Math.pow(10, decimals);
+            
+            return new Response(
+              JSON.stringify({
+                error: 'Insufficient balance',
+                details: `You need ${totalNeededReadable.toFixed(6)} ${transferTokenInfo?.name || 'tokens'} (${amount} transfer + ${feeAmount.toFixed(6)} fee) but only have ${senderBalanceReadable.toFixed(6)} ${transferTokenInfo?.name || 'tokens'}`,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        } else {
+          // Check transfer token balance
+          const senderTransferBalance = await connection.getTokenAccountBalance(senderTransferAta);
+          const senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
+          
+          console.log('Transfer token balance:', {
+            senderBalance: senderTransferBalanceSmallest.toString(),
+            transferAmount: transferAmountSmallest.toString(),
+            hasSufficient: senderTransferBalanceSmallest >= transferAmountSmallest,
+          });
+          
+          if (senderTransferBalanceSmallest < transferAmountSmallest) {
+            const senderBalanceReadable = Number(senderTransferBalanceSmallest) / Math.pow(10, decimals);
+            
+            return new Response(
+              JSON.stringify({
+                error: 'Insufficient balance',
+                details: `You need ${amount} ${transferTokenInfo?.name || 'tokens'} for transfer but only have ${senderBalanceReadable.toFixed(6)} ${transferTokenInfo?.name || 'tokens'}`,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          // Check gas token balance
+          const senderGasBalance = await connection.getTokenAccountBalance(senderGasAta);
+          const senderGasBalanceSmallest = BigInt(senderGasBalance.value.amount);
+          
+          console.log('Gas token balance:', {
+            senderGasBalance: senderGasBalanceSmallest.toString(),
+            feeAmount: feeSmallest.toString(),
+            hasSufficient: senderGasBalanceSmallest >= feeSmallest,
+          });
+          
+          if (senderGasBalanceSmallest < feeSmallest) {
+            const senderGasBalanceReadable = Number(senderGasBalanceSmallest) / Math.pow(10, gasTokenDecimals);
+            const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
+            
+            return new Response(
+              JSON.stringify({
+                error: 'Insufficient gas token balance',
+                details: `You need ${feeAmount.toFixed(6)} ${gasTokenInfo?.name || 'tokens'} for fee but only have ${senderGasBalanceReadable.toFixed(6)} ${gasTokenInfo?.name || 'tokens'}`,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+        }
+
         // Get fresh blockhash
         const { blockhash } = await connection.getLatestBlockhash('confirmed');
 
@@ -588,8 +665,7 @@ serve(async (req) => {
         const serialized = atomicTx.serialize({ requireAllSignatures: false, verifySignatures: false });
         const base64Tx = btoa(String.fromCharCode(...serialized));
 
-        const transferTokenInfo = ALLOWED_TOKENS[mint];
-        const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
+        const responseGasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
         
         return new Response(
           JSON.stringify({
@@ -597,7 +673,7 @@ serve(async (req) => {
             fee: feeAmount,
             feeToken: buildGasTokenConfig?.symbol || transferTokenInfo?.name || 'Unknown',
             amountAfterFee: amount, // Recipient gets FULL amount
-            message: `Transaction built: Recipient gets full $${amount} ${transferTokenInfo?.name || 'tokens'}, fee $${feeAmount} ${gasTokenInfo?.name || 'tokens'} paid to backend`,
+            message: `Transaction built: Recipient gets full $${amount} ${transferTokenInfo?.name || 'tokens'}, fee $${feeAmount} ${responseGasTokenInfo?.name || 'tokens'} paid to backend`,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
