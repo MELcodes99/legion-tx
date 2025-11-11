@@ -18,10 +18,9 @@ export const UnifiedWalletButton = () => {
   const suiWallets = useWallets();
   const { toast } = useToast();
 
-  const bothConnected = solanaPublicKey && suiAccount;
-  const oneConnected = solanaPublicKey || suiAccount;
+  const isConnected = solanaPublicKey || suiAccount;
 
-  const handleDisconnectAll = async () => {
+  const handleDisconnect = async () => {
     if (solanaPublicKey) {
       await disconnectSolana();
     }
@@ -29,43 +28,13 @@ export const UnifiedWalletButton = () => {
       disconnectSui();
     }
     toast({
-      title: "Wallets Disconnected",
-      description: "All wallets have been disconnected successfully.",
+      title: "Wallet Disconnected",
+      description: "Wallet has been disconnected successfully.",
     });
   };
 
-  // Show connected state with wallet management
-  if (bothConnected) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button 
-            className="bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 px-3 sm:px-4 py-2 rounded-lg font-medium transition-all text-primary-foreground flex items-center gap-1.5 sm:gap-2"
-          >
-            <Wallet className="w-4 h-4" />
-            <img src={solanaLogo} alt="Solana" className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
-            <img src={suiLogo} alt="Sui" className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="bg-popover border-border p-2 w-[85vw] sm:w-[280px] max-w-[280px] z-50">
-          <div className="space-y-1">
-            <WalletMultiButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !justify-start !text-sm" />
-            <ConnectButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !text-sm" />
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={handleDisconnectAll}
-              className="flex items-center gap-2 cursor-pointer text-destructive hover:!text-destructive hover:!bg-destructive/10 px-3 py-2 rounded-lg"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="font-medium text-sm">Disconnect All</span>
-            </DropdownMenuItem>
-          </div>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  }
-
-  if (oneConnected) {
+  // Show connected wallet with management
+  if (isConnected) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -79,15 +48,19 @@ export const UnifiedWalletButton = () => {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="bg-popover border-border p-2 w-[85vw] sm:w-[280px] max-w-[280px] z-50">
           <div className="space-y-1">
-            <WalletMultiButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !justify-start !text-sm" />
-            <ConnectButton className="!w-full !bg-gradient-to-r !from-primary !via-accent !to-primary hover:!opacity-90 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-primary-foreground !text-sm" />
+            {solanaPublicKey && (
+              <WalletMultiButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !justify-start !text-sm" />
+            )}
+            {suiAccount && (
+              <ConnectButton className="!w-full !bg-secondary/50 hover:!bg-secondary/70 !px-3 sm:!px-4 !py-2 !rounded-lg !font-medium !transition-all !text-foreground !text-sm" />
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={handleDisconnectAll}
+              onClick={handleDisconnect}
               className="flex items-center gap-2 cursor-pointer text-destructive hover:!text-destructive hover:!bg-destructive/10 px-3 py-2 rounded-lg"
             >
               <LogOut className="w-4 h-4" />
-              <span className="font-medium text-sm">Disconnect</span>
+              <span className="font-medium text-sm">Disconnect to switch networks</span>
             </DropdownMenuItem>
           </div>
         </DropdownMenuContent>
