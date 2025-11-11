@@ -2,6 +2,3 @@ project_id = "jmnyaudcgdanpgctroko"
 
 [functions.gasless-transfer]
 verify_jwt = false
-
-[functions.cross-chain-gas]
-verify_jwt = false
