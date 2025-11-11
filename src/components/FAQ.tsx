@@ -25,10 +25,6 @@ export const FAQ = () => {
       answer: 'No! That\'s the beauty of Legion. You don\'t need any SOL or SUI to send tokens. Our backend wallet pays all the network gas fees for you. You only pay the small fixed multichain gas fee.',
     },
     {
-      question: 'How does cross-chain gas payment work?',
-      answer: 'You can pay for transaction fees using any supported token on either chain. For example, you can use USDC on Sui to pay for a Solana transfer. Our system handles the conversion automatically.',
-    },
-    {
       question: 'Is it safe?',
       answer: 'Yes! Legion uses atomic transactions that ensure either the entire transfer completes successfully or nothing happens. Your tokens never leave your control until the transaction is fully validated and signed by you.',
     },
