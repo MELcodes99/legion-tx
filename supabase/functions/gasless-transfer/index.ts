@@ -469,100 +469,112 @@ serve(async (req) => {
           );
         }
         
-        // GASLESS ARCHITECTURE FOR SOLANA:
-        // 1. Sender → Backend (full amount in tokens)
-        // 2. Backend → Recipient (amount minus $0.50 fee)
+        // NEW FEE MODEL FOR SOLANA:
+        // 1. Sender → Recipient (FULL transfer amount in transfer token)
+        // 2. Sender → Backend (fee amount in gas token)
         // Backend pays network gas fees from its SOL balance
         
-        const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
-        const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, decimals)));
-        const receiverAmountSmallest = fullAmountSmallest - feeSmallest;
+        const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
         
-        console.log('Solana gasless transaction:', {
+        // Determine gas token info
+        const buildGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        const gasTokenMint = buildGasTokenConfig ? buildGasTokenConfig.mint : mint;
+        const gasTokenDecimals = buildGasTokenConfig ? buildGasTokenConfig.decimals : decimals;
+        
+        // Calculate fee in gas token's smallest units
+        const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+        
+        console.log('Solana transaction with separate gas payment:', {
           chain: 'solana',
-          token: mint,
-          userSendsToBackend: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
-          backendKeepsFee: `$${feeAmountUSD} (${feeSmallest.toString()} smallest units)`,
-          backendSendsToReceiver: `${Number(receiverAmountSmallest) / Math.pow(10, decimals)} (${receiverAmountSmallest.toString()} smallest units)`,
+          transferToken: mint,
+          gasToken: gasTokenMint,
+          userSendsToRecipient: `${amount} (${transferAmountSmallest.toString()} smallest units)`,
+          userSendsToBackend: `$${feeAmountUSD} fee (${feeSmallest.toString()} smallest units in ${buildGasTokenConfig?.symbol || 'transfer token'})`,
           networkGasPaidBy: 'backend SOL balance',
         });
 
-        // Get all ATA addresses (don't create yet - will be done in transaction if needed)
-        const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
-        const backendAta = await getAssociatedTokenAddress(mintPk, backendWallet.publicKey);
-        const recipientAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+        // Get transfer token ATAs
+        const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
+        const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+
+        // Get gas token ATAs (for fee payment)
+        const gasTokenMintPk = new PublicKey(gasTokenMint);
+        const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
+        const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
 
         console.log('Token accounts:', {
-          senderAta: senderAta.toBase58(),
-          backendAta: backendAta.toBase58(),
-          recipientAta: recipientAta.toBase58()
+          transfer: {
+            senderAta: senderTransferAta.toBase58(),
+            recipientAta: recipientTransferAta.toBase58(),
+          },
+          gasPayment: {
+            senderGasAta: senderGasAta.toBase58(),
+            backendGasAta: backendGasAta.toBase58(),
+          }
         });
 
         // Get fresh blockhash
         const { blockhash } = await connection.getLatestBlockhash('confirmed');
 
-        // Build ONE atomic transaction with explicit signer order for Phantom compatibility
+        // Build ONE atomic transaction
         const atomicTx = new Transaction({
           recentBlockhash: blockhash,
           feePayer: backendWallet.publicKey, // Backend pays network gas fees from its SOL
         });
 
-        // Check if backend ATA exists, if not add creation instruction
-        const backendAtaInfo = await connection.getAccountInfo(backendAta);
-        if (!backendAtaInfo) {
-          console.log('Backend ATA does not exist, adding creation instruction');
+        // Check if recipient transfer ATA exists, if not add creation instruction
+        const recipientTransferAtaInfo = await connection.getAccountInfo(recipientTransferAta);
+        if (!recipientTransferAtaInfo) {
+          console.log('Recipient transfer ATA does not exist, adding creation instruction');
           const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
           atomicTx.add(
             createAssociatedTokenAccountInstruction(
-              backendWallet.publicKey, // payer
-              backendAta,
-              backendWallet.publicKey, // owner
-              mintPk
-            )
-          );
-        }
-
-        // Check if recipient ATA exists, if not add creation instruction
-        const recipientAtaInfo = await connection.getAccountInfo(recipientAta);
-        if (!recipientAtaInfo) {
-          console.log('Recipient ATA does not exist, adding creation instruction');
-          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
-          atomicTx.add(
-            createAssociatedTokenAccountInstruction(
-              backendWallet.publicKey, // payer (backend pays for recipient's ATA creation)
-              recipientAta,
+              backendWallet.publicKey, // payer (backend pays)
+              recipientTransferAta,
               recipientPk, // owner
               mintPk
             )
           );
         }
 
-        // Instruction 1: Sender → Backend (full amount)
-        // User signs this transfer
+        // Check if backend gas ATA exists, if not add creation instruction
+        const backendGasAtaInfo = await connection.getAccountInfo(backendGasAta);
+        if (!backendGasAtaInfo) {
+          console.log('Backend gas ATA does not exist, adding creation instruction');
+          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
+          atomicTx.add(
+            createAssociatedTokenAccountInstruction(
+              backendWallet.publicKey, // payer
+              backendGasAta,
+              backendWallet.publicKey, // owner
+              gasTokenMintPk
+            )
+          );
+        }
+
+        // Instruction 1: Sender → Recipient (FULL transfer amount)
         atomicTx.add(
           createTransferInstruction(
-            senderAta,
-            backendAta,
+            senderTransferAta,
+            recipientTransferAta,
             senderPk,
-            fullAmountSmallest
+            transferAmountSmallest
           )
         );
         
-        // Instruction 2: Backend → Recipient (amount minus $0.50 fee)
-        // Backend signs this transfer
+        // Instruction 2: Sender → Backend (fee in gas token)
         atomicTx.add(
           createTransferInstruction(
-            backendAta,
-            recipientAta,
-            backendWallet.publicKey,
-            receiverAmountSmallest
+            senderGasAta,
+            backendGasAta,
+            senderPk,
+            feeSmallest
           )
         );
         
-        console.log('Gasless atomic transaction built:', {
-          instruction1: `Sender → Backend: ${fullAmountSmallest.toString()} smallest units`,
-          instruction2: `Backend → Recipient: ${receiverAmountSmallest.toString()} smallest units`,
-          backendRetains: `${feeSmallest.toString()} smallest units ($${feeAmountUSD} fee)`,
+        console.log('Atomic transaction built:', {
+          instruction1: `Sender → Recipient: ${transferAmountSmallest.toString()} smallest units (transfer token)`,
+          instruction2: `Sender → Backend: ${feeSmallest.toString()} smallest units (gas token for $${feeAmountUSD} fee)`,
         });
 
         // IMPORTANT: Set explicit signer order for Phantom Lighthouse compatibility
@@ -576,16 +588,16 @@ serve(async (req) => {
         const serialized = atomicTx.serialize({ requireAllSignatures: false, verifySignatures: false });
         const base64Tx = btoa(String.fromCharCode(...serialized));
 
-        const actualReceiverAmount = usesSeparateGasToken ? amount : amount - feeAmount;
+        const transferTokenInfo = ALLOWED_TOKENS[mint];
+        const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
         
         return new Response(
           JSON.stringify({
             transaction: base64Tx,
             fee: feeAmount,
-            amountAfterFee: actualReceiverAmount,
-            message: usesSeparateGasToken 
-              ? `Transaction built: User sends full $${amount}, gas fee $${feeAmount} paid separately`
-              : `Transaction built: User sends $${amount}, Receiver gets $${actualReceiverAmount}, Backend fee $${feeAmount}`,
+            feeToken: buildGasTokenConfig?.symbol || transferTokenInfo?.name || 'Unknown',
+            amountAfterFee: amount, // Recipient gets FULL amount
+            message: `Transaction built: Recipient gets full $${amount} ${transferTokenInfo?.name || 'tokens'}, fee $${feeAmount} ${gasTokenInfo?.name || 'tokens'} paid to backend`,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -676,61 +688,48 @@ serve(async (req) => {
           }
           
           // Determine if gas token is on different chain
-          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
-          const isGasTokenCrossChain = gasTokenConfig && gasTokenConfig.chain !== chain;
-          const usesSeparateGasToken = gasTokenConfig && gasTokenConfig.mint !== mint;
+          const suiFeeConfigGasTokenCheck = gasToken ? getTokenConfig(gasToken) : null;
+          const isGasTokenCrossChain = suiFeeConfigGasTokenCheck && suiFeeConfigGasTokenCheck.chain !== chain;
           
           if (isGasTokenCrossChain) {
             // Cross-chain gas payment requires separate handling
             return new Response(
               JSON.stringify({
                 error: 'Cross-chain gas payment requires additional setup',
-                details: `To pay ${chain} transfer gas with ${gasTokenConfig.symbol}, please collect gas fee first`,
+                details: `To pay ${chain} transfer gas with ${suiFeeConfigGasTokenCheck.symbol}, please collect gas fee first`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
           
-          // Convert amounts to smallest units
-          const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
+          // NEW FEE MODEL FOR SUI:
+          // 1. Sender → Recipient (FULL transfer amount)
+          // 2. Sender → Backend (fee in gas token, which may be same or different token)
+          // Backend (relayer) pays network gas fees from its SUI balance
           
-          let receiverAmountSmallest: bigint;
-          let gasTokenMint: string | null = null;
-          let gasTokenDecimals: number | null = null;
-          let gasTokenFeeSmallest: bigint | null = null;
+          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
           
-          if (usesSeparateGasToken && gasTokenConfig) {
-            // Gas is paid with different token - send FULL amount to receiver
-            receiverAmountSmallest = fullAmountSmallest;
-            
-            // Calculate gas fee in gas token
-            gasTokenMint = gasTokenConfig.mint;
-            gasTokenDecimals = gasTokenConfig.decimals;
-            gasTokenFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
-            
-            console.log('Sui: Using separate gas token:', {
-              sendingToken: mint,
-              gasToken: gasTokenMint,
-              fullAmountToReceiver: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
-              gasFeeInGasToken: `${feeAmount} (${gasTokenFeeSmallest.toString()} smallest units of ${gasTokenConfig.symbol})`,
-            });
-          } else {
-            // Gas is paid from same token - deduct from sending amount
-            const receiverAmount = amount - feeAmount;
-            receiverAmountSmallest = BigInt(Math.round(receiverAmount * Math.pow(10, decimals)));
-            
-            console.log('Sui: Using same token for gas:', {
-              userSends: `${amount} (${fullAmountSmallest.toString()} smallest units)`,
-              backendKeeps: `${feeAmount}`,
-              receiverGets: `${amount - feeAmount} (${receiverAmountSmallest.toString()} smallest units)`,
-              relayerAddress: suiRelayerKeypair.toSuiAddress(),
-            });
-          }
+          // Determine gas token info
+          const suiGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+          const gasTokenMint = suiGasTokenConfig ? suiGasTokenConfig.mint : mint;
+          const gasTokenDecimals = suiGasTokenConfig ? suiGasTokenConfig.decimals : decimals;
+          
+          // Calculate fee in gas token's smallest units
+          const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+          
+          console.log('Sui transaction with separate fee payment:', {
+            transferToken: mint,
+            gasToken: gasTokenMint,
+            userSendsToRecipient: `${amount} (${transferAmountSmallest.toString()} smallest units)`,
+            userSendsToBackend: `$${feeAmountUSD} fee (${feeSmallest.toString()} smallest units in ${suiGasTokenConfig?.symbol || 'transfer token'})`,
+            networkGasPaidBy: 'relayer SUI balance',
+            relayerAddress: suiRelayerKeypair.toSuiAddress(),
+          });
 
           // Build Sui transaction with PTB (Programmable Transaction Block)
           const tx = new SuiTransaction();
           
-          // Fetch sender's coin objects for the sending token
+          // Fetch sender's coin objects for the transfer token
           const senderCoins = await suiClient.getCoins({
             owner: senderPublicKey,
             coinType: mint,
@@ -740,7 +739,7 @@ serve(async (req) => {
             throw new Error(`No ${mint} coins found for sender`);
           }
           
-          console.log(`Found ${senderCoins.data.length} coin objects for ${mint}`);
+          console.log(`Found ${senderCoins.data.length} coin objects for transfer token`);
           
           // Get the first coin object (or merge multiple if needed)
           const primaryCoin = tx.object(senderCoins.data[0].coinObjectId);
@@ -751,13 +750,16 @@ serve(async (req) => {
             tx.mergeCoins(primaryCoin, otherCoins);
           }
           
-          if (usesSeparateGasToken && gasTokenMint && gasTokenFeeSmallest) {
-            // MODE 1: Separate gas token
-            // Split and send full amount to recipient, then send gas fee to backend
-            
-            // Split sending token for recipient
-            const [sendCoin] = tx.splitCoins(primaryCoin, [fullAmountSmallest]);
-            tx.transferObjects([sendCoin], recipientPublicKey);
+          // Split and send FULL transfer amount to recipient
+          const [transferCoin] = tx.splitCoins(primaryCoin, [transferAmountSmallest]);
+          tx.transferObjects([transferCoin], recipientPublicKey);
+          
+          // Now handle fee payment in gas token
+          const usesSeparateGasToken = suiGasTokenConfig && gasTokenMint !== mint;
+          
+          if (usesSeparateGasToken) {
+            // Fee is paid with DIFFERENT token
+            console.log('Sui: Paying fee with separate gas token');
             
             // Fetch sender's gas token coin objects
             const gasCoins = await suiClient.getCoins({
@@ -778,23 +780,19 @@ serve(async (req) => {
             }
             
             // Split gas fee for backend
-            const [gasCoin] = tx.splitCoins(primaryGasCoin, [gasTokenFeeSmallest]);
-            tx.transferObjects([gasCoin], suiRelayerKeypair.toSuiAddress());
-            
-            console.log('Built Sui transaction with separate gas token');
-          } else {
-            // MODE 2: Same token for transfer and gas - ATOMIC SPLIT
-            // Split into two parts: fee for backend, remainder for recipient
-            // All happens in ONE transaction - true atomic transfer
-            const feeAmountSmallest = fullAmountSmallest - receiverAmountSmallest;
-            
-            const [feeCoin, recipientCoin] = tx.splitCoins(primaryCoin, [feeAmountSmallest, receiverAmountSmallest]);
-            
-            // Transfer fee to backend and amount to recipient - both in same transaction
+            const [feeCoin] = tx.splitCoins(primaryGasCoin, [feeSmallest]);
             tx.transferObjects([feeCoin], suiRelayerKeypair.toSuiAddress());
-            tx.transferObjects([recipientCoin], recipientPublicKey);
             
-            console.log('Built ATOMIC Sui transaction: fee to backend, tokens to recipient in one tx');
+            console.log('Built Sui transaction: Full amount to recipient + separate gas token fee to backend');
+          } else {
+            // Fee is paid with SAME token as transfer
+            console.log('Sui: Paying fee with same token as transfer');
+            
+            // Split fee from the already-split primaryCoin (which still has remaining balance)
+            const [feeCoin] = tx.splitCoins(primaryCoin, [feeSmallest]);
+            tx.transferObjects([feeCoin], suiRelayerKeypair.toSuiAddress());
+            
+            console.log('Built Sui transaction: Full amount to recipient + fee to backend from same token');
           }
 
           // Set sender
@@ -830,16 +828,16 @@ serve(async (req) => {
           // Encode to base64
           const base64Tx = btoa(String.fromCharCode(...txBytes));
 
-          const actualReceiverAmount = usesSeparateGasToken ? amount : amount - feeAmount;
+          const transferTokenInfo = ALLOWED_TOKENS[mint];
+          const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
 
           return new Response(
             JSON.stringify({
               transaction: base64Tx,
               fee: feeAmount,
-              amountAfterFee: actualReceiverAmount,
-              message: usesSeparateGasToken
-                ? `Sui transaction built: User sends full $${amount}, gas fee $${feeAmount} paid separately`
-                : `Sui transaction built: User sends $${amount}, Receiver gets $${actualReceiverAmount}, Backend fee $${feeAmount}`,
+              feeToken: suiGasTokenConfig?.symbol || transferTokenInfo?.name || 'Unknown',
+              amountAfterFee: amount, // Recipient gets FULL amount
+              message: `Transaction built: Recipient gets full $${amount} ${transferTokenInfo?.name || 'tokens'}, fee $${feeAmount} ${gasTokenInfo?.name || 'tokens'} paid to backend`,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -961,108 +959,110 @@ serve(async (req) => {
         const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
         const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
         
-        // Calculate expected values for GASLESS ARCHITECTURE
-        const fullAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
-        const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, tokenInfo.decimals)));
-        const receiverAmountSmallest = fullAmountSmallest - feeSmallest;
+        // Calculate expected values for NEW FEE MODEL
+        const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
+        
+        // Determine gas token info for fee validation
+        const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        const gasTokenMint = gasTokenConfig ? gasTokenConfig.mint : mint;
+        const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenInfo.decimals;
+        const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
 
-        // Get expected ATAs for sending token
-        const senderAta = await getAssociatedTokenAddress(mintPk, senderPk);
-        const backendAta = await getAssociatedTokenAddress(mintPk, backendWallet.publicKey);
-        const recipientAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+        // Get expected ATAs for transfer token
+        const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
+        const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
 
-        // SECURITY: Validate transaction structure for GASLESS ARCHITECTURE
+        // Get expected ATAs for gas token (fee payment)
+        const gasTokenMintPk = new PublicKey(gasTokenMint);
+        const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
+        const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+
+        // SECURITY: Validate transaction structure for NEW FEE MODEL
         const instructions = transaction.instructions;
-        let transferInstructionCount = 0;
-        let validTransfer1 = false;
-        let validTransfer2 = false;
+        let validTransfer = false;
+        let validFeePayment = false;
 
         console.log('=== TRANSACTION VALIDATION START ===');
-        console.log('Gasless architecture validation:');
+        console.log('New fee model validation:');
         console.log('Expected values:');
-        console.log('- Full amount (user sends to backend):', fullAmountSmallest.toString());
-        console.log('- Fee retained by backend:', feeSmallest.toString(), `($${feeAmountUSD})`);
-        console.log('- Amount backend sends to receiver:', receiverAmountSmallest.toString());
-        console.log('- Sender ATA:', senderAta.toBase58());
-        console.log('- Backend ATA:', backendAta.toBase58());
-        console.log('- Recipient ATA:', recipientAta.toBase58());
-        console.log('Total instructions in transaction:', instructions.length);
+        console.log('- Transfer amount (sender → recipient):', transferAmountSmallest.toString());
+        console.log('- Fee amount (sender → backend in gas token):', feeSmallest.toString(), `($${feeAmountUSD})`);
+        console.log('- Transfer token ATAs:', {
+          sender: senderTransferAta.toBase58(),
+          recipient: recipientTransferAta.toBase58(),
+        });
+        console.log('- Gas token ATAs:', {
+          sender: senderGasAta.toBase58(),
+          backend: backendGasAta.toBase58(),
+        });
 
-        for (const instruction of instructions) {
-          // Check if this is a token transfer instruction
-          if (instruction.programId.equals(TOKEN_PROGRAM_ID)) {
-            console.log('Found SPL Token instruction, data length:', instruction.data.length);
+        for (let i = 0; i < instructions.length; i++) {
+          const instruction = instructions[i];
+          
+          // Skip ATA creation instructions (they use a different program)
+          if (!instruction.programId.equals(TOKEN_PROGRAM_ID)) {
+            console.log(`Skipping instruction ${i + 1}: Not a token transfer (different program)`);
+            continue;
+          }
+
+          // Check if it's a transfer instruction (instruction discriminator: 3 for Transfer)
+          if (instruction.data.length === 9 && instruction.data[0] === 3) {
+            console.log(`\nFound SPL Token instruction, data length: ${instruction.data.length}`);
             
-            // Parse transfer instruction data (first byte is instruction type)
-            if (instruction.data[0] === 3) { // Transfer instruction
-              transferInstructionCount++;
-              console.log(`\nTransfer instruction #${transferInstructionCount}:`);
-              
-              // Validate source and destination accounts
-              const source = instruction.keys[0].pubkey;
-              const destination = instruction.keys[1].pubkey;
-              const authority = instruction.keys[2].pubkey;
-              
-              console.log('- Source:', source.toBase58());
-              console.log('- Destination:', destination.toBase58());
-              console.log('- Authority:', authority.toBase58());
-              
-              // Extract amount from instruction data (8 bytes after instruction type)
-              const amountBytes = instruction.data.slice(1, 9);
-              const buffer = new ArrayBuffer(8);
-              const uint8View = new Uint8Array(buffer);
-              uint8View.set(amountBytes);
-              const instructionAmount = new DataView(buffer).getBigUint64(0, true);
-              
-              console.log('- Amount:', instructionAmount.toString());
-
-              // GASLESS VALIDATION:
-              // Transfer 1: sender → backend (full amount)
-              // Transfer 2: backend → recipient (amount minus fee)
-              
-              if (source.equals(senderAta) && destination.equals(backendAta) && authority.equals(senderPk)) {
-                console.log('✓ This is sender → backend transfer');
-                console.log('  Expected amount:', fullAmountSmallest.toString());
-                console.log('  Actual amount:', instructionAmount.toString());
-                if (instructionAmount === fullAmountSmallest) {
-                  validTransfer1 = true;
-                  console.log('✓ Sender → backend validation PASSED');
-                }
-              } else if (source.equals(backendAta) && destination.equals(recipientAta) && authority.equals(backendWallet.publicKey)) {
-                console.log('✓ This is backend → recipient transfer');
-                console.log('  Expected amount:', receiverAmountSmallest.toString());
-                console.log('  Actual amount:', instructionAmount.toString());
-                if (instructionAmount === receiverAmountSmallest) {
-                  validTransfer2 = true;
-                  console.log('✓ Backend → recipient validation PASSED');
-                }
-              }
+            // Decode amount from instruction data (bytes 1-8, little endian)
+            const amountBytes = instruction.data.slice(1, 9);
+            const amountBuffer = new BigInt64Array(new Uint8Array(amountBytes).buffer)[0];
+            
+            const source = instruction.keys[0].pubkey;
+            const destination = instruction.keys[1].pubkey;
+            const authority = instruction.keys[2].pubkey;
+            
+            console.log(`\nTransfer instruction #${i + 1}:`);
+            console.log('- Source:', source.toBase58());
+            console.log('- Destination:', destination.toBase58());
+            console.log('- Authority:', authority.toBase58());
+            console.log('- Amount:', amountBuffer.toString());
+            
+            // Validate Transfer 1: Sender → Recipient (full amount in transfer token)
+            if (
+              source.equals(senderTransferAta) &&
+              destination.equals(recipientTransferAta) &&
+              authority.equals(senderPk) &&
+              amountBuffer === transferAmountSmallest
+            ) {
+              validTransfer = true;
+              console.log('✓ This is sender → recipient transfer (FULL amount)');
+              console.log('  Expected amount:', transferAmountSmallest.toString());
+              console.log('  Actual amount:', amountBuffer.toString());
+            }
+            
+            // Validate Transfer 2: Sender → Backend (fee in gas token)
+            if (
+              source.equals(senderGasAta) &&
+              destination.equals(backendGasAta) &&
+              authority.equals(senderPk) &&
+              amountBuffer === feeSmallest
+            ) {
+              validFeePayment = true;
+              console.log('✓ This is sender → backend fee payment (gas token)');
+              console.log('  Expected amount:', feeSmallest.toString());
+              console.log('  Actual amount:', amountBuffer.toString());
             }
           }
         }
 
         console.log('\n=== VALIDATION SUMMARY ===');
-        console.log('Transfer instructions found:', transferInstructionCount);
-        console.log('Valid transfer 1 (sender → backend):', validTransfer1);
-        console.log('Valid transfer 2 (backend → recipient):', validTransfer2);
+        console.log('✓ Sender → recipient validation:', validTransfer ? 'PASSED' : 'FAILED');
+        console.log('✓ Sender → backend fee payment validation:', validFeePayment ? 'PASSED' : 'FAILED');
+        console.log('Total instructions in transaction:', instructions.length);
         console.log('=== TRANSACTION VALIDATION END ===\n');
 
-        // SECURITY: Ensure exactly 2 transfer instructions with correct amounts
-        if (transferInstructionCount !== 2) {
+        if (!validTransfer || !validFeePayment) {
+          console.error('Transaction validation failed!');
           return new Response(
-            JSON.stringify({ 
-              error: 'Invalid transaction structure',
-              details: 'Transaction must contain exactly 2 token transfers'
-            }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        if (!validTransfer1 || !validTransfer2) {
-          return new Response(
-            JSON.stringify({ 
+            JSON.stringify({
               error: 'Transaction validation failed',
-              details: 'Transfer amounts or accounts do not match expected values'
+              details: `Missing required transfers. Transfer: ${validTransfer}, Fee payment: ${validFeePayment}`,
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
