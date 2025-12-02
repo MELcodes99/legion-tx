@@ -13,6 +13,7 @@ import solanaLogo from '@/assets/solana-logo.png';
 import suiLogo from '@/assets/sui-logo.png';
 import baseLogo from '@/assets/base-logo.jpeg';
 import ethLogo from '@/assets/eth-logo.jpeg';
+import metamaskLogo from '@/assets/metamask-logo.svg';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useToast } from '@/hooks/use-toast';
 import type { ChainType } from '@/config/tokens';
@@ -253,23 +254,36 @@ export const UnifiedWalletButton = () => {
 
           {step === 'select-wallet' && (selectedNetwork === 'base' || selectedNetwork === 'ethereum') && (
             <div className="space-y-2 py-4">
-              {connectors.map((connector) => (
-                <Button
-                  key={connector.uid}
-                  variant="outline"
-                  className="w-full flex items-center gap-3 justify-start h-auto py-3 hover:bg-secondary/50 border-border"
-                  onClick={() => handleWalletConnect('evm', connector)}
-                >
-                  {connector.icon && (
+              {connectors
+                .filter((connector) => connector.id === 'io.metamask' || connector.name.toLowerCase().includes('metamask'))
+                .map((connector) => (
+                  <Button
+                    key={connector.uid}
+                    variant="outline"
+                    className="w-full flex items-center gap-3 justify-start h-auto py-3 hover:bg-secondary/50 border-border"
+                    onClick={() => handleWalletConnect('evm', connector)}
+                  >
                     <img 
-                      src={connector.icon} 
-                      alt={connector.name} 
-                      className="w-6 h-6 rounded"
+                      src={metamaskLogo} 
+                      alt="MetaMask" 
+                      className="w-6 h-6"
                     />
-                  )}
-                  <span className="font-medium">{connector.name}</span>
-                </Button>
-              ))}
+                    <span className="font-medium">MetaMask</span>
+                  </Button>
+                ))}
+              {connectors.filter((connector) => connector.id === 'io.metamask' || connector.name.toLowerCase().includes('metamask')).length === 0 && (
+                <div className="text-center py-4 text-muted-foreground">
+                  <p className="text-sm">MetaMask not detected</p>
+                  <a 
+                    href="https://metamask.io/download/" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-primary text-sm hover:underline"
+                  >
+                    Install MetaMask
+                  </a>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
