@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useCurrentAccount as useSuiAccount, useSignTransaction } from '@mysten/dapp-kit';
+import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
+import { base, mainnet } from 'wagmi/chains';
+import { parseUnits, formatUnits } from 'viem';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { supabase } from '@/integrations/supabase/client';
@@ -14,12 +17,14 @@ import { Loader2, Send, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ProcessingLogo } from './ProcessingLogo';
 import { ConnectedWalletInfo } from './ConnectedWalletInfo';
-import { TOKENS, getTokensByChain, getTokenConfig, getTokenDisplayName, MIN_TRANSFER_USD } from '@/config/tokens';
+import { TOKENS, getTokensByChain, getTokenConfig, getTokenDisplayName, MIN_TRANSFER_USD, CHAIN_NAMES } from '@/config/tokens';
 import type { ChainType } from '@/config/tokens';
 import usdtLogo from '@/assets/usdt-logo.png';
 import usdcLogo from '@/assets/usdc-logo.png';
 import solanaLogo from '@/assets/solana-logo.png';
 import suiLogo from '@/assets/sui-logo.png';
+import baseLogo from '@/assets/base-logo.jpeg';
+import ethLogo from '@/assets/eth-logo.jpeg';
 import { SuiClient } from '@mysten/sui/client';
 import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -35,6 +40,9 @@ export const MultiChainTransferForm = () => {
   const { mutateAsync: signSuiTransaction } = useSignTransaction();
   const { toast } = useToast();
   
+  // EVM hooks
+  const { address: evmAddress, chain: evmChain } = useAccount();
+  
   const suiClient = new SuiClient({ url: 'https://fullnode.mainnet.sui.io:443' });
   
   const [recipient, setRecipient] = useState('');
@@ -44,7 +52,7 @@ export const MultiChainTransferForm = () => {
   const [balances, setBalances] = useState<BalanceMap>({} as BalanceMap);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [tokenPrices, setTokenPrices] = useState<{ solana: number; sui: number } | null>(null);
+  const [tokenPrices, setTokenPrices] = useState<{ solana: number; sui: number; ethereum: number } | null>(null);
 
   const selectedTokenConfig = getTokenConfig(selectedToken);
   const selectedGasTokenConfig = getTokenConfig(selectedGasToken);
@@ -55,22 +63,33 @@ export const MultiChainTransferForm = () => {
     if (!selectedGasTokenConfig || !tokenPrices) return `$${gasFee.toFixed(2)}`;
     
     if (selectedGasTokenConfig.isNative) {
-      const price = selectedGasTokenConfig.chain === 'solana' ? tokenPrices.solana : tokenPrices.sui;
+      let price = 1;
+      if (selectedGasTokenConfig.chain === 'solana') price = tokenPrices.solana;
+      else if (selectedGasTokenConfig.chain === 'sui') price = tokenPrices.sui;
+      else if (selectedGasTokenConfig.chain === 'base' || selectedGasTokenConfig.chain === 'ethereum') price = tokenPrices.ethereum;
+      
       const tokenAmount = gasFee / price;
-      return `${tokenAmount.toFixed(4)} ${selectedGasTokenConfig.symbol} (~$${gasFee.toFixed(2)})`;
+      return `${tokenAmount.toFixed(6)} ${selectedGasTokenConfig.symbol} (~$${gasFee.toFixed(2)})`;
     }
     
     return `$${gasFee.toFixed(2)}`;
   };
 
+  // Check if any wallet is connected
+  const hasWalletConnected = !!solanaPublicKey || !!suiAccount || !!evmAddress;
+
   // Get available tokens based on connected wallets
   const getAvailableTokens = (): [string, typeof TOKENS[TokenKey]][] => {
     const hasSolana = !!solanaPublicKey;
     const hasSui = !!suiAccount;
+    const hasBase = !!evmAddress && evmChain?.id === base.id;
+    const hasEthereum = !!evmAddress && evmChain?.id === mainnet.id;
     
     return Object.entries(TOKENS).filter(([_, config]) => {
       if (config.chain === 'solana') return hasSolana;
       if (config.chain === 'sui') return hasSui;
+      if (config.chain === 'base') return hasBase;
+      if (config.chain === 'ethereum') return hasEthereum;
       return false;
     });
   };
@@ -87,7 +106,11 @@ export const MultiChainTransferForm = () => {
         
         if (error) throw error;
         if (data?.prices) {
-          setTokenPrices(data.prices);
+          setTokenPrices({
+            solana: data.prices.solana || 0,
+            sui: data.prices.sui || 0,
+            ethereum: data.prices.ethereum || 3000, // Default ETH price
+          });
           console.log('Token prices fetched:', data.prices);
         }
       } catch (error) {
@@ -96,7 +119,6 @@ export const MultiChainTransferForm = () => {
     };
 
     fetchPrices();
-    // Refresh prices every 5 minutes (to avoid rate limiting)
     const interval = setInterval(fetchPrices, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
@@ -111,7 +133,7 @@ export const MultiChainTransferForm = () => {
         setSelectedGasToken(firstToken);
       }
     }
-  }, [solanaPublicKey, suiAccount]);
+  }, [solanaPublicKey, suiAccount, evmAddress, evmChain]);
 
   // Fetch balances for all chains
   useEffect(() => {
@@ -121,11 +143,9 @@ export const MultiChainTransferForm = () => {
       // Fetch Solana balances
       if (solanaPublicKey) {
         try {
-          // Fetch SOL balance
           const solBalance = await connection.getBalance(solanaPublicKey, 'confirmed');
           newBalances.SOL = solBalance / LAMPORTS_PER_SOL;
 
-          // Fetch USDC (Solana)
           try {
             const usdcMint = new PublicKey(TOKENS.USDC_SOL.mint);
             const usdcParsed = await connection.getParsedTokenAccountsByOwner(
@@ -142,7 +162,6 @@ export const MultiChainTransferForm = () => {
             newBalances.USDC_SOL = 0;
           }
 
-          // Fetch USDT (Solana)
           try {
             const usdtMint = new PublicKey(TOKENS.USDT_SOL.mint);
             const usdtParsed = await connection.getParsedTokenAccountsByOwner(
@@ -166,20 +185,15 @@ export const MultiChainTransferForm = () => {
       // Fetch Sui balances
       if (suiAccount) {
         try {
-          // Get all coin balances for the Sui account
           const allBalances = await suiClient.getAllBalances({
             owner: suiAccount.address,
           });
           
-          console.log('All Sui balances:', allBalances);
-          
-          // Process all balances and show ANY token with balance > 0
           for (const balance of allBalances) {
             const balanceAmount = Number(balance.totalBalance);
             
             if (balanceAmount <= 0) continue;
             
-            // Match coin type to our predefined tokens
             if (balance.coinType === '0x2::sui::SUI') {
               newBalances.SUI = balanceAmount / 1e9;
             } else if (balance.coinType === TOKENS.USDC_SUI.mint || 
@@ -191,7 +205,6 @@ export const MultiChainTransferForm = () => {
             }
           }
           
-          // Set to 0 if not found
           if (newBalances.SUI === undefined) newBalances.SUI = 0;
           if (newBalances.USDC_SUI === undefined) newBalances.USDC_SUI = 0;
           if (newBalances.USDT_SUI === undefined) newBalances.USDT_SUI = 0;
@@ -201,19 +214,75 @@ export const MultiChainTransferForm = () => {
           newBalances.USDT_SUI = 0;
           newBalances.SUI = 0;
         }
-      } else {
-        newBalances.USDC_SUI = 0;
-        newBalances.USDT_SUI = 0;
-        newBalances.SUI = 0;
       }
 
-      setBalances(newBalances as BalanceMap);
+      // EVM balances will be handled separately via wagmi hooks
+      // For now set to 0, they'll be updated when available
+      if (!evmAddress) {
+        newBalances.USDC_BASE = 0;
+        newBalances.USDT_BASE = 0;
+        newBalances.BASE_ETH = 0;
+        newBalances.USDC_ETH = 0;
+        newBalances.USDT_ETH = 0;
+        newBalances.ETH = 0;
+      }
+
+      setBalances(prev => ({ ...prev, ...newBalances } as BalanceMap));
     };
 
     fetchBalances();
     const interval = setInterval(fetchBalances, 10000);
     return () => clearInterval(interval);
   }, [solanaPublicKey, suiAccount, connection]);
+
+  // Fetch EVM balances
+  useEffect(() => {
+    const fetchEvmBalances = async () => {
+      if (!evmAddress || !evmChain) return;
+
+      const newBalances: Partial<BalanceMap> = {};
+
+      try {
+        // Fetch native ETH balance using viem
+        const response = await fetch(`https://${evmChain.id === base.id ? 'base' : 'eth'}-mainnet.g.alchemy.com/v2/demo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'eth_getBalance',
+            params: [evmAddress, 'latest'],
+            id: 1,
+          }),
+        });
+        
+        const data = await response.json();
+        if (data.result) {
+          const balance = BigInt(data.result);
+          const ethBalance = Number(formatUnits(balance, 18));
+          
+          if (evmChain.id === base.id) {
+            newBalances.BASE_ETH = ethBalance;
+            // TODO: Fetch USDC/USDT balances for Base
+            newBalances.USDC_BASE = 0;
+            newBalances.USDT_BASE = 0;
+          } else {
+            newBalances.ETH = ethBalance;
+            // TODO: Fetch USDC/USDT balances for Ethereum
+            newBalances.USDC_ETH = 0;
+            newBalances.USDT_ETH = 0;
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching EVM balances:', error);
+      }
+
+      setBalances(prev => ({ ...prev, ...newBalances } as BalanceMap));
+    };
+
+    fetchEvmBalances();
+    const interval = setInterval(fetchEvmBalances, 15000);
+    return () => clearInterval(interval);
+  }, [evmAddress, evmChain]);
 
   const initiateTransfer = async () => {
     const tokenConfig = selectedTokenConfig;
@@ -238,6 +307,15 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
+    if ((tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') && !evmAddress) {
+      toast({
+        title: 'EVM wallet not connected',
+        description: `Please connect your ${CHAIN_NAMES[tokenConfig.chain]} wallet first.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setError('');
     
     const amountNum = parseFloat(amount);
@@ -253,14 +331,13 @@ export const MultiChainTransferForm = () => {
 
     const currentBalance = balances[selectedToken] || 0;
     if (amountNum > currentBalance) {
-      setError(`Insufficient balance. You have $${currentBalance.toFixed(2)} ${selectedTokenConfig?.symbol}`);
+      setError(`Insufficient balance. You have ${currentBalance.toFixed(selectedTokenConfig?.isNative ? 6 : 2)} ${selectedTokenConfig?.symbol}`);
       return;
     }
 
     // Check gas token wallet and balance
     const gasTokenConfig = getTokenConfig(selectedGasToken);
     if (gasTokenConfig) {
-      // Check wallet connection for gas token's chain
       if (gasTokenConfig.chain === 'solana' && !solanaPublicKey) {
         toast({
           title: 'Solana wallet required',
@@ -277,16 +354,25 @@ export const MultiChainTransferForm = () => {
         });
         return;
       }
+      if ((gasTokenConfig.chain === 'base' || gasTokenConfig.chain === 'ethereum') && !evmAddress) {
+        toast({
+          title: 'EVM wallet required',
+          description: `Connect an EVM wallet to pay gas with ${gasTokenConfig.symbol}.`,
+          variant: 'destructive',
+        });
+        return;
+      }
       
-      // Determine fee based on transfer chain (not gas token chain)
-      const transferFee = tokenConfig.gasFee; // $0.50 for Solana transfers, $0.40 for Sui transfers
+      const transferFee = tokenConfig.gasFee;
       
-      // Check gas token balance (only if different from sending token)
       if (selectedGasToken !== selectedToken) {
         const gasBalance = balances[selectedGasToken] || 0;
-        const gasTokenPrice = gasTokenConfig.isNative 
-          ? (tokenPrices?.[gasTokenConfig.chain === 'solana' ? 'solana' : 'sui'] || 0)
-          : 1; // Stablecoins are $1
+        let gasTokenPrice = 1;
+        if (gasTokenConfig.isNative) {
+          if (gasTokenConfig.chain === 'solana') gasTokenPrice = tokenPrices?.solana || 0;
+          else if (gasTokenConfig.chain === 'sui') gasTokenPrice = tokenPrices?.sui || 0;
+          else gasTokenPrice = tokenPrices?.ethereum || 0;
+        }
         const requiredGasAmount = gasTokenConfig.isNative 
           ? transferFee / gasTokenPrice 
           : transferFee;
@@ -294,7 +380,7 @@ export const MultiChainTransferForm = () => {
         if (gasBalance < requiredGasAmount) {
           toast({
             title: 'Insufficient gas balance',
-            description: `You need ${requiredGasAmount.toFixed(4)} ${gasTokenConfig.symbol} to pay $${transferFee.toFixed(2)} gas fee.`,
+            description: `You need ${requiredGasAmount.toFixed(6)} ${gasTokenConfig.symbol} to pay $${transferFee.toFixed(2)} gas fee.`,
             variant: 'destructive',
           });
           return;
@@ -317,6 +403,10 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
+    if ((tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') && !evmAddress) {
+      return;
+    }
+
     setError('');
     setIsLoading(true);
 
@@ -332,7 +422,6 @@ export const MultiChainTransferForm = () => {
       console.log('Gas token:', selectedGasToken);
 
       if (tokenConfig.chain === 'solana') {
-        // Solana transfer logic (same as before)
         toast({ 
           title: 'Building transaction...', 
           description: 'Creating gasless transfer on Solana'
@@ -342,7 +431,7 @@ export const MultiChainTransferForm = () => {
           body: {
             action: 'build_atomic_tx',
             chain: 'solana',
-            senderPublicKey: solanaPublicKey.toBase58(),
+            senderPublicKey: solanaPublicKey!.toBase58(),
             recipientPublicKey: recipient,
             amount: fullAmount,
             mint: tokenConfig.mint,
@@ -357,7 +446,6 @@ export const MultiChainTransferForm = () => {
 
         const { transaction: base64Tx, fee, amountAfterFee } = buildResponse.data;
 
-        // Deserialize and sign
         const binaryString = atob(base64Tx);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
@@ -366,7 +454,7 @@ export const MultiChainTransferForm = () => {
         const transaction = Transaction.from(bytes);
 
         toast({ title: 'Sign the transaction', description: 'Please approve in your wallet' });
-        const signedTx = await solanaSignTransaction(transaction);
+        const signedTx = await solanaSignTransaction!(transaction);
         const serialized = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
         const signedBase64Tx = btoa(String.fromCharCode(...serialized));
 
@@ -377,7 +465,7 @@ export const MultiChainTransferForm = () => {
             action: 'submit_atomic_tx',
             chain: 'solana',
             signedTransaction: signedBase64Tx,
-            senderPublicKey: solanaPublicKey.toBase58(),
+            senderPublicKey: solanaPublicKey!.toBase58(),
             recipientPublicKey: recipient,
             amount: fullAmount,
             mint: tokenConfig.mint,
@@ -431,7 +519,6 @@ export const MultiChainTransferForm = () => {
 
         toast({ title: 'Sign the transaction', description: 'Please approve in your Sui wallet' });
         
-        // Decode and sign the Sui transaction
         const binaryString = atob(base64Tx);
         const txBytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -449,8 +536,8 @@ export const MultiChainTransferForm = () => {
           body: {
             action: 'submit_atomic_tx',
             chain: 'sui',
-            signedTransaction: signedTx.bytes, // Transaction bytes (base64)
-            userSignature: signedTx.signature, // User's signature (base64)
+            signedTransaction: signedTx.bytes,
+            userSignature: signedTx.signature,
             senderPublicKey: suiAccount.address,
             recipientPublicKey: recipient,
             amount: fullAmount,
@@ -476,6 +563,12 @@ export const MultiChainTransferForm = () => {
 
         setRecipient('');
         setAmount('');
+      } else if (tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') {
+        // EVM chain transfer - placeholder for now
+        toast({
+          title: 'Coming Soon',
+          description: `${CHAIN_NAMES[tokenConfig.chain]} transfers will be available soon.`,
+        });
       }
     } catch (err) {
       console.error('Transfer error:', err);
@@ -494,22 +587,29 @@ export const MultiChainTransferForm = () => {
   const amountAfterFee = amount ? (parseFloat(amount) || 0) - gasFee : 0;
 
   const getTokenLogo = (tokenKey: TokenKey) => {
-    const symbol = TOKENS[tokenKey].symbol;
+    const token = TOKENS[tokenKey];
+    const symbol = token.symbol;
     if (symbol === 'USDC') return usdcLogo;
     if (symbol === 'USDT') return usdtLogo;
     if (symbol === 'SOL') return solanaLogo;
     if (symbol === 'SUI') return suiLogo;
+    if (symbol === 'ETH') {
+      return token.chain === 'base' ? baseLogo : ethLogo;
+    }
     return usdcLogo;
   };
 
   const getChainLogo = (chain: ChainType) => {
-    return chain === 'solana' ? solanaLogo : suiLogo;
+    switch (chain) {
+      case 'solana': return solanaLogo;
+      case 'sui': return suiLogo;
+      case 'base': return baseLogo;
+      case 'ethereum': return ethLogo;
+      default: return solanaLogo;
+    }
   };
 
-  const solanaTokens = getTokensByChain('solana');
-  const suiTokens = getTokensByChain('sui');
-  
-  // Filter tokens with balance > 0 for display (only show tokens above $0)
+  // Filter tokens with balance > 0 for display
   const tokensWithBalance = Object.entries(balances)
     .filter(([_, balance]) => balance > 0)
     .map(([key]) => {
@@ -520,6 +620,8 @@ export const MultiChainTransferForm = () => {
 
   const solanaTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'solana');
   const suiTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'sui');
+  const baseTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'base');
+  const ethTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'ethereum');
 
   const [balancesOpen, setBalancesOpen] = useState(false);
 
@@ -537,7 +639,7 @@ export const MultiChainTransferForm = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4 sm:p-6">
-        {!solanaPublicKey && !suiAccount && (
+        {!hasWalletConnected && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
@@ -548,7 +650,7 @@ export const MultiChainTransferForm = () => {
 
         <ConnectedWalletInfo />
 
-        {(solanaPublicKey || suiAccount) && tokensWithBalance.length > 0 && (
+        {hasWalletConnected && tokensWithBalance.length > 0 && (
           <Collapsible open={balancesOpen} onOpenChange={setBalancesOpen}>
             <CollapsibleTrigger asChild>
               <Button 
@@ -608,6 +710,58 @@ export const MultiChainTransferForm = () => {
                     ))}
                   </div>
                 )}
+
+                {/* Base Balances */}
+                {baseTokensWithBalance.length > 0 && (
+                  <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
+                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                      <img src={baseLogo} alt="Base" className="w-4 h-4 rounded-full" />
+                      Base Balances
+                    </div>
+                    {baseTokensWithBalance.map(({ key, config }) => (
+                      <div key={key} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
+                            {!config.isNative && (
+                              <img src={baseLogo} alt="Base" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                            )}
+                          </div>
+                          <span className="text-muted-foreground">{config.symbol}:</span>
+                        </div>
+                        <span className="font-medium">
+                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 6 : 2)} {config.symbol}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Ethereum Balances */}
+                {ethTokensWithBalance.length > 0 && (
+                  <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
+                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                      <img src={ethLogo} alt="Ethereum" className="w-4 h-4 rounded-full" />
+                      Ethereum Balances
+                    </div>
+                    {ethTokensWithBalance.map(({ key, config }) => (
+                      <div key={key} className="flex justify-between items-center text-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
+                            {!config.isNative && (
+                              <img src={ethLogo} alt="Ethereum" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                            )}
+                          </div>
+                          <span className="text-muted-foreground">{config.symbol}:</span>
+                        </div>
+                        <span className="font-medium">
+                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 6 : 2)} {config.symbol}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -619,7 +773,6 @@ export const MultiChainTransferForm = () => {
             value={selectedToken} 
             onValueChange={(value: TokenKey) => {
               setSelectedToken(value);
-              // Auto-select same token for gas payment
               setSelectedGasToken(value);
             }}
             disabled={availableTokens.length === 0}
@@ -633,7 +786,9 @@ export const MultiChainTransferForm = () => {
                   <div className="flex items-center gap-2">
                     <div className="relative">
                       <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4 rounded-full" />
-                      <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                      {!config.isNative && (
+                        <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                      )}
                     </div>
                     <span>{getTokenDisplayName(key)}</span>
                   </div>
@@ -659,7 +814,9 @@ export const MultiChainTransferForm = () => {
                   <div className="flex items-center gap-2">
                     <div className="relative">
                       <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4 rounded-full" />
-                      <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                      {!config.isNative && (
+                        <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
+                      )}
                     </div>
                     <span>{getTokenDisplayName(key)}</span>
                   </div>
@@ -676,7 +833,7 @@ export const MultiChainTransferForm = () => {
             placeholder="Enter recipient address"
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
-            disabled={(!solanaPublicKey && !suiAccount) || isLoading}
+            disabled={!hasWalletConnected || isLoading}
             className="bg-secondary/50 border-border/50 text-sm"
           />
         </div>
@@ -690,7 +847,7 @@ export const MultiChainTransferForm = () => {
             placeholder="0.00"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            disabled={(!solanaPublicKey && !suiAccount) || isLoading}
+            disabled={!hasWalletConnected || isLoading}
             className="bg-secondary/50 border-border/50 text-sm"
           />
         </div>
@@ -733,7 +890,7 @@ export const MultiChainTransferForm = () => {
 
         <Button
           onClick={initiateTransfer}
-          disabled={(!solanaPublicKey && !suiAccount) || isLoading || !recipient || !amount}
+          disabled={!hasWalletConnected || isLoading || !recipient || !amount}
           className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6"
         >
           {isLoading ? (
