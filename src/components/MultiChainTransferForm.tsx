@@ -271,20 +271,23 @@ export const MultiChainTransferForm = () => {
           }
         }
 
-        // Fetch ERC20 token balances (USDC, USDT)
+        // Fetch ERC20 token balances (USDC, USDT) with verified contract addresses
         const tokenContracts = evmChain.id === base.id 
           ? [
-              { key: 'USDC_BASE', address: TOKENS.USDC_BASE.mint, decimals: 6 },
-              { key: 'USDT_BASE', address: TOKENS.USDT_BASE.mint, decimals: 6 },
+              { key: 'USDC_BASE', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
+              { key: 'USDT_BASE', address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', decimals: 6 },
             ]
           : [
-              { key: 'USDC_ETH', address: TOKENS.USDC_ETH.mint, decimals: 6 },
-              { key: 'USDT_ETH', address: TOKENS.USDT_ETH.mint, decimals: 6 },
+              { key: 'USDC_ETH', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
+              { key: 'USDT_ETH', address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
             ];
 
         // ERC20 balanceOf function signature: balanceOf(address) = 0x70a08231
         for (const token of tokenContracts) {
           try {
+            // Pad the address to 32 bytes (64 hex chars) for the function call
+            const paddedAddress = evmAddress.slice(2).toLowerCase().padStart(64, '0');
+            
             const tokenResponse = await fetch(rpcUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -293,20 +296,27 @@ export const MultiChainTransferForm = () => {
                 method: 'eth_call',
                 params: [{
                   to: token.address,
-                  data: `0x70a08231000000000000000000000000${evmAddress.slice(2)}`,
+                  data: `0x70a08231${paddedAddress}`,
                 }, 'latest'],
-                id: 1,
+                id: Date.now(),
               }),
             });
             
             const tokenData = await tokenResponse.json();
-            if (tokenData.result && tokenData.result !== '0x') {
-              const tokenBalance = BigInt(tokenData.result);
-              newBalances[token.key as TokenKey] = Number(formatUnits(tokenBalance, token.decimals));
+            console.log(`${token.key} balance response:`, tokenData);
+            
+            if (tokenData.result) {
+              // Handle both '0x' and '0x0000...' responses
+              const hexValue = tokenData.result === '0x' ? '0x0' : tokenData.result;
+              const tokenBalance = BigInt(hexValue);
+              const formattedBalance = Number(formatUnits(tokenBalance, token.decimals));
+              newBalances[token.key as TokenKey] = formattedBalance;
+              console.log(`${token.key} balance: ${formattedBalance}`);
             } else {
               newBalances[token.key as TokenKey] = 0;
             }
-          } catch {
+          } catch (error) {
+            console.error(`Error fetching ${token.key} balance:`, error);
             newBalances[token.key as TokenKey] = 0;
           }
         }
