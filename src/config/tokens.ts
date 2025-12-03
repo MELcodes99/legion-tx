@@ -83,7 +83,7 @@ export const TOKENS: Record<string, TokenConfig> = {
   'USDT_BASE': {
     name: 'Tether USD',
     symbol: 'USDT',
-    mint: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', // Official Base USDT (bridged)
+    mint: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // Official Bridged USDT on Base
     decimals: 6,
     chain: 'base',
     gasFee: 0.40,
