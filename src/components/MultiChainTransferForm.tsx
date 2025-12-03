@@ -96,7 +96,7 @@ export const MultiChainTransferForm = () => {
 
   const availableTokens = getAvailableTokens();
 
-  // Fetch token prices from backend
+  // Fetch token prices from backend in real-time
   useEffect(() => {
     const fetchPrices = async () => {
       try {
@@ -109,7 +109,7 @@ export const MultiChainTransferForm = () => {
           setTokenPrices({
             solana: data.prices.solana || 0,
             sui: data.prices.sui || 0,
-            ethereum: data.prices.ethereum || 3000, // Default ETH price
+            ethereum: data.prices.ethereum || data.prices.base || 3000,
           });
           console.log('Token prices fetched:', data.prices);
         }
@@ -119,7 +119,8 @@ export const MultiChainTransferForm = () => {
     };
 
     fetchPrices();
-    const interval = setInterval(fetchPrices, 5 * 60 * 1000);
+    // Fetch prices more frequently (every 30 seconds) for real-time accuracy
+    const interval = setInterval(fetchPrices, 30 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -371,8 +372,29 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
-    if (amountNum < MIN_TRANSFER_USD) {
-      setError(`Minimum transfer amount is $${MIN_TRANSFER_USD} USD`);
+    // Calculate minimum transfer based on chain
+    // For EVM chains (base/ethereum), minimum is $5 worth of token
+    const minTransfer = (tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') ? 5 : MIN_TRANSFER_USD;
+    
+    // For native tokens, convert amount to USD using real-time prices
+    let amountInUsd = amountNum;
+    if (tokenConfig.isNative && tokenPrices) {
+      if (tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') {
+        amountInUsd = amountNum * tokenPrices.ethereum;
+      } else if (tokenConfig.chain === 'solana') {
+        amountInUsd = amountNum * tokenPrices.solana;
+      } else if (tokenConfig.chain === 'sui') {
+        amountInUsd = amountNum * tokenPrices.sui;
+      }
+    }
+
+    if (amountInUsd < minTransfer) {
+      if (tokenConfig.isNative && tokenPrices) {
+        const minTokenAmount = minTransfer / (tokenPrices.ethereum || 1);
+        setError(`Minimum transfer is $${minTransfer} USD (~${minTokenAmount.toFixed(6)} ${tokenConfig.symbol})`);
+      } else {
+        setError(`Minimum transfer amount is $${minTransfer} USD`);
+      }
       return;
     }
 
@@ -657,18 +679,33 @@ export const MultiChainTransferForm = () => {
   };
 
   // Filter tokens with balance > 0 for display
+  // Determine which chain is currently connected
+  const connectedChain: ChainType | null = (() => {
+    if (evmAddress && evmChain?.id === base.id) return 'base';
+    if (evmAddress && evmChain?.id === mainnet.id) return 'ethereum';
+    if (solanaPublicKey) return 'solana';
+    if (suiAccount) return 'sui';
+    return null;
+  })();
+
+  // Only show tokens for the currently connected chain
   const tokensWithBalance = Object.entries(balances)
-    .filter(([_, balance]) => balance > 0)
+    .filter(([key, balance]) => {
+      const config = getTokenConfig(key);
+      if (!config) return false;
+      // Only show tokens from the connected chain
+      return config.chain === connectedChain && balance >= 0;
+    })
     .map(([key]) => {
       const config = getTokenConfig(key);
       return { key, config };
     })
     .filter((item): item is { key: string; config: import('@/config/tokens').TokenConfig } => item.config !== undefined);
 
-  const solanaTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'solana');
-  const suiTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'sui');
-  const baseTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'base');
-  const ethTokensWithBalance = tokensWithBalance.filter(item => item.config.chain === 'ethereum');
+  const solanaTokensWithBalance = connectedChain === 'solana' ? tokensWithBalance : [];
+  const suiTokensWithBalance = connectedChain === 'sui' ? tokensWithBalance : [];
+  const baseTokensWithBalance = connectedChain === 'base' ? tokensWithBalance : [];
+  const ethTokensWithBalance = connectedChain === 'ethereum' ? tokensWithBalance : [];
 
   const [balancesOpen, setBalancesOpen] = useState(false);
 
