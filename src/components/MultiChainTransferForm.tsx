@@ -244,25 +244,55 @@ export const MultiChainTransferForm = () => {
       console.log(`Fetching EVM balances for address: ${evmAddress} on chain: ${evmChain.id}`);
 
       const newBalances: Partial<BalanceMap> = {};
-      // Use more reliable RPC endpoints - Ankr public RPCs
-      const rpcUrl = evmChain.id === base.id 
-        ? 'https://rpc.ankr.com/base' 
-        : 'https://rpc.ankr.com/eth';
+      
+      // Use free public RPCs that don't require API keys
+      const primaryRpc = evmChain.id === base.id 
+        ? 'https://mainnet.base.org' 
+        : 'https://cloudflare-eth.com';
+      const fallbackRpc = evmChain.id === base.id 
+        ? 'https://base.llamarpc.com' 
+        : 'https://eth.llamarpc.com';
+
+      // Helper function to make RPC call with fallback
+      const makeRpcCall = async (body: object): Promise<any> => {
+        try {
+          const response = await fetch(primaryRpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await response.json();
+          // Check for authorization errors and retry with fallback
+          if (data.error?.code === -32000 || data.error?.message?.includes('Unauthorized')) {
+            console.log('Primary RPC failed, trying fallback...');
+            const fallbackResponse = await fetch(fallbackRpc, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            return await fallbackResponse.json();
+          }
+          return data;
+        } catch (error) {
+          console.log('Primary RPC error, trying fallback...', error);
+          const fallbackResponse = await fetch(fallbackRpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          return await fallbackResponse.json();
+        }
+      };
 
       try {
         // Fetch native ETH balance
-        const balanceResponse = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'eth_getBalance',
-            params: [evmAddress, 'latest'],
-            id: 1,
-          }),
+        const balanceData = await makeRpcCall({
+          jsonrpc: '2.0',
+          method: 'eth_getBalance',
+          params: [evmAddress, 'latest'],
+          id: 1,
         });
         
-        const balanceData = await balanceResponse.json();
         console.log('Native ETH balance response:', balanceData);
         
         if (balanceData.result) {
@@ -299,21 +329,16 @@ export const MultiChainTransferForm = () => {
             console.log(`Querying ${token.key} at ${token.address} for wallet ${evmAddress}`);
             console.log(`Call data: ${callData}`);
             
-            const tokenResponse = await fetch(rpcUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: 'eth_call',
-                params: [{
-                  to: token.address,
-                  data: callData,
-                }, 'latest'],
-                id: Date.now(),
-              }),
+            const tokenData = await makeRpcCall({
+              jsonrpc: '2.0',
+              method: 'eth_call',
+              params: [{
+                to: token.address,
+                data: callData,
+              }, 'latest'],
+              id: Date.now(),
             });
             
-            const tokenData = await tokenResponse.json();
             console.log(`${token.key} balance response:`, tokenData);
             
             if (tokenData.result && tokenData.result !== '0x') {
