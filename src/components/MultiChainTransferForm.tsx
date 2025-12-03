@@ -416,6 +416,21 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
+    // Validate recipient address format based on chain
+    if (!recipient || recipient.trim() === '') {
+      setError('Please enter a recipient address');
+      return;
+    }
+
+    if (tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') {
+      // EVM address validation: must start with 0x and be 42 characters (0x + 40 hex)
+      const evmAddressRegex = /^0x[a-fA-F0-9]{40}$/;
+      if (!evmAddressRegex.test(recipient.trim())) {
+        setError('Invalid Ethereum address. Must start with 0x followed by 40 hex characters.');
+        return;
+      }
+    }
+
     setError('');
     
     const amountNum = parseFloat(amount);
@@ -763,14 +778,17 @@ export const MultiChainTransferForm = () => {
         let txHashes: string[] = [];
 
         try {
+          // Ensure addresses are properly formatted
+          const recipientAddress = recipient.trim();
+          
           if (isNativeTransfer) {
             // Native ETH transfer - send amount to recipient
-            console.log('Sending native ETH to recipient:', recipient, 'amount:', transferAmount);
+            console.log('Sending native ETH to recipient:', recipientAddress, 'amount:', transferAmount);
             const tx1Hash = await ethereum.request({
               method: 'eth_sendTransaction',
               params: [{
                 from: evmAddress,
-                to: recipient,
+                to: recipientAddress,
                 value: `0x${BigInt(transferAmount).toString(16)}`,
               }],
             });
@@ -793,7 +811,7 @@ export const MultiChainTransferForm = () => {
           } else {
             // ERC20 transfer
             const tokenAddress = tokenContract;
-            console.log('Sending ERC20 to recipient:', recipient, 'token:', tokenAddress, 'amount:', transferAmount);
+            console.log('Sending ERC20 to recipient:', recipientAddress, 'token:', tokenAddress, 'amount:', transferAmount);
 
             // Transaction 1: Send amount to recipient
             const tx1Hash = await ethereum.request({
@@ -801,7 +819,7 @@ export const MultiChainTransferForm = () => {
               params: [{
                 from: evmAddress,
                 to: tokenAddress,
-                data: encodeErc20Transfer(recipient, transferAmount),
+                data: encodeErc20Transfer(recipientAddress, transferAmount),
                 value: '0x0',
               }],
             });
