@@ -241,6 +241,8 @@ export const MultiChainTransferForm = () => {
     const fetchEvmBalances = async () => {
       if (!evmAddress || !evmChain) return;
 
+      console.log(`Fetching EVM balances for address: ${evmAddress} on chain: ${evmChain.id}`);
+
       const newBalances: Partial<BalanceMap> = {};
       const rpcUrl = evmChain.id === base.id 
         ? 'https://base.llamarpc.com' 
@@ -260,9 +262,12 @@ export const MultiChainTransferForm = () => {
         });
         
         const balanceData = await balanceResponse.json();
+        console.log('Native ETH balance response:', balanceData);
+        
         if (balanceData.result) {
           const balance = BigInt(balanceData.result);
           const ethBalance = Number(formatUnits(balance, 18));
+          console.log(`Native ETH balance: ${ethBalance}`);
           
           if (evmChain.id === base.id) {
             newBalances.BASE_ETH = ethBalance;
@@ -285,8 +290,13 @@ export const MultiChainTransferForm = () => {
         // ERC20 balanceOf function signature: balanceOf(address) = 0x70a08231
         for (const token of tokenContracts) {
           try {
-            // Pad the address to 32 bytes (64 hex chars) for the function call
-            const paddedAddress = evmAddress.slice(2).toLowerCase().padStart(64, '0');
+            // Properly encode the address - remove 0x prefix and pad to 32 bytes (64 hex chars)
+            const cleanAddress = evmAddress.replace('0x', '').toLowerCase();
+            const paddedAddress = cleanAddress.padStart(64, '0');
+            const callData = `0x70a08231${paddedAddress}`;
+            
+            console.log(`Querying ${token.key} at ${token.address} for wallet ${evmAddress}`);
+            console.log(`Call data: ${callData}`);
             
             const tokenResponse = await fetch(rpcUrl, {
               method: 'POST',
@@ -296,7 +306,7 @@ export const MultiChainTransferForm = () => {
                 method: 'eth_call',
                 params: [{
                   to: token.address,
-                  data: `0x70a08231${paddedAddress}`,
+                  data: callData,
                 }, 'latest'],
                 id: Date.now(),
               }),
@@ -305,15 +315,21 @@ export const MultiChainTransferForm = () => {
             const tokenData = await tokenResponse.json();
             console.log(`${token.key} balance response:`, tokenData);
             
-            if (tokenData.result) {
-              // Handle both '0x' and '0x0000...' responses
-              const hexValue = tokenData.result === '0x' ? '0x0' : tokenData.result;
-              const tokenBalance = BigInt(hexValue);
-              const formattedBalance = Number(formatUnits(tokenBalance, token.decimals));
-              newBalances[token.key as TokenKey] = formattedBalance;
-              console.log(`${token.key} balance: ${formattedBalance}`);
+            if (tokenData.result && tokenData.result !== '0x') {
+              // Parse the hex result - handle zero balances properly
+              const hexValue = tokenData.result;
+              try {
+                const tokenBalance = BigInt(hexValue);
+                const formattedBalance = Number(formatUnits(tokenBalance, token.decimals));
+                newBalances[token.key as TokenKey] = formattedBalance;
+                console.log(`${token.key} balance: ${formattedBalance}`);
+              } catch (parseError) {
+                console.error(`Error parsing ${token.key} balance:`, parseError);
+                newBalances[token.key as TokenKey] = 0;
+              }
             } else {
               newBalances[token.key as TokenKey] = 0;
+              console.log(`${token.key} balance: 0 (empty response)`);
             }
           } catch (error) {
             console.error(`Error fetching ${token.key} balance:`, error);
