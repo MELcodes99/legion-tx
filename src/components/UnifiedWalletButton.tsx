@@ -255,7 +255,7 @@ export const UnifiedWalletButton = () => {
           {step === 'select-wallet' && (selectedNetwork === 'base' || selectedNetwork === 'ethereum') && (
             <div className="space-y-2 py-4">
               {connectors
-                .filter((connector) => connector.id === 'io.metamask' || connector.name.toLowerCase().includes('metamask'))
+                .filter((connector) => connector.type === 'injected' && connector.name !== 'Injected')
                 .map((connector) => (
                   <Button
                     key={connector.uid}
@@ -263,25 +263,28 @@ export const UnifiedWalletButton = () => {
                     className="w-full flex items-center gap-3 justify-start h-auto py-3 hover:bg-secondary/50 border-border"
                     onClick={() => handleWalletConnect('evm', connector)}
                   >
-                    <img 
-                      src={metamaskLogo} 
-                      alt="MetaMask" 
-                      className="w-6 h-6"
-                    />
-                    <span className="font-medium">MetaMask</span>
+                    {connector.icon ? (
+                      <img 
+                        src={connector.icon} 
+                        alt={connector.name} 
+                        className="w-6 h-6 rounded"
+                      />
+                    ) : connector.name.toLowerCase().includes('metamask') ? (
+                      <img 
+                        src={metamaskLogo} 
+                        alt="MetaMask" 
+                        className="w-6 h-6"
+                      />
+                    ) : (
+                      <Wallet className="w-6 h-6" />
+                    )}
+                    <span className="font-medium">{connector.name}</span>
                   </Button>
                 ))}
-              {connectors.filter((connector) => connector.id === 'io.metamask' || connector.name.toLowerCase().includes('metamask')).length === 0 && (
+              {connectors.filter((connector) => connector.type === 'injected' && connector.name !== 'Injected').length === 0 && (
                 <div className="text-center py-4 text-muted-foreground">
-                  <p className="text-sm">MetaMask not detected</p>
-                  <a 
-                    href="https://metamask.io/download/" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-primary text-sm hover:underline"
-                  >
-                    Install MetaMask
-                  </a>
+                  <p className="text-sm">No EVM wallets detected</p>
+                  <p className="text-xs mt-1">Install MetaMask or Phantom to connect</p>
                 </div>
               )}
             </div>
