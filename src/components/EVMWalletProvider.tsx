@@ -2,18 +2,17 @@ import { ReactNode } from 'react';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { injected, metaMask, coinbaseWallet } from 'wagmi/connectors';
+import { injected } from 'wagmi/connectors';
 
+// Use reliable public RPCs for faster connections
 const config = createConfig({
   chains: [mainnet, base],
   connectors: [
     injected(),
-    metaMask(),
-    coinbaseWallet({ appName: 'Legion' }),
   ],
   transports: {
-    [mainnet.id]: http(),
-    [base.id]: http(),
+    [mainnet.id]: http('https://eth.llamarpc.com'),
+    [base.id]: http('https://base.llamarpc.com'),
   },
 });
 
