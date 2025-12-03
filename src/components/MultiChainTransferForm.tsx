@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useCurrentAccount as useSuiAccount, useSignTransaction } from '@mysten/dapp-kit';
-import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { base, mainnet } from 'wagmi/chains';
 import { parseUnits, formatUnits } from 'viem';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -41,7 +41,7 @@ export const MultiChainTransferForm = () => {
   const { toast } = useToast();
   
   // EVM hooks
-  const { address: evmAddress, chain: evmChain } = useAccount();
+  const { address: evmAddress, chain: evmChain, connector } = useAccount();
   
   const suiClient = new SuiClient({ url: 'https://fullnode.mainnet.sui.io:443' });
   
@@ -740,25 +740,14 @@ export const MultiChainTransferForm = () => {
           recipient,
         });
 
-        // Get the wallet client from wagmi via window.ethereum
-        const ethereum = (window as any).ethereum;
-        if (!ethereum) {
-          throw new Error('No Ethereum provider found. Please install MetaMask or another wallet.');
+        // Get provider from the connected wallet via connector
+        if (!connector) {
+          throw new Error('No wallet connector available. Please reconnect your wallet.');
         }
 
-        // Ensure we're on the correct chain
-        const targetChainId = tokenConfig.chain === 'base' ? '0x2105' : '0x1'; // Base: 8453, ETH: 1
-        try {
-          const currentChainId = await ethereum.request({ method: 'eth_chainId' });
-          if (currentChainId !== targetChainId) {
-            await ethereum.request({
-              method: 'wallet_switchEthereumChain',
-              params: [{ chainId: targetChainId }],
-            });
-          }
-        } catch (switchError: any) {
-          console.error('Chain switch error:', switchError);
-          throw new Error(`Please switch to ${CHAIN_NAMES[tokenConfig.chain]} network in your wallet`);
+        const provider = await connector.getProvider();
+        if (!provider) {
+          throw new Error('Could not get wallet provider. Please reconnect your wallet.');
         }
 
         const gasTokenConfigLocal = getTokenConfig(selectedGasToken);
@@ -768,44 +757,45 @@ export const MultiChainTransferForm = () => {
         toast({ title: 'Sign the transactions', description: 'Please approve in your wallet' });
 
         // Helper function to encode ERC20 transfer data
-        const encodeErc20Transfer = (to: string, amount: string): string => {
+        const encodeErc20Transfer = (to: string, amountValue: string): string => {
           // transfer(address,uint256) selector: 0xa9059cbb
           const toAddress = to.toLowerCase().replace('0x', '').padStart(64, '0');
-          const amountHex = BigInt(amount).toString(16).padStart(64, '0');
+          const amountHex = BigInt(amountValue).toString(16).padStart(64, '0');
           return `0xa9059cbb${toAddress}${amountHex}`;
         };
 
         let txHashes: string[] = [];
+        const recipientAddress = recipient.trim();
+
+        // Helper to send transaction via provider
+        const sendTx = async (to: string, value: bigint, data?: string): Promise<string> => {
+          const txParams: Record<string, string> = {
+            from: evmAddress!,
+            to: to,
+            value: `0x${value.toString(16)}`,
+          };
+          if (data) {
+            txParams.data = data;
+          }
+          console.log('Sending transaction:', txParams);
+          return await (provider as any).request({
+            method: 'eth_sendTransaction',
+            params: [txParams],
+          });
+        };
 
         try {
-          // Ensure addresses are properly formatted
-          const recipientAddress = recipient.trim();
-          
           if (isNativeTransfer) {
             // Native ETH transfer - send amount to recipient
             console.log('Sending native ETH to recipient:', recipientAddress, 'amount:', transferAmount);
-            const tx1Hash = await ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: evmAddress,
-                to: recipientAddress,
-                value: `0x${BigInt(transferAmount).toString(16)}`,
-              }],
-            });
+            const tx1Hash = await sendTx(recipientAddress, BigInt(transferAmount));
             txHashes.push(tx1Hash);
             console.log('Transfer to recipient tx:', tx1Hash);
 
             // Send fee to backend in native ETH
             toast({ title: 'Approve fee payment', description: 'Sign the fee transaction' });
             console.log('Sending fee to backend:', backendWallet, 'amount:', feeAmount);
-            const tx2Hash = await ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: evmAddress,
-                to: backendWallet,
-                value: `0x${BigInt(feeAmount).toString(16)}`,
-              }],
-            });
+            const tx2Hash = await sendTx(backendWallet, BigInt(feeAmount));
             txHashes.push(tx2Hash);
             console.log('Fee to backend tx:', tx2Hash);
           } else {
@@ -814,15 +804,7 @@ export const MultiChainTransferForm = () => {
             console.log('Sending ERC20 to recipient:', recipientAddress, 'token:', tokenAddress, 'amount:', transferAmount);
 
             // Transaction 1: Send amount to recipient
-            const tx1Hash = await ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: evmAddress,
-                to: tokenAddress,
-                data: encodeErc20Transfer(recipientAddress, transferAmount),
-                value: '0x0',
-              }],
-            });
+            const tx1Hash = await sendTx(tokenAddress, BigInt(0), encodeErc20Transfer(recipientAddress, transferAmount));
             txHashes.push(tx1Hash);
             console.log('Transfer to recipient tx:', tx1Hash);
 
@@ -832,51 +814,28 @@ export const MultiChainTransferForm = () => {
             
             if (useSameToken) {
               // Fee in same token
-              const tx2Hash = await ethereum.request({
-                method: 'eth_sendTransaction',
-                params: [{
-                  from: evmAddress,
-                  to: tokenAddress,
-                  data: encodeErc20Transfer(backendWallet, feeAmount),
-                  value: '0x0',
-                }],
-              });
+              const tx2Hash = await sendTx(tokenAddress, BigInt(0), encodeErc20Transfer(backendWallet, feeAmount));
               txHashes.push(tx2Hash);
               console.log('Fee to backend tx:', tx2Hash);
             } else if (gasTokenConfigLocal?.isNative) {
               // Fee in native ETH
-              const tx2Hash = await ethereum.request({
-                method: 'eth_sendTransaction',
-                params: [{
-                  from: evmAddress,
-                  to: backendWallet,
-                  value: `0x${BigInt(feeAmount).toString(16)}`,
-                }],
-              });
+              const tx2Hash = await sendTx(backendWallet, BigInt(feeAmount));
               txHashes.push(tx2Hash);
               console.log('Fee to backend tx:', tx2Hash);
             } else {
               // Fee in different ERC20
               const feeTokenAddress = gasTokenConfigLocal?.mint || tokenAddress;
-              const tx2Hash = await ethereum.request({
-                method: 'eth_sendTransaction',
-                params: [{
-                  from: evmAddress,
-                  to: feeTokenAddress,
-                  data: encodeErc20Transfer(backendWallet, feeAmount),
-                  value: '0x0',
-                }],
-              });
+              const tx2Hash = await sendTx(feeTokenAddress, BigInt(0), encodeErc20Transfer(backendWallet, feeAmount));
               txHashes.push(tx2Hash);
               console.log('Fee to backend tx:', tx2Hash);
             }
           }
         } catch (txError: any) {
           console.error('Transaction error:', txError);
-          if (txError.code === 4001) {
+          if (txError.code === 4001 || txError.message?.includes('rejected')) {
             throw new Error('Transaction rejected by user');
           }
-          throw new Error(txError.message || 'Failed to send transaction');
+          throw new Error(txError.shortMessage || txError.message || 'Failed to send transaction');
         }
 
         toast({ title: 'Confirming transaction...', description: 'Waiting for blockchain confirmation' });
