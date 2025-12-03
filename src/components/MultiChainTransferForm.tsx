@@ -311,7 +311,7 @@ export const MultiChainTransferForm = () => {
         const tokenContracts = evmChain.id === base.id 
           ? [
               { key: 'USDC_BASE', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
-              { key: 'USDT_BASE', address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', decimals: 6 },
+              { key: 'USDT_BASE', address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', decimals: 6 }, // Bridged USDT on Base
             ]
           : [
               { key: 'USDC_ETH', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
