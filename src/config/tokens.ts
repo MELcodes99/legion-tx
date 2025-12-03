@@ -70,11 +70,11 @@ export const TOKENS: Record<string, TokenConfig> = {
     isNative: true,
   },
 
-  // Base tokens
+  // Base tokens - verified contract addresses
   'USDC_BASE': {
     name: 'USD Coin',
     symbol: 'USDC',
-    mint: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Base USDC
+    mint: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Official Base USDC
     decimals: 6,
     chain: 'base',
     gasFee: 0.40,
@@ -83,7 +83,7 @@ export const TOKENS: Record<string, TokenConfig> = {
   'USDT_BASE': {
     name: 'Tether USD',
     symbol: 'USDT',
-    mint: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // Base USDT
+    mint: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', // Official Base USDT (bridged)
     decimals: 6,
     chain: 'base',
     gasFee: 0.40,
