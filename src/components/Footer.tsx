@@ -11,7 +11,7 @@ export const Footer = () => {
               Legion
             </h3>
             <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-              Built on Solana for lightning-fast token transfers without the burden of gas fees.
+              Multi-chain gasless transfers across Solana, Sui, Base & Ethereum.
             </p>
           </div>
         </div>

@@ -241,10 +241,13 @@ export const MultiChainTransferForm = () => {
       if (!evmAddress || !evmChain) return;
 
       const newBalances: Partial<BalanceMap> = {};
+      const rpcUrl = evmChain.id === base.id 
+        ? 'https://base.llamarpc.com' 
+        : 'https://eth.llamarpc.com';
 
       try {
-        // Fetch native ETH balance using viem
-        const response = await fetch(`https://${evmChain.id === base.id ? 'base' : 'eth'}-mainnet.g.alchemy.com/v2/demo`, {
+        // Fetch native ETH balance
+        const balanceResponse = await fetch(rpcUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -255,25 +258,69 @@ export const MultiChainTransferForm = () => {
           }),
         });
         
-        const data = await response.json();
-        if (data.result) {
-          const balance = BigInt(data.result);
+        const balanceData = await balanceResponse.json();
+        if (balanceData.result) {
+          const balance = BigInt(balanceData.result);
           const ethBalance = Number(formatUnits(balance, 18));
           
           if (evmChain.id === base.id) {
             newBalances.BASE_ETH = ethBalance;
-            // TODO: Fetch USDC/USDT balances for Base
-            newBalances.USDC_BASE = 0;
-            newBalances.USDT_BASE = 0;
           } else {
             newBalances.ETH = ethBalance;
-            // TODO: Fetch USDC/USDT balances for Ethereum
-            newBalances.USDC_ETH = 0;
-            newBalances.USDT_ETH = 0;
+          }
+        }
+
+        // Fetch ERC20 token balances (USDC, USDT)
+        const tokenContracts = evmChain.id === base.id 
+          ? [
+              { key: 'USDC_BASE', address: TOKENS.USDC_BASE.mint, decimals: 6 },
+              { key: 'USDT_BASE', address: TOKENS.USDT_BASE.mint, decimals: 6 },
+            ]
+          : [
+              { key: 'USDC_ETH', address: TOKENS.USDC_ETH.mint, decimals: 6 },
+              { key: 'USDT_ETH', address: TOKENS.USDT_ETH.mint, decimals: 6 },
+            ];
+
+        // ERC20 balanceOf function signature: balanceOf(address) = 0x70a08231
+        for (const token of tokenContracts) {
+          try {
+            const tokenResponse = await fetch(rpcUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'eth_call',
+                params: [{
+                  to: token.address,
+                  data: `0x70a08231000000000000000000000000${evmAddress.slice(2)}`,
+                }, 'latest'],
+                id: 1,
+              }),
+            });
+            
+            const tokenData = await tokenResponse.json();
+            if (tokenData.result && tokenData.result !== '0x') {
+              const tokenBalance = BigInt(tokenData.result);
+              newBalances[token.key as TokenKey] = Number(formatUnits(tokenBalance, token.decimals));
+            } else {
+              newBalances[token.key as TokenKey] = 0;
+            }
+          } catch {
+            newBalances[token.key as TokenKey] = 0;
           }
         }
       } catch (error) {
         console.error('Error fetching EVM balances:', error);
+        // Set defaults on error
+        if (evmChain.id === base.id) {
+          newBalances.BASE_ETH = 0;
+          newBalances.USDC_BASE = 0;
+          newBalances.USDT_BASE = 0;
+        } else {
+          newBalances.ETH = 0;
+          newBalances.USDC_ETH = 0;
+          newBalances.USDT_ETH = 0;
+        }
       }
 
       setBalances(prev => ({ ...prev, ...newBalances } as BalanceMap));
