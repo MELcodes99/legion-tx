@@ -4,15 +4,15 @@ import { mainnet, base } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { injected } from 'wagmi/connectors';
 
-// Use reliable public RPCs for faster connections
+// Use reliable public RPCs (Ankr) for faster connections
 const config = createConfig({
   chains: [mainnet, base],
   connectors: [
     injected(),
   ],
   transports: {
-    [mainnet.id]: http('https://eth.llamarpc.com'),
-    [base.id]: http('https://base.llamarpc.com'),
+    [mainnet.id]: http('https://rpc.ankr.com/eth'),
+    [base.id]: http('https://rpc.ankr.com/base'),
   },
 });
 

@@ -244,9 +244,10 @@ export const MultiChainTransferForm = () => {
       console.log(`Fetching EVM balances for address: ${evmAddress} on chain: ${evmChain.id}`);
 
       const newBalances: Partial<BalanceMap> = {};
+      // Use more reliable RPC endpoints - Ankr public RPCs
       const rpcUrl = evmChain.id === base.id 
-        ? 'https://base.llamarpc.com' 
-        : 'https://eth.llamarpc.com';
+        ? 'https://rpc.ankr.com/base' 
+        : 'https://rpc.ankr.com/eth';
 
       try {
         // Fetch native ETH balance
