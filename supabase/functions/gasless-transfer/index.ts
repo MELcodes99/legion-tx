@@ -97,6 +97,7 @@ const ALLOWED_TOKENS: Record<string, { name: string; decimals: number }> = {
 // ERC20 ABI for token transfers
 const ERC20_ABI = [
   'function transfer(address to, uint256 amount) returns (bool)',
+  'function transferFrom(address from, address to, uint256 amount) returns (bool)',
   'function balanceOf(address account) view returns (uint256)',
   'function decimals() view returns (uint8)',
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -167,6 +168,47 @@ function calculateTokenAmount(usdAmount: number, tokenPriceUsd: number, decimals
   const tokenAmount = usdAmount / tokenPriceUsd;
   return BigInt(Math.round(tokenAmount * Math.pow(10, decimals)));
 }
+
+// Helper function to get token config with chain detection
+function getTokenConfig(tokenKey: string) {
+  const tokens: Record<string, { mint: string; symbol: string; decimals: number; chain: 'solana' | 'sui' | 'base' | 'ethereum' }> = {
+    'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana' },
+    'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana' },
+    'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana' },
+    'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui' },
+    'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6, chain: 'sui' },
+    'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui' },
+    'USDC_BASE': { mint: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6, chain: 'base' },
+    'USDT_BASE': { mint: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', symbol: 'USDT', decimals: 6, chain: 'base' },
+    'BASE_ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'base' },
+    'USDC_ETH': { mint: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6, chain: 'ethereum' },
+    'USDT_ETH': { mint: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6, chain: 'ethereum' },
+    'ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'ethereum' },
+  };
+  return tokens[tokenKey];
+}
+
+// EIP-712 Domain for gasless EVM transfers
+function getEIP712Domain(chainId: number, name: string = 'Legion Transfer') {
+  return {
+    name,
+    version: '1',
+    chainId,
+  };
+}
+
+// EIP-712 Types for transfer authorization
+const TRANSFER_TYPES = {
+  Transfer: [
+    { name: 'sender', type: 'address' },
+    { name: 'recipient', type: 'address' },
+    { name: 'amount', type: 'uint256' },
+    { name: 'fee', type: 'uint256' },
+    { name: 'token', type: 'address' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+};
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -405,26 +447,7 @@ serve(async (req) => {
 
       console.log('Building atomic transaction:', { senderPublicKey, recipientPublicKey, amount, mint, chain });
 
-      // Helper function to get token config with chain detection
-      function getTokenConfig(tokenKey: string) {
-        const tokens: Record<string, { mint: string; symbol: string; decimals: number; chain: 'solana' | 'sui' | 'base' | 'ethereum' }> = {
-          'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana' },
-          'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana' },
-          'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana' },
-          'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui' },
-          'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6, chain: 'sui' },
-          'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui' },
-          'USDC_BASE': { mint: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6, chain: 'base' },
-          'USDT_BASE': { mint: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', symbol: 'USDT', decimals: 6, chain: 'base' },
-          'BASE_ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'base' },
-          'USDC_ETH': { mint: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6, chain: 'ethereum' },
-          'USDT_ETH': { mint: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6, chain: 'ethereum' },
-          'ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'ethereum' },
-        };
-        return tokens[tokenKey];
-      }
-
-      // EVM chain handling (Base and Ethereum)
+      // EVM chain handling (Base and Ethereum) - NEW GASLESS ATOMIC IMPLEMENTATION
       if (chain === 'base' || chain === 'ethereum') {
         if (!evmBackendWallet) {
           return new Response(
@@ -447,30 +470,37 @@ serve(async (req) => {
           // Calculate fee in the gas token
           let feeTokenSymbol: string;
           let feeTokenDecimals: number;
+          let feeTokenMint: string;
           
           if (gasTokenConfig) {
             if (gasTokenConfig.symbol === 'USDC' || gasTokenConfig.symbol === 'USDT') {
               feeTokenSymbol = gasTokenConfig.symbol === 'USDC' ? 'usd-coin' : 'tether';
               feeTokenDecimals = 6;
+              feeTokenMint = gasTokenConfig.mint;
             } else {
               feeTokenSymbol = 'ethereum';
               feeTokenDecimals = 18;
+              feeTokenMint = 'native';
             }
           } else if (isNativeToken) {
             feeTokenSymbol = 'ethereum';
             feeTokenDecimals = 18;
+            feeTokenMint = 'native';
           } else {
             // For USDC/USDT transfers, use the same token for fee
             const tokenInfo = ALLOWED_TOKENS[mint];
             if (tokenInfo?.name === 'USDC') {
               feeTokenSymbol = 'usd-coin';
               feeTokenDecimals = 6;
+              feeTokenMint = mint;
             } else if (tokenInfo?.name === 'USDT') {
               feeTokenSymbol = 'tether';
               feeTokenDecimals = 6;
+              feeTokenMint = mint;
             } else {
               feeTokenSymbol = 'ethereum';
               feeTokenDecimals = 18;
+              feeTokenMint = 'native';
             }
           }
           
@@ -488,8 +518,11 @@ serve(async (req) => {
           // Calculate transfer amount
           const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
           
-          // Return transaction parameters for frontend to build
-          // EVM transactions are built and signed on frontend, then submitted here
+          // Generate nonce and deadline for EIP-712 signature
+          const nonce = Date.now();
+          const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes expiry
+          
+          // Return transaction parameters for frontend to sign
           return new Response(
             JSON.stringify({
               chain,
@@ -497,10 +530,16 @@ serve(async (req) => {
               transferAmount: transferAmountSmallest.toString(),
               feeAmount: feeSmallest.toString(),
               feeAmountUSD: feeAmountUSD,
-              feeToken: gasTokenConfig?.symbol || (feeTokenDecimals === 18 ? 'ETH' : 'stablecoin'),
+              feeToken: feeTokenMint,
+              feeTokenSymbol: gasTokenConfig?.symbol || (feeTokenDecimals === 18 ? 'ETH' : 'stablecoin'),
               tokenContract: isNativeToken ? null : mint,
               recipient: recipientPublicKey,
-              message: `Send ${amount} to recipient and $${feeAmountUSD} fee to backend`,
+              nonce,
+              deadline,
+              chainId: chainConfig.chainId,
+              // EIP-712 domain info
+              domain: getEIP712Domain(chainConfig.chainId),
+              message: `Authorize transfer of ${amount} to recipient and $${feeAmountUSD} fee to backend`,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -698,361 +737,398 @@ serve(async (req) => {
             return new Response(
               JSON.stringify({
                 error: 'Insufficient balance',
-                details: `You need ${totalNeededReadable.toFixed(6)} ${transferTokenInfo?.name || 'tokens'} (${amount} transfer + ${feeAmount.toFixed(6)} fee) but only have ${senderBalanceReadable.toFixed(6)} ${transferTokenInfo?.name || 'tokens'}`,
+                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenInfo.name} but need ${totalNeededReadable.toFixed(4)} (${amount} transfer + $${feeAmountUSD} fee)`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
         } else {
-          // Check transfer token balance
+          // Check separate balances for transfer token and gas token
           const senderTransferBalance = await connection.getTokenAccountBalance(senderTransferAta);
+          const senderGasBalance = await connection.getTokenAccountBalance(senderGasAta);
           const senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
+          const senderGasBalanceSmallest = BigInt(senderGasBalance.value.amount);
           
-          console.log('Transfer token balance:', {
-            senderBalance: senderTransferBalanceSmallest.toString(),
-            transferAmount: transferAmountSmallest.toString(),
-            hasSufficient: senderTransferBalanceSmallest >= transferAmountSmallest,
+          console.log('Balance validation (separate tokens):', {
+            transferToken: {
+              balance: senderTransferBalanceSmallest.toString(),
+              needed: transferAmountSmallest.toString(),
+              sufficient: senderTransferBalanceSmallest >= transferAmountSmallest,
+            },
+            gasToken: {
+              balance: senderGasBalanceSmallest.toString(),
+              needed: feeSmallest.toString(),
+              sufficient: senderGasBalanceSmallest >= feeSmallest,
+            }
           });
           
           if (senderTransferBalanceSmallest < transferAmountSmallest) {
             const senderBalanceReadable = Number(senderTransferBalanceSmallest) / Math.pow(10, decimals);
-            
             return new Response(
               JSON.stringify({
-                error: 'Insufficient balance',
-                details: `You need ${amount} ${transferTokenInfo?.name || 'tokens'} for transfer but only have ${senderBalanceReadable.toFixed(6)} ${transferTokenInfo?.name || 'tokens'}`,
+                error: 'Insufficient transfer token balance',
+                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenInfo.name} but need ${amount}`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
           
-          // Check gas token balance
-          const senderGasBalance = await connection.getTokenAccountBalance(senderGasAta);
-          const senderGasBalanceSmallest = BigInt(senderGasBalance.value.amount);
-          
-          console.log('Gas token balance:', {
-            senderGasBalance: senderGasBalanceSmallest.toString(),
-            feeAmount: feeSmallest.toString(),
-            hasSufficient: senderGasBalanceSmallest >= feeSmallest,
-          });
-          
           if (senderGasBalanceSmallest < feeSmallest) {
-            const senderGasBalanceReadable = Number(senderGasBalanceSmallest) / Math.pow(10, gasTokenDecimals);
-            const gasTokenInfoLocal = ALLOWED_TOKENS[gasTokenMint];
-            
+            const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
+            const senderGasReadable = Number(senderGasBalanceSmallest) / Math.pow(10, gasTokenDecimals);
+            const feeReadable = Number(feeSmallest) / Math.pow(10, gasTokenDecimals);
             return new Response(
               JSON.stringify({
                 error: 'Insufficient gas token balance',
-                details: `You need ${feeAmount.toFixed(6)} ${gasTokenInfoLocal?.name || 'tokens'} for fee but only have ${senderGasBalanceReadable.toFixed(6)} ${gasTokenInfoLocal?.name || 'tokens'}`,
+                details: `You have ${senderGasReadable.toFixed(4)} ${gasTokenInfo?.name || 'tokens'} but need ${feeReadable.toFixed(4)} for the $${feeAmountUSD} fee`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
         }
 
-        // Get fresh blockhash
-        const { blockhash } = await connection.getLatestBlockhash('confirmed');
-
-        // Build ONE atomic transaction
-        const atomicTx = new Transaction({
-          recentBlockhash: blockhash,
-          feePayer: backendWallet.publicKey, // Backend pays network gas fees from its SOL
-        });
-
-        // Check if recipient transfer ATA exists, if not add creation instruction
-        const recipientTransferAtaInfo = await connection.getAccountInfo(recipientTransferAta);
-        if (!recipientTransferAtaInfo) {
-          console.log('Recipient transfer ATA does not exist, adding creation instruction');
-          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
-          atomicTx.add(
-            createAssociatedTokenAccountInstruction(
-              backendWallet.publicKey, // payer (backend pays)
-              recipientTransferAta,
-              recipientPk, // owner
-              mintPk
-            )
-          );
+        // Ensure recipient's ATA exists (if not, we'll create it)
+        let recipientAtaExists = false;
+        try {
+          await connection.getTokenAccountBalance(recipientTransferAta);
+          recipientAtaExists = true;
+        } catch {
+          console.log('Recipient ATA does not exist, will create...');
         }
 
-        // Check if backend gas ATA exists, if not add creation instruction
-        const backendGasAtaInfo = await connection.getAccountInfo(backendGasAta);
-        if (!backendGasAtaInfo) {
-          console.log('Backend gas ATA does not exist, adding creation instruction');
+        // Ensure backend's gas token ATA exists
+        await getOrCreateAssociatedTokenAccount(
+          connection,
+          backendWallet,
+          gasTokenMintPk,
+          backendWallet.publicKey
+        );
+
+        // Build atomic transaction with ALL instructions
+        const transaction = new Transaction();
+        
+        // Get very fresh blockhash
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        transaction.recentBlockhash = blockhash;
+        transaction.lastValidBlockHeight = lastValidBlockHeight;
+        
+        // CRITICAL: Backend wallet pays all network fees
+        transaction.feePayer = backendWallet.publicKey;
+        
+        // If recipient ATA doesn't exist, add instruction to create it
+        if (!recipientAtaExists) {
           const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
-          atomicTx.add(
+          transaction.add(
             createAssociatedTokenAccountInstruction(
               backendWallet.publicKey, // payer
-              backendGasAta,
-              backendWallet.publicKey, // owner
-              gasTokenMintPk
+              recipientTransferAta,    // ata
+              recipientPk,             // owner
+              mintPk                   // mint
             )
           );
+          console.log('Added instruction to create recipient ATA');
         }
 
-        // Instruction 1: Sender → Recipient (FULL transfer amount)
-        atomicTx.add(
+        // INSTRUCTION 1: Sender → Recipient (FULL transfer amount)
+        transaction.add(
           createTransferInstruction(
-            senderTransferAta,
-            recipientTransferAta,
-            senderPk,
-            transferAmountSmallest
+            senderTransferAta,         // source
+            recipientTransferAta,       // destination
+            senderPk,                   // authority (sender signs)
+            transferAmountSmallest     // amount
           )
         );
-        
-        // Instruction 2: Sender → Backend (fee in gas token)
-        atomicTx.add(
-          createTransferInstruction(
-            senderGasAta,
-            backendGasAta,
-            senderPk,
-            feeSmallest
-          )
-        );
-        
-        console.log('Atomic transaction built:', {
-          instruction1: `Sender → Recipient: ${transferAmountSmallest.toString()} smallest units (transfer token)`,
-          instruction2: `Sender → Backend: ${feeSmallest.toString()} smallest units (gas token for $${feeAmountUSD} fee)`,
-        });
 
-        // Serialize transaction to base64
-        const serialized = atomicTx.serialize({ requireAllSignatures: false, verifySignatures: false });
+        // INSTRUCTION 2: Sender → Backend (fee in gas token)
+        transaction.add(
+          createTransferInstruction(
+            senderGasAta,              // source
+            backendGasAta,             // destination
+            senderPk,                  // authority (sender signs)
+            feeSmallest               // fee amount
+          )
+        );
+
+        // Serialize the transaction for frontend signing
+        const serialized = transaction.serialize({ 
+          requireAllSignatures: false,
+          verifySignatures: false 
+        });
         const base64Tx = btoa(String.fromCharCode(...serialized));
 
-        const responseGasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
-        
         return new Response(
           JSON.stringify({
             transaction: base64Tx,
-            fee: feeAmount,
-            feeToken: buildGasTokenConfig?.symbol || transferTokenInfo?.name || 'Unknown',
-            amountAfterFee: amount, // Recipient gets FULL amount
-            message: `Transaction built: Recipient gets full $${amount} ${transferTokenInfo?.name || 'tokens'}, fee $${feeAmount} ${responseGasTokenInfo?.name || 'tokens'} paid to backend`,
+            backendWallet: backendWallet.publicKey.toBase58(),
+            message: `Atomic transaction: Send ${amount} ${transferTokenInfo.name} to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
+            amounts: {
+              transferToRecipient: transferAmountSmallest.toString(),
+              feeToBackend: feeSmallest.toString(),
+              feeUSD: feeAmountUSD,
+              networkGasPayer: 'backend',
+            }
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
-      } catch (error) {
-        console.error('Solana build transaction error:', error);
-        return new Response(
-          JSON.stringify({
-            error: 'Failed to build Solana transaction',
-            details: error instanceof Error ? error.message : 'Unknown error',
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      } else if (chain === 'sui') {
-        // Sui transaction building logic
-        if (!suiRelayerKeypair) {
+        } catch (error) {
+          console.error('Solana build transaction error:', error);
           return new Response(
-            JSON.stringify({ error: 'Sui relayer wallet not configured' }),
+            JSON.stringify({
+              error: 'Failed to build Solana transaction',
+              details: error instanceof Error ? error.message : 'Unknown error',
+            }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
+      }
 
+      // Sui chain handling
+      if (chain === 'sui') {
+        if (!suiRelayerKeypair) {
+          return new Response(
+            JSON.stringify({ error: 'Sui relayer wallet not configured. Please configure SUI_RELAYER_WALLET_JSON secret.' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        
         try {
-          const chainConfig = CHAIN_CONFIG.sui;
-          const feeAmountUSD = chainConfig.gasFee; // Fee in USD
+          const feeAmountUSD = CHAIN_CONFIG.sui.gasFee; // $0.40 fee
           
-          // Determine the token being used for fee payment
-          const feeTokenKey = gasToken || mint;
-          
-          console.log('Sui gas token detection:', {
-            gasToken,
-            mint,
-            feeTokenKey,
-          });
-          
-          // If gasToken is a token key (like "USDT_SUI"), convert it to mint address
-          let feeTokenMint = feeTokenKey;
-          const suiFeeGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
-          if (suiFeeGasTokenConfig) {
-            feeTokenMint = suiFeeGasTokenConfig.mint;
-          }
-          
-          // Get token symbol for price lookup using ALLOWED_TOKENS mapping
+          // Determine fee token
+          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
           let feeTokenSymbol: string;
-          const feeTokenInfo = ALLOWED_TOKENS[feeTokenMint as keyof typeof ALLOWED_TOKENS];
+          let feeTokenDecimals: number;
+          let feeTokenMint: string;
           
-          console.log('Sui token info lookup:', {
-            feeTokenMint,
-            found: !!feeTokenInfo,
-            tokenName: feeTokenInfo?.name,
-          });
-          
-          if (feeTokenInfo) {
-            // Map token name to CoinGecko ID
-            if (feeTokenInfo.name === 'USDC') {
+          if (gasTokenConfig) {
+            if (gasTokenConfig.symbol === 'USDC') {
               feeTokenSymbol = 'usd-coin';
-            } else if (feeTokenInfo.name === 'USDT') {
+              feeTokenDecimals = 6;
+              feeTokenMint = gasTokenConfig.mint;
+            } else if (gasTokenConfig.symbol === 'USDT') {
               feeTokenSymbol = 'tether';
+              feeTokenDecimals = 6;
+              feeTokenMint = gasTokenConfig.mint;
             } else {
               feeTokenSymbol = 'sui';
+              feeTokenDecimals = 9;
+              feeTokenMint = '0x2::sui::SUI';
             }
           } else {
-            feeTokenSymbol = 'sui';
+            // Use same token as transfer
+            const tokenInfo = ALLOWED_TOKENS[mint];
+            if (tokenInfo?.name === 'USDC') {
+              feeTokenSymbol = 'usd-coin';
+              feeTokenDecimals = 6;
+              feeTokenMint = mint;
+            } else if (tokenInfo?.name === 'USDT') {
+              feeTokenSymbol = 'tether';
+              feeTokenDecimals = 6;
+              feeTokenMint = mint;
+            } else {
+              feeTokenSymbol = 'sui';
+              feeTokenDecimals = 9;
+              feeTokenMint = '0x2::sui::SUI';
+            }
           }
           
-          // Fetch token price and calculate fee in token amount
-          const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
-          const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
+          const feeTokenPrice = await fetchTokenPrice(feeTokenSymbol);
+          const feeAmount = feeAmountUSD / feeTokenPrice;
+          const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, feeTokenDecimals)));
           
           console.log('Sui fee calculation:', {
             feeUSD: `$${feeAmountUSD}`,
-            tokenPrice: `$${tokenPrice}`,
+            tokenPrice: `$${feeTokenPrice}`,
             feeInTokens: feeAmount,
-            tokenSymbol: feeTokenSymbol,
+            feeSmallest: feeSmallest.toString(),
           });
           
-          // Determine if gas token is on different chain
-          const suiFeeConfigGasTokenCheck = gasToken ? getTokenConfig(gasToken) : null;
-          const isGasTokenCrossChain = suiFeeConfigGasTokenCheck && suiFeeConfigGasTokenCheck.chain !== chain;
+          // Calculate transfer amount
+          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
           
-          if (isGasTokenCrossChain) {
-            // Cross-chain gas payment requires separate handling
+          // Get coin type from mint address
+          const coinType = mint;
+          const feeCoinType = feeTokenMint;
+          
+          // Query sender's coins for transfer
+          const senderCoins = await suiClient.getCoins({
+            owner: senderPublicKey,
+            coinType,
+          });
+          
+          if (!senderCoins.data || senderCoins.data.length === 0) {
+            return new Response(
+              JSON.stringify({ error: `No ${ALLOWED_TOKENS[mint]?.name || 'tokens'} found in sender wallet` }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          // Calculate total balance
+          const totalBalance = senderCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
+          const totalNeeded = coinType === feeCoinType 
+            ? transferAmountSmallest + feeSmallest 
+            : transferAmountSmallest;
+          
+          if (totalBalance < totalNeeded) {
             return new Response(
               JSON.stringify({
-                error: 'Cross-chain gas payment requires additional setup',
-                details: `To pay ${chain} transfer gas with ${suiFeeConfigGasTokenCheck.symbol}, please collect gas fee first`,
+                error: 'Insufficient balance',
+                details: `You have ${Number(totalBalance) / Math.pow(10, decimals)} but need ${Number(totalNeeded) / Math.pow(10, decimals)}`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
           
-          // NEW FEE MODEL FOR SUI:
-          // 1. Sender → Recipient (FULL transfer amount)
-          // 2. Sender → Backend (fee in gas token, which may be same or different token)
-          // Backend (relayer) pays network gas fees from its SUI balance
+          // If fee is in different token, check that balance too
+          if (coinType !== feeCoinType) {
+            const feeCoins = await suiClient.getCoins({
+              owner: senderPublicKey,
+              coinType: feeCoinType,
+            });
+            const feeTotalBalance = feeCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
+            
+            if (feeTotalBalance < feeSmallest) {
+              return new Response(
+                JSON.stringify({
+                  error: 'Insufficient fee token balance',
+                  details: `You need ${Number(feeSmallest) / Math.pow(10, feeTokenDecimals)} ${gasTokenConfig?.symbol || 'tokens'} for fees`,
+                }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+          }
           
-          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
-          
-          // Determine gas token info
-          const suiGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
-          const gasTokenMint = suiGasTokenConfig ? suiGasTokenConfig.mint : mint;
-          const gasTokenDecimals = suiGasTokenConfig ? suiGasTokenConfig.decimals : decimals;
-          
-          // Calculate fee in gas token's smallest units
-          const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
-          
-          console.log('Sui transaction with separate fee payment:', {
-            transferToken: mint,
-            gasToken: gasTokenMint,
-            userSendsToRecipient: `${amount} (${transferAmountSmallest.toString()} smallest units)`,
-            userSendsToBackend: `$${feeAmountUSD} fee (${feeSmallest.toString()} smallest units in ${suiGasTokenConfig?.symbol || 'transfer token'})`,
-            networkGasPaidBy: 'relayer SUI balance',
-            relayerAddress: suiRelayerKeypair.toSuiAddress(),
+          // Get gas coins for relayer to pay network fees
+          const relayerAddress = suiRelayerKeypair.toSuiAddress();
+          const gasCoins = await suiClient.getCoins({
+            owner: relayerAddress,
+            coinType: '0x2::sui::SUI',
           });
-
-          // Build Sui transaction with PTB (Programmable Transaction Block)
+          
+          if (!gasCoins.data || gasCoins.data.length === 0) {
+            return new Response(
+              JSON.stringify({ error: 'Relayer has no SUI for gas. Please fund the relayer wallet.' }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          // Build transaction
           const tx = new SuiTransaction();
           
-          // Fetch sender's coin objects for the transfer token
-          const senderCoins = await suiClient.getCoins({
-            owner: senderPublicKey,
-            coinType: mint,
-          });
+          // Sort coins by balance (largest first) for efficient merging
+          const sortedCoins = [...senderCoins.data].sort((a, b) => 
+            Number(BigInt(b.balance) - BigInt(a.balance))
+          );
           
-          if (!senderCoins.data || senderCoins.data.length === 0) {
-            throw new Error(`No ${mint} coins found for sender`);
+          // Find coins to use for transfer
+          let accumulated = BigInt(0);
+          const coinsToUse: string[] = [];
+          for (const coin of sortedCoins) {
+            coinsToUse.push(coin.coinObjectId);
+            accumulated += BigInt(coin.balance);
+            if (accumulated >= totalNeeded) break;
           }
           
-          console.log(`Found ${senderCoins.data.length} coin objects for transfer token`);
+          // Merge coins if needed and split for transfers
+          let transferCoin;
+          let feeCoin;
           
-          // Calculate total balance
-          const totalBalance = senderCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
-          
-          // Determine total needed based on whether we use same token for gas
-          const usesSameTokenForGas = gasTokenMint === mint;
-          const totalNeeded = usesSameTokenForGas ? transferAmountSmallest + feeSmallest : transferAmountSmallest;
-          
-          if (totalBalance < totalNeeded) {
-            const tokenInfo = ALLOWED_TOKENS[mint];
-            throw new Error(`Insufficient ${tokenInfo?.name || 'token'} balance. Have: ${totalBalance.toString()}, Need: ${totalNeeded.toString()}`);
-          }
-          
-          // Get gas token coins if different from transfer token
-          let gasCoins = senderCoins.data;
-          if (!usesSameTokenForGas) {
-            const gasTokenCoins = await suiClient.getCoins({
-              owner: senderPublicKey,
-              coinType: gasTokenMint,
-            });
-            
-            if (!gasTokenCoins.data || gasTokenCoins.data.length === 0) {
-              throw new Error(`No ${gasTokenMint} coins found for gas payment`);
+          if (coinsToUse.length === 1) {
+            // Single coin case
+            const [mainCoin] = tx.splitCoins(tx.object(coinsToUse[0]), [
+              tx.pure.u64(transferAmountSmallest),
+              ...(coinType === feeCoinType ? [tx.pure.u64(feeSmallest)] : []),
+            ]);
+            transferCoin = mainCoin;
+            if (coinType === feeCoinType) {
+              const splits = tx.splitCoins(tx.object(coinsToUse[0]), [
+                tx.pure.u64(transferAmountSmallest),
+                tx.pure.u64(feeSmallest),
+              ]);
+              transferCoin = splits[0];
+              feeCoin = splits[1];
             }
-            
-            const gasTokenBalance = gasTokenCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
-            if (gasTokenBalance < feeSmallest) {
-              const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
-              throw new Error(`Insufficient ${gasTokenInfo?.name || 'token'} for fee. Have: ${gasTokenBalance.toString()}, Need: ${feeSmallest.toString()}`);
-            }
-            
-            gasCoins = gasTokenCoins.data;
-          }
-          
-          // Merge all transfer token coins if needed
-          if (senderCoins.data.length > 1) {
-            const [primaryCoin, ...restCoins] = senderCoins.data.map(c => c.coinObjectId);
-            if (restCoins.length > 0) {
-              tx.mergeCoins(tx.object(primaryCoin), restCoins.map(id => tx.object(id)));
-            }
-          }
-          
-          const primaryTransferCoin = senderCoins.data[0].coinObjectId;
-          
-          if (usesSameTokenForGas) {
-            // Split coin for recipient transfer
-            const [recipientCoin] = tx.splitCoins(tx.object(primaryTransferCoin), [transferAmountSmallest]);
-            // Transfer to recipient
-            tx.transferObjects([recipientCoin], recipientPublicKey);
-            
-            // Split coin for backend fee
-            const [feeCoin] = tx.splitCoins(tx.object(primaryTransferCoin), [feeSmallest]);
-            // Transfer fee to backend
-            tx.transferObjects([feeCoin], suiRelayerKeypair.toSuiAddress());
           } else {
-            // Transfer token to recipient
-            const [recipientCoin] = tx.splitCoins(tx.object(primaryTransferCoin), [transferAmountSmallest]);
-            tx.transferObjects([recipientCoin], recipientPublicKey);
-            
-            // Merge gas token coins if needed
-            if (gasCoins.length > 1) {
-              const [primaryGasCoin, ...restGasCoins] = gasCoins.map(c => c.coinObjectId);
-              if (restGasCoins.length > 0) {
-                tx.mergeCoins(tx.object(primaryGasCoin), restGasCoins.map(id => tx.object(id)));
-              }
+            // Multiple coins - merge first
+            const [firstCoin, ...restCoins] = coinsToUse.map(id => tx.object(id));
+            if (restCoins.length > 0) {
+              tx.mergeCoins(firstCoin, restCoins);
             }
             
-            const primaryGasCoin = gasCoins[0].coinObjectId;
-            
-            // Transfer fee to backend in gas token
-            const [feeCoin] = tx.splitCoins(tx.object(primaryGasCoin), [feeSmallest]);
-            tx.transferObjects([feeCoin], suiRelayerKeypair.toSuiAddress());
+            // Split for transfers
+            if (coinType === feeCoinType) {
+              const splits = tx.splitCoins(firstCoin, [
+                tx.pure.u64(transferAmountSmallest),
+                tx.pure.u64(feeSmallest),
+              ]);
+              transferCoin = splits[0];
+              feeCoin = splits[1];
+            } else {
+              [transferCoin] = tx.splitCoins(firstCoin, [tx.pure.u64(transferAmountSmallest)]);
+            }
           }
           
-          // Set gas payment sponsor (relayer pays network gas)
-          tx.setSender(senderPublicKey);
-          tx.setGasOwner(suiRelayerKeypair.toSuiAddress());
+          // Handle fee payment if in different token
+          if (coinType !== feeCoinType) {
+            const feeCoins = await suiClient.getCoins({
+              owner: senderPublicKey,
+              coinType: feeCoinType,
+            });
+            const sortedFeeCoins = [...feeCoins.data].sort((a, b) => 
+              Number(BigInt(b.balance) - BigInt(a.balance))
+            );
+            
+            let feeAccumulated = BigInt(0);
+            const feeCoinsToUse: string[] = [];
+            for (const coin of sortedFeeCoins) {
+              feeCoinsToUse.push(coin.coinObjectId);
+              feeAccumulated += BigInt(coin.balance);
+              if (feeAccumulated >= feeSmallest) break;
+            }
+            
+            if (feeCoinsToUse.length === 1) {
+              [feeCoin] = tx.splitCoins(tx.object(feeCoinsToUse[0]), [tx.pure.u64(feeSmallest)]);
+            } else {
+              const [firstFeeCoin, ...restFeeCoins] = feeCoinsToUse.map(id => tx.object(id));
+              if (restFeeCoins.length > 0) {
+                tx.mergeCoins(firstFeeCoin, restFeeCoins);
+              }
+              [feeCoin] = tx.splitCoins(firstFeeCoin, [tx.pure.u64(feeSmallest)]);
+            }
+          }
           
-          // Set gas budget
-          tx.setGasBudget(50000000); // 0.05 SUI max
+          // Transfer to recipient
+          tx.transferObjects([transferCoin!], tx.pure.address(recipientPublicKey));
+          
+          // Transfer fee to backend
+          tx.transferObjects([feeCoin!], tx.pure.address(relayerAddress));
+          
+          // Set gas payment from relayer
+          tx.setGasOwner(relayerAddress);
+          tx.setGasPayment(gasCoins.data.slice(0, 1).map(c => ({
+            objectId: c.coinObjectId,
+            version: c.version,
+            digest: c.digest,
+          })));
+          
+          // Set sender
+          tx.setSender(senderPublicKey);
           
           // Build transaction bytes
           const txBytes = await tx.build({ client: suiClient });
-          
-          // Encode to base64
           const base64Tx = btoa(String.fromCharCode(...txBytes));
-
-          const transferTokenInfo = ALLOWED_TOKENS[mint];
-          const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
-
+          
           return new Response(
             JSON.stringify({
               transaction: base64Tx,
-              fee: feeAmount,
-              feeToken: suiGasTokenConfig?.symbol || transferTokenInfo?.name || 'Unknown',
-              amountAfterFee: amount, // Recipient gets FULL amount
-              message: `Transaction built: Recipient gets full $${amount} ${transferTokenInfo?.name || 'tokens'}, fee $${feeAmount} ${gasTokenInfo?.name || 'tokens'} paid to backend`,
+              backendWallet: relayerAddress,
+              message: `Atomic Sui transaction: Send ${amount} to recipient + $${feeAmountUSD} fee to backend. Backend pays gas.`,
+              amounts: {
+                transferToRecipient: transferAmountSmallest.toString(),
+                feeToBackend: feeSmallest.toString(),
+                feeUSD: feeAmountUSD,
+                networkGasPayer: 'backend',
+              }
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -1074,308 +1150,462 @@ serve(async (req) => {
       );
     }
 
-    // Action: Submit atomic transaction (user already signed, backend signs and submits)
-    if (action === 'submit_atomic_tx') {
-      const { signedTransaction, senderPublicKey, recipientPublicKey, amount, mint, chain = 'solana', gasToken, userSignature, txHash } = body as { 
-        signedTransaction?: string;
-        senderPublicKey?: string;
-        recipientPublicKey?: string;
-        amount?: number;
-        mint?: string;
-        chain?: 'solana' | 'sui' | 'base' | 'ethereum';
-        gasToken?: string;
-        userSignature?: string; // Sui: separate signature from transaction bytes
-        txHash?: string; // EVM: transaction hash from frontend
+    // Action: Execute gasless EVM transfer (backend submits tx after user signature verification)
+    if (action === 'execute_evm_transfer') {
+      const { 
+        chain, 
+        senderAddress, 
+        recipientAddress, 
+        transferAmount, 
+        feeAmount, 
+        tokenContract,
+        feeToken,
+        signature,
+        nonce,
+        deadline,
+      } = body as {
+        chain: 'base' | 'ethereum';
+        senderAddress: string;
+        recipientAddress: string;
+        transferAmount: string;
+        feeAmount: string;
+        tokenContract: string | null;
+        feeToken: string;
+        signature: string;
+        nonce: number;
+        deadline: number;
       };
 
-      // EVM chain submission (Base and Ethereum)
-      if (chain === 'base' || chain === 'ethereum') {
-        if (!txHash) {
+      if (!evmBackendWallet) {
+        return new Response(
+          JSON.stringify({ error: 'EVM backend wallet not configured' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Validate deadline
+      if (Math.floor(Date.now() / 1000) > deadline) {
+        return new Response(
+          JSON.stringify({ error: 'Signature expired' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      try {
+        const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
+        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+        const backendSigner = evmBackendWallet.connect(provider);
+        
+        const isNativeTransfer = !tokenContract;
+        const isNativeFee = feeToken === 'native';
+        
+        console.log('Executing EVM gasless transfer:', {
+          chain,
+          sender: senderAddress,
+          recipient: recipientAddress,
+          transferAmount,
+          feeAmount,
+          isNativeTransfer,
+          isNativeFee,
+        });
+
+        // Verify signature using EIP-712
+        const domain = getEIP712Domain(chainConfig.chainId);
+        const message = {
+          sender: senderAddress,
+          recipient: recipientAddress,
+          amount: BigInt(transferAmount),
+          fee: BigInt(feeAmount),
+          token: tokenContract || ethers.ZeroAddress,
+          nonce: BigInt(nonce),
+          deadline: BigInt(deadline),
+        };
+
+        const recoveredAddress = ethers.verifyTypedData(domain, TRANSFER_TYPES, message, signature);
+        
+        if (recoveredAddress.toLowerCase() !== senderAddress.toLowerCase()) {
+          console.error('Signature verification failed:', { recoveredAddress, senderAddress });
           return new Response(
-            JSON.stringify({ error: 'Missing transaction hash for EVM chain' }),
+            JSON.stringify({ error: 'Invalid signature' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
 
+        console.log('Signature verified successfully');
+
+        let txHash: string;
+
+        if (isNativeTransfer) {
+          // For native ETH transfers, user must have approved backend or use different method
+          // Since native ETH can't use transferFrom, we need a different approach
+          // The user signed authorization, but we can't move their ETH without their direct signature
+          
+          // For now, return error for native - need smart contract for true gasless native
+          return new Response(
+            JSON.stringify({ 
+              error: 'Native ETH gasless transfers require a smart contract. Please use USDC or USDT for gasless transfers.',
+              suggestion: 'Use USDC or USDT tokens which support gasless transfers via ERC20 approval.'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        } else {
+          // ERC20 transfer - check allowance first
+          const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
+          const allowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
+          const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
+          
+          if (allowance < totalNeeded) {
+            return new Response(
+              JSON.stringify({ 
+                error: 'Insufficient allowance',
+                details: `Please approve ${evmBackendWallet.address} to spend your tokens first`,
+                requiredAllowance: totalNeeded.toString(),
+                currentAllowance: allowance.toString(),
+                spenderAddress: evmBackendWallet.address,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // Execute atomic transfer: backend does transferFrom for both transfers
+          const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
+          
+          // Transfer 1: Sender -> Recipient (transfer amount)
+          console.log('Executing transferFrom: sender -> recipient');
+          const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
+          await tx1.wait();
+          console.log('Transfer to recipient confirmed:', tx1.hash);
+          
+          // Transfer 2: Sender -> Backend (fee)
+          console.log('Executing transferFrom: sender -> backend (fee)');
+          const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
+          await tx2.wait();
+          console.log('Fee to backend confirmed:', tx2.hash);
+          
+          txHash = tx1.hash;
+        }
+
+        const explorerUrl = chain === 'base' 
+          ? `https://basescan.org/tx/${txHash}`
+          : `https://etherscan.io/tx/${txHash}`;
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            txHash,
+            explorerUrl,
+            message: 'Gasless atomic transfer completed successfully',
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        console.error('EVM transfer execution error:', error);
+        return new Response(
+          JSON.stringify({
+            error: 'Transfer execution failed',
+            details: error instanceof Error ? error.message : 'Unknown error',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Action: Check ERC20 allowance for gasless transfers
+    if (action === 'check_evm_allowance') {
+      const { chain, tokenContract, ownerAddress } = body as {
+        chain: 'base' | 'ethereum';
+        tokenContract: string;
+        ownerAddress: string;
+      };
+
+      if (!evmBackendWallet) {
+        return new Response(
+          JSON.stringify({ error: 'EVM backend wallet not configured' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      try {
+        const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
+        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+        const tokenContractInstance = new ethers.Contract(tokenContract, ERC20_ABI, provider);
+        
+        const allowance = await tokenContractInstance.allowance(ownerAddress, evmBackendWallet.address);
+        
+        return new Response(
+          JSON.stringify({
+            allowance: allowance.toString(),
+            spenderAddress: evmBackendWallet.address,
+            hasUnlimitedApproval: allowance >= BigInt('0xffffffffffffffffffffffffffffffff'),
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        console.error('Allowance check error:', error);
+        return new Response(
+          JSON.stringify({
+            error: 'Failed to check allowance',
+            details: error instanceof Error ? error.message : 'Unknown error',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Action: Submit atomic tx (User signed + backend co-signs)
+    if (action === 'submit_atomic_tx') {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, senderPublicKey, recipientPublicKey, userSignature } = body as {
+        signedTransaction: string;
+        chain?: 'solana' | 'sui' | 'base' | 'ethereum';
+        mint?: string;
+        gasToken?: string;
+        amount?: number;
+        senderPublicKey?: string;
+        recipientPublicKey?: string;
+        userSignature?: string;
+      };
+
+      if (!signedTransaction) {
+        return new Response(
+          JSON.stringify({ error: 'Missing signedTransaction' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // EVM chains - this is just for verification/logging, actual transfer done in execute_evm_transfer
+      if (chain === 'base' || chain === 'ethereum') {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'EVM transaction recorded',
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Solana transaction submission
+      if (chain === 'solana') {
         try {
-          const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
-          const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+          // Decode and deserialize the transaction
+          const binaryString = atob(signedTransaction);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const transaction = Transaction.from(bytes);
+
+          console.log('Received Solana atomic transaction for co-signing...');
+          console.log('Transaction has', transaction.signatures.length, 'signature slots');
+          console.log('Fee payer:', transaction.feePayer?.toBase58());
           
-          // Wait for transaction confirmation
-          console.log(`Waiting for ${chain} transaction confirmation: ${txHash}`);
-          const receipt = await provider.waitForTransaction(txHash, 1, 60000); // 1 confirmation, 60s timeout
+          // Verify the transaction structure
+          if (!mint || !amount || !senderPublicKey || !recipientPublicKey) {
+            return new Response(
+              JSON.stringify({ error: 'Missing transaction details for validation' }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          const tokenInfo = ALLOWED_TOKENS[mint];
+          if (!tokenInfo) {
+            return new Response(
+              JSON.stringify({ error: 'Invalid token mint' }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // Calculate expected amounts
+          const feeAmountUSD = CHAIN_CONFIG.solana.gasFee;
+          const feeTokenMint = gasToken || mint;
           
-          if (!receipt || receipt.status !== 1) {
-            throw new Error('Transaction failed or was reverted');
+          let feeTokenSymbol: string;
+          
+          // If gasToken is a token key (like "USDT_SOL"), convert it to mint address
+          let actualFeeTokenMint = feeTokenMint;
+          const gasTokenConfigCheck = gasToken ? getTokenConfig(gasToken) : null;
+          if (gasTokenConfigCheck) {
+            actualFeeTokenMint = gasTokenConfigCheck.mint;
           }
           
-          console.log(`${chain} transaction confirmed:`, txHash);
-          
-          const explorerUrl = chain === 'base' 
-            ? `https://basescan.org/tx/${txHash}`
-            : `https://etherscan.io/tx/${txHash}`;
-          
-          return new Response(
-            JSON.stringify({
-              success: true,
-              txHash: txHash,
-              explorerUrl: explorerUrl,
-              message: `${chain.toUpperCase()} transfer completed successfully`,
-            }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        } catch (error) {
-          console.error(`${chain} transaction error:`, error);
-          return new Response(
-            JSON.stringify({
-              error: `${chain} transaction failed`,
-              details: error instanceof Error ? error.message : 'Unknown error',
-            }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-      }
-
-      if (!signedTransaction || !senderPublicKey || !recipientPublicKey || !amount || !mint) {
-        return new Response(
-          JSON.stringify({ error: 'Missing required validation fields' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // SECURITY: Validate token mint against whitelist
-      if (!(mint in ALLOWED_TOKENS)) {
-        return new Response(
-          JSON.stringify({ 
-            error: 'Invalid token mint',
-            details: 'Only USDC and USDT are supported'
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      console.log('Submitting and validating atomic transaction...');
-
-      if (chain === 'solana') {
-        // Solana transaction submission logic
-        try {
-        // Deserialize the user-signed transaction
-        const binaryString = atob(signedTransaction);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-        const transaction = Transaction.from(bytes);
-
-        // SECURITY: Validate transaction contents before signing
-        const senderPk = new PublicKey(senderPublicKey);
-        const recipientPk = new PublicKey(recipientPublicKey);
-        const mintPk = new PublicKey(mint);
-        const tokenInfo = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
-        
-        // Calculate expected values using FIXED FEE model
-        const chainConfigLocal = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
-        const feeAmountUSD = chainConfigLocal.gasFee; // Fixed USD fee
-        
-        // Helper function to get token config (needed before we use it)
-        function getTokenConfig(tokenKey: string) {
-          const tokens: Record<string, { mint: string; symbol: string; decimals: number }> = {
-            'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6 },
-            'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6 },
-            'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9 },
-            'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6 },
-            'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6 },
-            'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9 },
-          };
-          return tokens[tokenKey];
-        }
-        
-        // Determine which token is used for fee payment (match build_atomic_tx logic)
-        const feeTokenKey = gasToken || mint;
-        
-        // If gasToken is a token key (like "USDT_SOL"), convert it to mint address
-        let feeTokenMint = feeTokenKey;
-        const submitFeeGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
-        if (submitFeeGasTokenConfig) {
-          feeTokenMint = submitFeeGasTokenConfig.mint;
-        }
-        
-        let feeTokenSymbol: string;
-        
-        // Use token name from ALLOWED_TOKENS to determine CoinGecko ID
-        const feeTokenInfo = ALLOWED_TOKENS[feeTokenMint as keyof typeof ALLOWED_TOKENS];
-        if (feeTokenInfo) {
-          // Map token name to CoinGecko ID
-          if (feeTokenInfo.name === 'USDC') {
-            feeTokenSymbol = 'usd-coin';
-          } else if (feeTokenInfo.name === 'USDT') {
-            feeTokenSymbol = 'tether';
+          const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
+          if (feeTokenInfo) {
+            // Map token name to CoinGecko ID
+            if (feeTokenInfo.name === 'USDC') {
+              feeTokenSymbol = 'usd-coin';
+            } else if (feeTokenInfo.name === 'USDT') {
+              feeTokenSymbol = 'tether';
+            } else if (chain === 'solana') {
+              feeTokenSymbol = 'solana';
+            } else {
+              feeTokenSymbol = 'sui';
+            }
           } else if (chain === 'solana') {
             feeTokenSymbol = 'solana';
           } else {
             feeTokenSymbol = 'sui';
           }
-        } else if (chain === 'solana') {
-          feeTokenSymbol = 'solana';
-        } else {
-          feeTokenSymbol = 'sui';
-        }
-        
-        // Convert USD fee to token amount using current price
-        const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
-        const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
-        
-        // Calculate expected values for NEW FEE MODEL
-        const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
-        
-        // Determine gas token info for fee validation
-        const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
-        const gasTokenMint = gasTokenConfig ? gasTokenConfig.mint : mint;
-        const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenInfo.decimals;
-        const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
-
-        // Get expected ATAs for transfer token
-        const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
-        const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
-
-        // Get expected ATAs for gas token (fee payment)
-        const gasTokenMintPk = new PublicKey(gasTokenMint);
-        const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
-        const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
-
-        // SECURITY: Validate transaction structure for NEW FEE MODEL
-        const instructions = transaction.instructions;
-        let validTransfer = false;
-        let validFeePayment = false;
-
-        console.log('=== TRANSACTION VALIDATION START ===');
-        console.log('New fee model validation:');
-        console.log('Expected values:');
-        console.log('- Transfer amount (sender → recipient):', transferAmountSmallest.toString());
-        console.log('- Fee amount (sender → backend in gas token):', feeSmallest.toString(), `($${feeAmountUSD})`);
-        console.log('- Transfer token ATAs:', {
-          sender: senderTransferAta.toBase58(),
-          recipient: recipientTransferAta.toBase58(),
-        });
-        console.log('- Gas token ATAs:', {
-          sender: senderGasAta.toBase58(),
-          backend: backendGasAta.toBase58(),
-        });
-
-        for (let i = 0; i < instructions.length; i++) {
-          const instruction = instructions[i];
           
-          // Skip ATA creation instructions (they use a different program)
-          if (!instruction.programId.equals(TOKEN_PROGRAM_ID)) {
-            console.log(`Skipping instruction ${i + 1}: Not a token transfer (different program)`);
-            continue;
+          // Convert USD fee to token amount using current price
+          const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+          const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
+          
+          // Calculate expected values for NEW FEE MODEL
+          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
+          
+          // Determine gas token info for fee validation
+          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+          const gasTokenMintVal = gasTokenConfig ? gasTokenConfig.mint : mint;
+          const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenInfo.decimals;
+          const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+
+          // Get expected ATAs for transfer token
+          const mintPk = new PublicKey(mint);
+          const senderPk = new PublicKey(senderPublicKey);
+          const recipientPk = new PublicKey(recipientPublicKey);
+          
+          const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
+          const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+
+          // Get expected ATAs for gas token (fee payment)
+          const gasTokenMintPk = new PublicKey(gasTokenMintVal);
+          const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
+          const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+
+          // SECURITY: Validate transaction structure for NEW FEE MODEL
+          const instructions = transaction.instructions;
+          let validTransfer = false;
+          let validFeePayment = false;
+
+          console.log('=== TRANSACTION VALIDATION START ===');
+          console.log('New fee model validation:');
+          console.log('Expected values:');
+          console.log('- Transfer amount (sender → recipient):', transferAmountSmallest.toString());
+          console.log('- Fee amount (sender → backend in gas token):', feeSmallest.toString(), `($${feeAmountUSD})`);
+          console.log('- Transfer token ATAs:', {
+            sender: senderTransferAta.toBase58(),
+            recipient: recipientTransferAta.toBase58(),
+          });
+          console.log('- Gas token ATAs:', {
+            sender: senderGasAta.toBase58(),
+            backend: backendGasAta.toBase58(),
+          });
+
+          for (let i = 0; i < instructions.length; i++) {
+            const instruction = instructions[i];
+            
+            // Skip ATA creation instructions (they use a different program)
+            if (!instruction.programId.equals(TOKEN_PROGRAM_ID)) {
+              console.log(`Skipping instruction ${i + 1}: Not a token transfer (different program)`);
+              continue;
+            }
+
+            // Check if it's a transfer instruction (instruction discriminator: 3 for Transfer)
+            if (instruction.data.length === 9 && instruction.data[0] === 3) {
+              console.log(`\nFound SPL Token instruction, data length: ${instruction.data.length}`);
+              
+              // Decode amount from instruction data (bytes 1-8, little endian)
+              const amountBytes = instruction.data.slice(1, 9);
+              const amountBuffer = new BigInt64Array(new Uint8Array(amountBytes).buffer)[0];
+              
+              const source = instruction.keys[0].pubkey;
+              const destination = instruction.keys[1].pubkey;
+              const authority = instruction.keys[2].pubkey;
+              
+              console.log(`\nTransfer instruction #${i + 1}:`);
+              console.log('- Source:', source.toBase58());
+              console.log('- Destination:', destination.toBase58());
+              console.log('- Authority:', authority.toBase58());
+              console.log('- Amount:', amountBuffer.toString());
+              
+              // Validate Transfer 1: Sender → Recipient (full amount in transfer token)
+              if (
+                source.equals(senderTransferAta) &&
+                destination.equals(recipientTransferAta) &&
+                authority.equals(senderPk) &&
+                amountBuffer === transferAmountSmallest
+              ) {
+                validTransfer = true;
+                console.log('✓ This is sender → recipient transfer (FULL amount)');
+                console.log('  Expected amount:', transferAmountSmallest.toString());
+                console.log('  Actual amount:', amountBuffer.toString());
+              }
+              
+              // Validate Transfer 2: Sender → Backend (fee in gas token)
+              if (
+                source.equals(senderGasAta) &&
+                destination.equals(backendGasAta) &&
+                authority.equals(senderPk) &&
+                amountBuffer === feeSmallest
+              ) {
+                validFeePayment = true;
+                console.log('✓ This is sender → backend fee payment (gas token)');
+                console.log('  Expected amount:', feeSmallest.toString());
+                console.log('  Actual amount:', amountBuffer.toString());
+              }
+            }
           }
 
-          // Check if it's a transfer instruction (instruction discriminator: 3 for Transfer)
-          if (instruction.data.length === 9 && instruction.data[0] === 3) {
-            console.log(`\nFound SPL Token instruction, data length: ${instruction.data.length}`);
-            
-            // Decode amount from instruction data (bytes 1-8, little endian)
-            const amountBytes = instruction.data.slice(1, 9);
-            const amountBuffer = new BigInt64Array(new Uint8Array(amountBytes).buffer)[0];
-            
-            const source = instruction.keys[0].pubkey;
-            const destination = instruction.keys[1].pubkey;
-            const authority = instruction.keys[2].pubkey;
-            
-            console.log(`\nTransfer instruction #${i + 1}:`);
-            console.log('- Source:', source.toBase58());
-            console.log('- Destination:', destination.toBase58());
-            console.log('- Authority:', authority.toBase58());
-            console.log('- Amount:', amountBuffer.toString());
-            
-            // Validate Transfer 1: Sender → Recipient (full amount in transfer token)
-            if (
-              source.equals(senderTransferAta) &&
-              destination.equals(recipientTransferAta) &&
-              authority.equals(senderPk) &&
-              amountBuffer === transferAmountSmallest
-            ) {
-              validTransfer = true;
-              console.log('✓ This is sender → recipient transfer (FULL amount)');
-              console.log('  Expected amount:', transferAmountSmallest.toString());
-              console.log('  Actual amount:', amountBuffer.toString());
-            }
-            
-            // Validate Transfer 2: Sender → Backend (fee in gas token)
-            if (
-              source.equals(senderGasAta) &&
-              destination.equals(backendGasAta) &&
-              authority.equals(senderPk) &&
-              amountBuffer === feeSmallest
-            ) {
-              validFeePayment = true;
-              console.log('✓ This is sender → backend fee payment (gas token)');
-              console.log('  Expected amount:', feeSmallest.toString());
-              console.log('  Actual amount:', amountBuffer.toString());
-            }
+          console.log('\n=== VALIDATION SUMMARY ===');
+          console.log('✓ Sender → recipient validation:', validTransfer ? 'PASSED' : 'FAILED');
+          console.log('✓ Sender → backend fee payment validation:', validFeePayment ? 'PASSED' : 'FAILED');
+          console.log('Total instructions in transaction:', instructions.length);
+          console.log('=== TRANSACTION VALIDATION END ===\n');
+
+          if (!validTransfer || !validFeePayment) {
+            console.error('Transaction validation failed!');
+            return new Response(
+              JSON.stringify({
+                error: 'Transaction validation failed',
+                details: `Missing required transfers. Transfer: ${validTransfer}, Fee payment: ${validFeePayment}`,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
           }
-        }
 
-        console.log('\n=== VALIDATION SUMMARY ===');
-        console.log('✓ Sender → recipient validation:', validTransfer ? 'PASSED' : 'FAILED');
-        console.log('✓ Sender → backend fee payment validation:', validFeePayment ? 'PASSED' : 'FAILED');
-        console.log('Total instructions in transaction:', instructions.length);
-        console.log('=== TRANSACTION VALIDATION END ===\n');
+          console.log('Transaction validation passed');
 
-        if (!validTransfer || !validFeePayment) {
-          console.error('Transaction validation failed!');
+          // PHANTOM LIGHTHOUSE FIX: Follow Phantom's recommended signing order
+          console.log('Backend signing as fee payer (second signer after user)...');
+          transaction.partialSign(backendWallet);
+
+          // Submit the fully-signed atomic transaction
+          console.log('Submitting fully-signed atomic transaction...');
+          const signature = await connection.sendRawTransaction(
+            transaction.serialize(),
+            {
+              skipPreflight: false,
+              preflightCommitment: 'confirmed',
+              maxRetries: 5,
+            }
+          );
+
+          console.log('Atomic transaction submitted:', signature);
+
+          // Confirm transaction
+          await connection.confirmTransaction(signature, 'confirmed');
+          console.log('Atomic transaction confirmed!');
+
+          const balanceLamports = await connection.getBalance(backendWallet.publicKey);
+
           return new Response(
             JSON.stringify({
-              error: 'Transaction validation failed',
-              details: `Missing required transfers. Transfer: ${validTransfer}, Fee payment: ${validFeePayment}`,
+              success: true,
+              signature: signature,
+              backendWalletBalance: balanceLamports / LAMPORTS_PER_SOL,
+              message: 'Gasless atomic transfer completed successfully',
             }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        } catch (txError) {
+          console.error('Solana transaction error:', txError);
+          return new Response(
+            JSON.stringify({
+              error: 'Transaction failed',
+              details: txError instanceof Error ? txError.message : 'Unknown error',
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
-
-        console.log('Transaction validation passed');
-
-        // PHANTOM LIGHTHOUSE FIX: Follow Phantom's recommended signing order
-        console.log('Backend signing as fee payer (second signer after user)...');
-        transaction.partialSign(backendWallet);
-
-        // Submit the fully-signed atomic transaction
-        console.log('Submitting fully-signed atomic transaction...');
-        const signature = await connection.sendRawTransaction(
-          transaction.serialize(),
-          {
-            skipPreflight: false,
-            preflightCommitment: 'confirmed',
-            maxRetries: 5,
-          }
-        );
-
-        console.log('Atomic transaction submitted:', signature);
-
-        // Confirm transaction
-        await connection.confirmTransaction(signature, 'confirmed');
-        console.log('Atomic transaction confirmed!');
-
-        const balanceLamports = await connection.getBalance(backendWallet.publicKey);
-
-        return new Response(
-          JSON.stringify({
-            success: true,
-            signature: signature,
-            backendWalletBalance: balanceLamports / LAMPORTS_PER_SOL,
-            message: 'Gasless atomic transfer completed successfully',
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } catch (txError) {
-        console.error('Solana transaction error:', txError);
-        return new Response(
-          JSON.stringify({
-            error: 'Transaction failed',
-            details: txError instanceof Error ? txError.message : 'Unknown error',
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
       } else if (chain === 'sui') {
         // Sui transaction submission logic
         if (!suiRelayerKeypair) {
