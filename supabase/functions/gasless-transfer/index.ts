@@ -424,9 +424,7 @@ serve(async (req) => {
         return tokens[tokenKey];
       }
 
-      // EVM chain handling (Base and Ethereum) - ATOMIC GASLESS TRANSFER
-      // User sends TOTAL (amount + fee) to backend in ONE tx
-      // Backend then distributes: amount to recipient, keeps fee
+      // EVM chain handling (Base and Ethereum)
       if (chain === 'base' || chain === 'ethereum') {
         if (!evmBackendWallet) {
           return new Response(
@@ -447,54 +445,62 @@ serve(async (req) => {
           const isNativeToken = mint === 'native';
           
           // Calculate fee in the gas token
+          let feeTokenSymbol: string;
           let feeTokenDecimals: number;
-          let feeTokenPrice: number;
           
-          if (isNativeToken) {
-            // For native ETH, fee is also in ETH
+          if (gasTokenConfig) {
+            if (gasTokenConfig.symbol === 'USDC' || gasTokenConfig.symbol === 'USDT') {
+              feeTokenSymbol = gasTokenConfig.symbol === 'USDC' ? 'usd-coin' : 'tether';
+              feeTokenDecimals = 6;
+            } else {
+              feeTokenSymbol = 'ethereum';
+              feeTokenDecimals = 18;
+            }
+          } else if (isNativeToken) {
+            feeTokenSymbol = 'ethereum';
             feeTokenDecimals = 18;
-            feeTokenPrice = ethPrice;
           } else {
-            // For stablecoins, fee is $1 = 1 token
-            feeTokenDecimals = 6;
-            feeTokenPrice = 1; // USDC/USDT pegged to $1
+            // For USDC/USDT transfers, use the same token for fee
+            const tokenInfo = ALLOWED_TOKENS[mint];
+            if (tokenInfo?.name === 'USDC') {
+              feeTokenSymbol = 'usd-coin';
+              feeTokenDecimals = 6;
+            } else if (tokenInfo?.name === 'USDT') {
+              feeTokenSymbol = 'tether';
+              feeTokenDecimals = 6;
+            } else {
+              feeTokenSymbol = 'ethereum';
+              feeTokenDecimals = 18;
+            }
           }
           
+          const feeTokenPrice = await fetchTokenPrice(feeTokenSymbol);
           const feeAmount = feeAmountUSD / feeTokenPrice;
           const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, feeTokenDecimals)));
           
-          // Calculate transfer amount
-          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
-          
-          // Calculate TOTAL amount user needs to send to backend (amount + fee)
-          const totalAmountSmallest = transferAmountSmallest + feeSmallest;
-          
-          console.log(`${chain.toUpperCase()} ATOMIC transaction setup:`, {
+          console.log(`${chain.toUpperCase()} fee calculation:`, {
             feeUSD: `$${feeAmountUSD}`,
             tokenPrice: `$${feeTokenPrice}`,
             feeInTokens: feeAmount,
             feeSmallest: feeSmallest.toString(),
-            transferAmount: transferAmountSmallest.toString(),
-            totalToBackend: totalAmountSmallest.toString(),
-            recipient: recipientPublicKey,
           });
+
+          // Calculate transfer amount
+          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
           
-          // Return transaction parameters for frontend
-          // User sends TOTAL to backend, backend distributes
+          // Return transaction parameters for frontend to build
+          // EVM transactions are built and signed on frontend, then submitted here
           return new Response(
             JSON.stringify({
               chain,
               backendWallet: evmBackendWallet.address,
               transferAmount: transferAmountSmallest.toString(),
               feeAmount: feeSmallest.toString(),
-              totalAmount: totalAmountSmallest.toString(), // NEW: total user sends to backend
               feeAmountUSD: feeAmountUSD,
-              feeToken: isNativeToken ? 'ETH' : 'stablecoin',
+              feeToken: gasTokenConfig?.symbol || (feeTokenDecimals === 18 ? 'ETH' : 'stablecoin'),
               tokenContract: isNativeToken ? null : mint,
               recipient: recipientPublicKey,
-              decimals: decimals,
-              isAtomicTransfer: true, // Flag for frontend
-              message: `Send ${amount} + $${feeAmountUSD} fee to backend. Backend will forward ${amount} to recipient.`,
+              message: `Send ${amount} to recipient and $${feeAmountUSD} fee to backend`,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -1082,84 +1088,47 @@ serve(async (req) => {
         txHash?: string; // EVM: transaction hash from frontend
       };
 
-      // EVM chain submission (Base and Ethereum) - ATOMIC DISTRIBUTION
-      // User already sent TOTAL to backend, now backend distributes to recipient
+      // EVM chain submission (Base and Ethereum)
       if (chain === 'base' || chain === 'ethereum') {
-        if (!txHash || !recipientPublicKey || amount === undefined) {
+        if (!txHash) {
           return new Response(
-            JSON.stringify({ error: 'Missing transaction hash, recipient, or amount for EVM chain' }),
+            JSON.stringify({ error: 'Missing transaction hash for EVM chain' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        if (!evmBackendWallet) {
-          return new Response(
-            JSON.stringify({ error: 'EVM backend wallet not configured' }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
 
         try {
           const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
           const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-          const connectedWallet = evmBackendWallet.connect(provider);
           
-          // Wait for user's deposit transaction confirmation
-          console.log(`Waiting for ${chain} deposit confirmation: ${txHash}`);
-          const receipt = await provider.waitForTransaction(txHash, 1, 60000);
+          // Wait for transaction confirmation
+          console.log(`Waiting for ${chain} transaction confirmation: ${txHash}`);
+          const receipt = await provider.waitForTransaction(txHash, 1, 60000); // 1 confirmation, 60s timeout
           
           if (!receipt || receipt.status !== 1) {
-            throw new Error('Deposit transaction failed or was reverted');
+            throw new Error('Transaction failed or was reverted');
           }
           
-          console.log(`${chain} deposit confirmed. Now distributing to recipient...`);
-          
-          // Determine token type and calculate amounts
-          const isNativeToken = mint === 'native';
-          const tokenDecimals = isNativeToken ? 18 : 6;
-          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenDecimals)));
-          
-          let distributionTxHash: string;
-          
-          if (isNativeToken) {
-            // Send native ETH to recipient
-            console.log(`Sending ${amount} ETH to recipient: ${recipientPublicKey}`);
-            const tx = await connectedWallet.sendTransaction({
-              to: recipientPublicKey,
-              value: transferAmountSmallest,
-            });
-            const txReceipt = await tx.wait();
-            distributionTxHash = txReceipt?.hash || tx.hash;
-          } else {
-            // Send ERC20 token to recipient
-            const tokenContract = new ethers.Contract(mint!, ERC20_ABI, connectedWallet);
-            console.log(`Sending ${amount} tokens to recipient: ${recipientPublicKey}`);
-            const tx = await tokenContract.transfer(recipientPublicKey, transferAmountSmallest);
-            const txReceipt = await tx.wait();
-            distributionTxHash = txReceipt?.hash || tx.hash;
-          }
-          
-          console.log(`${chain} distribution complete:`, distributionTxHash);
+          console.log(`${chain} transaction confirmed:`, txHash);
           
           const explorerUrl = chain === 'base' 
-            ? `https://basescan.org/tx/${distributionTxHash}`
-            : `https://etherscan.io/tx/${distributionTxHash}`;
+            ? `https://basescan.org/tx/${txHash}`
+            : `https://etherscan.io/tx/${txHash}`;
           
           return new Response(
             JSON.stringify({
               success: true,
-              depositTxHash: txHash,
-              distributionTxHash: distributionTxHash,
+              txHash: txHash,
               explorerUrl: explorerUrl,
-              message: `Atomic transfer complete: ${amount} sent to recipient`,
+              message: `${chain.toUpperCase()} transfer completed successfully`,
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         } catch (error) {
-          console.error(`${chain} distribution error:`, error);
+          console.error(`${chain} transaction error:`, error);
           return new Response(
             JSON.stringify({
-              error: `${chain} distribution failed`,
+              error: `${chain} transaction failed`,
               details: error instanceof Error ? error.message : 'Unknown error',
             }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
