@@ -704,7 +704,7 @@ export const MultiChainTransferForm = () => {
 
         toast({ 
           title: 'Building transaction...', 
-          description: `Creating transfer on ${CHAIN_NAMES[tokenConfig.chain]}`
+          description: `Creating atomic transfer on ${CHAIN_NAMES[tokenConfig.chain]}`
         });
 
         // Get transaction parameters from backend
@@ -729,15 +729,14 @@ export const MultiChainTransferForm = () => {
           throw new Error(buildResponse.data.error);
         }
 
-        const { backendWallet, transferAmount, feeAmount, feeAmountUSD, tokenContract } = buildResponse.data;
+        const { backendWallet, totalAmount, feeAmountUSD, tokenContract } = buildResponse.data;
         
-        console.log('EVM transaction params:', {
+        console.log('EVM ATOMIC transaction params:', {
           backendWallet,
-          transferAmount,
-          feeAmount,
+          totalAmount,
           feeAmountUSD,
           tokenContract,
-          recipient,
+          recipient: recipient.trim(),
         });
 
         // Get provider from the connected wallet via connector
@@ -750,22 +749,10 @@ export const MultiChainTransferForm = () => {
           throw new Error('Could not get wallet provider. Please reconnect your wallet.');
         }
 
-        const gasTokenConfigLocal = getTokenConfig(selectedGasToken);
         const isNativeTransfer = tokenConfig.isNative;
-        const useSameToken = selectedGasToken === selectedToken;
-
-        toast({ title: 'Sign the transactions', description: 'Please approve in your wallet' });
-
-        // Helper function to encode ERC20 transfer data
-        const encodeErc20Transfer = (to: string, amountValue: string): string => {
-          // transfer(address,uint256) selector: 0xa9059cbb
-          const toAddress = to.toLowerCase().replace('0x', '').padStart(64, '0');
-          const amountHex = BigInt(amountValue).toString(16).padStart(64, '0');
-          return `0xa9059cbb${toAddress}${amountHex}`;
-        };
-
-        let txHashes: string[] = [];
         const recipientAddress = recipient.trim();
+
+        toast({ title: 'Approve transfer', description: `Send ${fullAmount} ${tokenConfig.symbol} + $${feeAmountUSD} fee` });
 
         // Helper to send transaction via provider
         const sendTx = async (to: string, value: bigint, data?: string): Promise<string> => {
@@ -777,58 +764,33 @@ export const MultiChainTransferForm = () => {
           if (data) {
             txParams.data = data;
           }
-          console.log('Sending transaction:', txParams);
+          console.log('Sending atomic transaction to backend:', txParams);
           return await (provider as any).request({
             method: 'eth_sendTransaction',
             params: [txParams],
           });
         };
 
+        // Helper function to encode ERC20 transfer data
+        const encodeErc20Transfer = (to: string, amountValue: string): string => {
+          const toAddress = to.toLowerCase().replace('0x', '').padStart(64, '0');
+          const amountHex = BigInt(amountValue).toString(16).padStart(64, '0');
+          return `0xa9059cbb${toAddress}${amountHex}`;
+        };
+
+        let depositTxHash: string;
+
         try {
           if (isNativeTransfer) {
-            // Native ETH transfer - send amount to recipient
-            console.log('Sending native ETH to recipient:', recipientAddress, 'amount:', transferAmount);
-            const tx1Hash = await sendTx(recipientAddress, BigInt(transferAmount));
-            txHashes.push(tx1Hash);
-            console.log('Transfer to recipient tx:', tx1Hash);
-
-            // Send fee to backend in native ETH
-            toast({ title: 'Approve fee payment', description: 'Sign the fee transaction' });
-            console.log('Sending fee to backend:', backendWallet, 'amount:', feeAmount);
-            const tx2Hash = await sendTx(backendWallet, BigInt(feeAmount));
-            txHashes.push(tx2Hash);
-            console.log('Fee to backend tx:', tx2Hash);
+            // Native ETH: Send TOTAL (amount + fee) to backend in ONE tx
+            console.log('Sending total ETH to backend:', backendWallet, 'amount:', totalAmount);
+            depositTxHash = await sendTx(backendWallet, BigInt(totalAmount));
+            console.log('Deposit to backend tx:', depositTxHash);
           } else {
-            // ERC20 transfer
-            const tokenAddress = tokenContract;
-            console.log('Sending ERC20 to recipient:', recipientAddress, 'token:', tokenAddress, 'amount:', transferAmount);
-
-            // Transaction 1: Send amount to recipient
-            const tx1Hash = await sendTx(tokenAddress, BigInt(0), encodeErc20Transfer(recipientAddress, transferAmount));
-            txHashes.push(tx1Hash);
-            console.log('Transfer to recipient tx:', tx1Hash);
-
-            // Transaction 2: Send fee to backend
-            toast({ title: 'Approve fee payment', description: 'Sign the fee transaction' });
-            console.log('Sending fee to backend:', backendWallet, 'amount:', feeAmount);
-            
-            if (useSameToken) {
-              // Fee in same token
-              const tx2Hash = await sendTx(tokenAddress, BigInt(0), encodeErc20Transfer(backendWallet, feeAmount));
-              txHashes.push(tx2Hash);
-              console.log('Fee to backend tx:', tx2Hash);
-            } else if (gasTokenConfigLocal?.isNative) {
-              // Fee in native ETH
-              const tx2Hash = await sendTx(backendWallet, BigInt(feeAmount));
-              txHashes.push(tx2Hash);
-              console.log('Fee to backend tx:', tx2Hash);
-            } else {
-              // Fee in different ERC20
-              const feeTokenAddress = gasTokenConfigLocal?.mint || tokenAddress;
-              const tx2Hash = await sendTx(feeTokenAddress, BigInt(0), encodeErc20Transfer(backendWallet, feeAmount));
-              txHashes.push(tx2Hash);
-              console.log('Fee to backend tx:', tx2Hash);
-            }
+            // ERC20: Send TOTAL (amount + fee) to backend in ONE tx
+            console.log('Sending total tokens to backend:', backendWallet, 'token:', tokenContract, 'amount:', totalAmount);
+            depositTxHash = await sendTx(tokenContract, BigInt(0), encodeErc20Transfer(backendWallet, totalAmount));
+            console.log('Deposit to backend tx:', depositTxHash);
           }
         } catch (txError: any) {
           console.error('Transaction error:', txError);
@@ -838,74 +800,43 @@ export const MultiChainTransferForm = () => {
           throw new Error(txError.shortMessage || txError.message || 'Failed to send transaction');
         }
 
-        toast({ title: 'Confirming transaction...', description: 'Waiting for blockchain confirmation' });
+        toast({ title: 'Processing...', description: 'Waiting for confirmation and distribution' });
 
-        // Wait for transaction confirmation
-        const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://cloudflare-eth.com';
-        let confirmed = false;
-        let attempts = 0;
-        const maxAttempts = 60;
-        
-        while (!confirmed && attempts < maxAttempts) {
-          try {
-            const receiptResponse = await fetch(rpcUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: 'eth_getTransactionReceipt',
-                params: [txHashes[0]],
-                id: 1,
-              }),
-            });
-            const receiptData = await receiptResponse.json();
-            
-            if (receiptData.result) {
-              if (receiptData.result.status === '0x1') {
-                confirmed = true;
-              } else if (receiptData.result.status === '0x0') {
-                throw new Error('Transaction failed on blockchain');
-              }
-            }
-          } catch (e) {
-            console.log('Waiting for confirmation...', e);
-          }
-          
-          if (!confirmed) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            attempts++;
-          }
-        }
-
-        if (!confirmed) {
-          throw new Error('Transaction confirmation timeout - please check your wallet');
-        }
-
-        // Notify backend of successful transfer
-        await supabase.functions.invoke('gasless-transfer', {
+        // Call backend to confirm deposit and distribute to recipient
+        const submitResponse = await supabase.functions.invoke('gasless-transfer', {
           body: {
             action: 'submit_atomic_tx',
             chain: tokenConfig.chain,
-            txHash: txHashes[0],
+            txHash: depositTxHash,
             senderPublicKey: evmAddress,
-            recipientPublicKey: recipient,
+            recipientPublicKey: recipientAddress,
             amount: fullAmount,
             mint: tokenConfig.isNative ? 'native' : tokenConfig.mint,
             gasToken: selectedGasToken,
           }
         });
 
-        const explorerUrl = tokenConfig.chain === 'base' 
-          ? `https://basescan.org/tx/${txHashes[0]}`
-          : `https://etherscan.io/tx/${txHashes[0]}`;
+        if (submitResponse.error) {
+          throw new Error(submitResponse.error.message);
+        }
+
+        if (submitResponse.data?.error) {
+          throw new Error(submitResponse.data.error);
+        }
+
+        const { distributionTxHash, explorerUrl } = submitResponse.data;
 
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${fullAmount} ${tokenConfig.symbol} to recipient. Fee: $${feeAmountUSD.toFixed(2)}`,
+          description: `Sent ${fullAmount} ${tokenConfig.symbol} to recipient. Fee: $${feeAmountUSD}`,
         });
 
-        console.log('Transfer complete:', explorerUrl);
-        
+        console.log('Atomic transfer complete:', {
+          depositTx: depositTxHash,
+          distributionTx: distributionTxHash,
+          explorer: explorerUrl,
+        });
+
         setRecipient('');
         setAmount('');
       }
