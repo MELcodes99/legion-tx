@@ -171,19 +171,19 @@ function calculateTokenAmount(usdAmount: number, tokenPriceUsd: number, decimals
 
 // Helper function to get token config with chain detection
 function getTokenConfig(tokenKey: string) {
-  const tokens: Record<string, { mint: string; symbol: string; decimals: number; chain: 'solana' | 'sui' | 'base' | 'ethereum' }> = {
-    'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana' },
-    'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana' },
-    'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana' },
-    'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui' },
-    'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6, chain: 'sui' },
-    'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui' },
-    'USDC_BASE': { mint: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6, chain: 'base' },
-    'USDT_BASE': { mint: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', symbol: 'USDT', decimals: 6, chain: 'base' },
-    'BASE_ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'base' },
-    'USDC_ETH': { mint: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6, chain: 'ethereum' },
-    'USDT_ETH': { mint: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6, chain: 'ethereum' },
-    'ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'ethereum' },
+  const tokens: Record<string, { mint: string; symbol: string; decimals: number; chain: 'solana' | 'sui' | 'base' | 'ethereum'; isNative: boolean }> = {
+    'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana', isNative: false },
+    'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana', isNative: false },
+    'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana', isNative: true },
+    'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui', isNative: false },
+    'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6, chain: 'sui', isNative: false },
+    'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui', isNative: true },
+    'USDC_BASE': { mint: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6, chain: 'base', isNative: false },
+    'USDT_BASE': { mint: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', symbol: 'USDT', decimals: 6, chain: 'base', isNative: false },
+    'BASE_ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'base', isNative: true },
+    'USDC_ETH': { mint: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6, chain: 'ethereum', isNative: false },
+    'USDT_ETH': { mint: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6, chain: 'ethereum', isNative: false },
+    'ETH': { mint: 'native', symbol: 'ETH', decimals: 18, chain: 'ethereum', isNative: true },
   };
   return tokens[tokenKey];
 }
@@ -1144,6 +1144,191 @@ serve(async (req) => {
         }
       }
 
+      // EVM chains (Base/Ethereum) - Build atomic transfer via backend execution
+      if (chain === 'base' || chain === 'ethereum') {
+        if (!evmBackendWallet) {
+          return new Response(
+            JSON.stringify({ error: 'EVM backend wallet not configured. Please configure EVM_BACKEND_WALLET_PRIVATE_KEY secret.' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        try {
+          const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
+          const feeAmountUSD = chainConfig.gasFee;
+          const isNativeTransfer = mint === 'native';
+          
+          // For native transfers, we can't do gasless (need a smart contract)
+          if (isNativeTransfer) {
+            return new Response(
+              JSON.stringify({
+                error: 'Native ETH gasless transfers require user to pay gas',
+                requiresUserGas: true,
+                suggestion: 'For truly gasless transfers, use USDC or USDT. For native ETH, you will need to pay gas yourself.',
+                backendWallet: evmBackendWallet.address,
+                feeAmountUSD,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // Get gas token config
+          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+          const isNativeGas = gasTokenConfig?.isNative || false;
+          
+          // Determine fee token
+          let feeTokenSymbol = 'usd-coin';
+          let feeTokenDecimals = 6;
+          let feeTokenAddress = mint;
+          
+          if (gasTokenConfig) {
+            if (gasTokenConfig.symbol === 'USDC') {
+              feeTokenSymbol = 'usd-coin';
+              feeTokenDecimals = 6;
+              feeTokenAddress = gasTokenConfig.mint;
+            } else if (gasTokenConfig.symbol === 'USDT') {
+              feeTokenSymbol = 'tether';
+              feeTokenDecimals = 6;
+              feeTokenAddress = gasTokenConfig.mint;
+            } else if (gasTokenConfig.isNative) {
+              feeTokenSymbol = 'ethereum';
+              feeTokenDecimals = 18;
+              feeTokenAddress = 'native';
+            }
+          } else {
+            const chainTokens = chain === 'base' ? CHAIN_CONFIG.base.tokens : CHAIN_CONFIG.ethereum.tokens;
+            const tokenInfo = chainTokens[mint as keyof typeof chainTokens] as { name: string; decimals: number } | undefined;
+            if (tokenInfo?.name === 'USDC') {
+              feeTokenSymbol = 'usd-coin';
+              feeTokenDecimals = 6;
+            } else if (tokenInfo?.name === 'USDT') {
+              feeTokenSymbol = 'tether';
+              feeTokenDecimals = 6;
+            }
+          }
+
+          // Fetch price and calculate fee
+          const feeTokenPrice = await fetchTokenPrice(feeTokenSymbol);
+          const feeInTokens = feeAmountUSD / feeTokenPrice;
+          const feeAmountSmallest = BigInt(Math.round(feeInTokens * Math.pow(10, feeTokenDecimals)));
+          
+          // Calculate transfer amount in smallest units
+          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
+          
+          console.log('EVM build_atomic_tx:', {
+            chain,
+            sender: senderPublicKey,
+            recipient: recipientPublicKey,
+            transferAmount: transferAmountSmallest.toString(),
+            feeAmount: feeAmountSmallest.toString(),
+            feeUSD: feeAmountUSD,
+            tokenContract: mint,
+            feeTokenContract: feeTokenAddress,
+          });
+
+          // Check user's token balance and allowance
+          const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+          const tokenContract = new ethers.Contract(mint, ERC20_ABI, provider);
+          
+          const userBalance = await tokenContract.balanceOf(senderPublicKey);
+          const userAllowance = await tokenContract.allowance(senderPublicKey, evmBackendWallet.address);
+          
+          // Calculate total needed (transfer + fee if same token)
+          const useSameToken = feeTokenAddress === mint || feeTokenAddress === 'native';
+          const totalNeeded = useSameToken && !isNativeGas 
+            ? transferAmountSmallest + feeAmountSmallest 
+            : transferAmountSmallest;
+          
+          // Check balance
+          if (userBalance < totalNeeded) {
+            return new Response(
+              JSON.stringify({
+                error: 'Insufficient balance',
+                details: `You have ${Number(userBalance) / Math.pow(10, decimals)} but need ${Number(totalNeeded) / Math.pow(10, decimals)}`,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // If using different token for fee, check that balance too
+          if (!useSameToken && !isNativeGas) {
+            const feeTokenContract = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
+            const feeTokenBalance = await feeTokenContract.balanceOf(senderPublicKey);
+            if (feeTokenBalance < feeAmountSmallest) {
+              return new Response(
+                JSON.stringify({
+                  error: 'Insufficient fee token balance',
+                  details: `You need ${Number(feeAmountSmallest) / Math.pow(10, feeTokenDecimals)} ${gasTokenConfig?.symbol || 'tokens'} for the fee`,
+                }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+          }
+
+          // Check if approval is needed
+          const needsApproval = userAllowance < totalNeeded;
+          let feeTokenNeedsApproval = false;
+          let feeTokenAllowance = BigInt(0);
+          
+          if (!useSameToken && !isNativeGas) {
+            const feeTokenContract = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
+            feeTokenAllowance = await feeTokenContract.allowance(senderPublicKey, evmBackendWallet.address);
+            feeTokenNeedsApproval = feeTokenAllowance < feeAmountSmallest;
+          }
+
+          // Generate operation ID and deadline for replay protection
+          const operationId = `${senderPublicKey}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+          const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour validity
+          const nonce = Date.now();
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              backendWallet: evmBackendWallet.address,
+              chainId: chainConfig.chainId,
+              transferAmount: transferAmountSmallest.toString(),
+              feeAmount: feeAmountSmallest.toString(),
+              feeAmountUSD,
+              tokenContract: mint,
+              feeTokenContract: feeTokenAddress === 'native' ? null : feeTokenAddress,
+              isNativeFee: isNativeGas,
+              needsApproval,
+              currentAllowance: userAllowance.toString(),
+              requiredAllowance: totalNeeded.toString(),
+              feeTokenNeedsApproval,
+              feeTokenAllowance: feeTokenAllowance.toString(),
+              operationId,
+              deadline,
+              nonce,
+              domain: {
+                name: 'Legion Transfer',
+                version: '1',
+                chainId: chainConfig.chainId,
+              },
+              message: {
+                sender: senderPublicKey,
+                recipient: recipientPublicKey,
+                amount: transferAmountSmallest.toString(),
+                fee: feeAmountSmallest.toString(),
+                token: mint,
+                nonce,
+                deadline,
+              },
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        } catch (error) {
+          console.error('EVM build_atomic_tx error:', error);
+          return new Response(
+            JSON.stringify({
+              error: 'Failed to build EVM transaction',
+              details: error instanceof Error ? error.message : 'Unknown error',
+            }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+
       return new Response(
         JSON.stringify({ error: 'Unsupported chain' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -1249,40 +1434,106 @@ serve(async (req) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         } else {
-          // ERC20 transfer - check allowance first
+          // ERC20 transfer
           const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
-          const allowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
-          const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
           
-          if (allowance < totalNeeded) {
+          // Check if fee is in same token or different token
+          const useSameTokenForFee = feeToken === tokenContract || feeToken === 'native' || !feeToken;
+          
+          if (useSameTokenForFee && !isNativeFee) {
+            // Same token for transfer and fee - check combined allowance
+            const allowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
+            const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
+            
+            if (allowance < totalNeeded) {
+              return new Response(
+                JSON.stringify({ 
+                  error: 'Insufficient allowance',
+                  details: `Please approve ${evmBackendWallet.address} to spend your tokens first`,
+                  requiredAllowance: totalNeeded.toString(),
+                  currentAllowance: allowance.toString(),
+                  spenderAddress: evmBackendWallet.address,
+                }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+
+            // Execute atomic transfer: backend does transferFrom for both transfers
+            const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
+            
+            // Transfer 1: Sender -> Recipient (transfer amount)
+            console.log('Executing transferFrom: sender -> recipient');
+            const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
+            await tx1.wait();
+            console.log('Transfer to recipient confirmed:', tx1.hash);
+            
+            // Transfer 2: Sender -> Backend (fee)
+            console.log('Executing transferFrom: sender -> backend (fee)');
+            const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
+            await tx2.wait();
+            console.log('Fee to backend confirmed:', tx2.hash);
+            
+            txHash = tx1.hash;
+          } else if (!isNativeFee) {
+            // Different token for fee
+            const feeTokenAddress = feeToken;
+            
+            // Check allowance for transfer token
+            const transferAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
+            if (transferAllowance < BigInt(transferAmount)) {
+              return new Response(
+                JSON.stringify({ 
+                  error: 'Insufficient transfer token allowance',
+                  details: `Please approve ${evmBackendWallet.address} to spend your transfer token first`,
+                  requiredAllowance: transferAmount,
+                  currentAllowance: transferAllowance.toString(),
+                }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            
+            // Check allowance for fee token
+            const feeTokenContract = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
+            const feeAllowance = await feeTokenContract.allowance(senderAddress, evmBackendWallet.address);
+            if (feeAllowance < BigInt(feeAmount)) {
+              return new Response(
+                JSON.stringify({ 
+                  error: 'Insufficient fee token allowance',
+                  details: `Please approve ${evmBackendWallet.address} to spend your fee token first`,
+                  requiredAllowance: feeAmount,
+                  currentAllowance: feeAllowance.toString(),
+                }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            
+            // Execute transfers
+            const transferTokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
+            const feeTokenWithSigner = new ethers.Contract(feeTokenAddress, ERC20_ABI, backendSigner);
+            
+            // Transfer 1: Sender -> Recipient (transfer amount)
+            console.log('Executing transferFrom: sender -> recipient (transfer token)');
+            const tx1 = await transferTokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
+            await tx1.wait();
+            console.log('Transfer to recipient confirmed:', tx1.hash);
+            
+            // Transfer 2: Sender -> Backend (fee in fee token)
+            console.log('Executing transferFrom: sender -> backend (fee token)');
+            const tx2 = await feeTokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
+            await tx2.wait();
+            console.log('Fee to backend confirmed:', tx2.hash);
+            
+            txHash = tx1.hash;
+          } else {
+            // Native fee token - not supported for gasless
             return new Response(
               JSON.stringify({ 
-                error: 'Insufficient allowance',
-                details: `Please approve ${evmBackendWallet.address} to spend your tokens first`,
-                requiredAllowance: totalNeeded.toString(),
-                currentAllowance: allowance.toString(),
-                spenderAddress: evmBackendWallet.address,
+                error: 'Native fee payments are not supported for gasless transfers',
+                suggestion: 'Use USDC or USDT for fee payment in gasless transfers.'
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
-
-          // Execute atomic transfer: backend does transferFrom for both transfers
-          const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
-          
-          // Transfer 1: Sender -> Recipient (transfer amount)
-          console.log('Executing transferFrom: sender -> recipient');
-          const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
-          await tx1.wait();
-          console.log('Transfer to recipient confirmed:', tx1.hash);
-          
-          // Transfer 2: Sender -> Backend (fee)
-          console.log('Executing transferFrom: sender -> backend (fee)');
-          const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-          await tx2.wait();
-          console.log('Fee to backend confirmed:', tx2.hash);
-          
-          txHash = tx1.hash;
         }
 
         const explorerUrl = chain === 'base' 
