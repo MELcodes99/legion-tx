@@ -14,19 +14,19 @@ const Index = () => {
         
         <div className="relative z-10">
           {/* Header */}
-          <header className="container mx-auto px-4 py-4 md:py-6">
+          <header className="container mx-auto px-4 py-4 md:py-6 bg-black">
             <nav className="flex items-center justify-between">
               <div className="flex items-center gap-2 md:gap-3">
                 <img src={legionLogo} alt="Legion" className="w-10 h-10 md:w-12 md:h-12 neon-glow-purple" />
                 <div>
-                  <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
+                  <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent font-serif">
                     Legion
                   </h1>
                 </div>
               </div>
               <div className="flex items-center gap-2 md:gap-3">
                 <a href="https://x.com/use_legion" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-                  <img src={xLogo} alt="Follow us on X" className="w-8 h-8 md:w-9 md:h-9" />
+                  <img alt="Follow us on X" className="w-8 h-8 md:w-9 md:h-9" src="/lovable-uploads/0bfe1a7e-3715-4490-bdd6-a69e1f7a1f1c.jpg" />
                 </a>
                 <UnifiedWalletButton />
               </div>
@@ -34,10 +34,10 @@ const Index = () => {
           </header>
 
           {/* Main Content */}
-          <main className="container mx-auto px-4 py-6 sm:py-8 md:py-12">
+          <main className="container mx-auto px-4 py-6 sm:py-8 md:py-12 bg-[#050621]">
             <div className="max-w-4xl mx-auto text-center mb-6 sm:mb-8 md:mb-12 px-2">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold mb-2 sm:mb-3 md:mb-4 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent animate-pulse-glow leading-tight">Multi-Chain Flexible Gas Transfers</h2>
-              <p className="text-sm sm:text-base md:text-lg text-muted-foreground max-w-2xl mx-auto px-2">Send USDT & USDC across Solana and Sui with flexible gas fees. Simple, fast, and secure multi-chain transfers.</p>
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2 sm:mb-3 md:mb-4 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent animate-pulse-glow leading-tight font-mono lg:text-5xl">Multi-Chain Flexible Gas Transfers</h2>
+              <p className="text-sm sm:text-base md:text-lg text-muted-foreground max-w-2xl mx-auto px-2 font-serif">Send USDT & USDC across Solana and Sui with flexible gas fees. Simple, fast, and secure multi-chain transfers.</p>
             </div>
 
             {/* Transfer Form */}
