@@ -13,6 +13,16 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Stub out native USB module to prevent build errors
+      "usb": path.resolve(__dirname, "./src/stubs/usb.ts"),
+    },
+  },
+  optimizeDeps: {
+    exclude: ["usb"],
+  },
+  build: {
+    rollupOptions: {
+      external: ["usb"],
     },
   },
 }));
