@@ -1020,12 +1020,12 @@ export const MultiChainTransferForm = () => {
   return <Card className="glass-card w-full max-w-md border-2 mx-4 sm:mx-0 border-secondary-foreground">
       <CardHeader className="space-y-1 p-4 sm:p-6">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-            Legion Transfer
-          </CardTitle>
+          <CardTitle className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">Legion Transfer
+
+        </CardTitle>
           <ProcessingLogo isProcessing={isLoading} className="w-7 h-7 sm:w-8 sm:h-8 md:w-10 md:h-10" />
         </div>
-        <CardDescription className="text-muted-foreground text-xs sm:text-sm font-serif">Send tokens across multiple chains with flexible gas fees</CardDescription>
+        <CardDescription className="text-muted-foreground text-xs font-mono sm:text-base">Send tokens across multiple chains with flexible gas fees</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4 sm:p-6">
         {!hasWalletConnected && <Alert>
@@ -1228,7 +1228,7 @@ export const MultiChainTransferForm = () => {
             <AlertDescription>{error}</AlertDescription>
           </Alert>}
 
-        <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6">
+        <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono">
           {isLoading ? <>
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="hidden xs:inline">Processing...</span>
