@@ -131,7 +131,19 @@ export const MultiChainTransferForm = () => {
       if (!currentTokenAvailable) {
         const firstToken = availableTokens[0][0] as TokenKey;
         setSelectedToken(firstToken);
-        setSelectedGasToken(firstToken);
+        
+        // For EVM chains, find first non-native token for gas (gasless requires ERC20)
+        const firstTokenConfig = availableTokens[0][1];
+        if (firstTokenConfig.chain === 'base' || firstTokenConfig.chain === 'ethereum') {
+          const nonNativeToken = availableTokens.find(([_, config]) => !config.isNative);
+          if (nonNativeToken) {
+            setSelectedGasToken(nonNativeToken[0] as TokenKey);
+          } else {
+            setSelectedGasToken(firstToken);
+          }
+        } else {
+          setSelectedGasToken(firstToken);
+        }
       }
     }
   }, [solanaPublicKey, suiAccount, evmAddress, evmChain]);
@@ -1189,7 +1201,15 @@ export const MultiChainTransferForm = () => {
               <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select gas token"} />
             </SelectTrigger>
             <SelectContent className="bg-popover border-border z-[100] max-h-[300px]">
-              {availableTokens.map(([key, config]) => (
+              {availableTokens
+                .filter(([key, config]) => {
+                  // For EVM chains, only allow ERC20 tokens (not native ETH) for gas payment
+                  if ((config.chain === 'base' || config.chain === 'ethereum') && config.isNative) {
+                    return false;
+                  }
+                  return true;
+                })
+                .map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   <div className="flex items-center gap-2">
                     <div className="relative">

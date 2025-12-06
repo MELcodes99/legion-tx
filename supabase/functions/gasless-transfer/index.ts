@@ -447,112 +447,11 @@ serve(async (req) => {
 
       console.log('Building atomic transaction:', { senderPublicKey, recipientPublicKey, amount, mint, chain });
 
-      // EVM chain handling (Base and Ethereum) - NEW GASLESS ATOMIC IMPLEMENTATION
+      // EVM chain handling - skip here, handled later in the function
+      // This first check is for early validation only
       if (chain === 'base' || chain === 'ethereum') {
-        if (!evmBackendWallet) {
-          return new Response(
-            JSON.stringify({ error: 'EVM backend wallet not configured. Please configure EVM_BACKEND_WALLET_PRIVATE_KEY secret.' }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        try {
-          const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
-          const feeAmountUSD = chainConfig.gasFee; // $0.40 fee
-          
-          // Get ETH price for fee calculation
-          const ethPrice = await fetchTokenPrice('ethereum');
-          
-          // Determine gas token for fee payment
-          const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
-          const isNativeToken = mint === 'native';
-          
-          // Calculate fee in the gas token
-          let feeTokenSymbol: string;
-          let feeTokenDecimals: number;
-          let feeTokenMint: string;
-          
-          if (gasTokenConfig) {
-            if (gasTokenConfig.symbol === 'USDC' || gasTokenConfig.symbol === 'USDT') {
-              feeTokenSymbol = gasTokenConfig.symbol === 'USDC' ? 'usd-coin' : 'tether';
-              feeTokenDecimals = 6;
-              feeTokenMint = gasTokenConfig.mint;
-            } else {
-              feeTokenSymbol = 'ethereum';
-              feeTokenDecimals = 18;
-              feeTokenMint = 'native';
-            }
-          } else if (isNativeToken) {
-            feeTokenSymbol = 'ethereum';
-            feeTokenDecimals = 18;
-            feeTokenMint = 'native';
-          } else {
-            // For USDC/USDT transfers, use the same token for fee
-            const tokenInfo = ALLOWED_TOKENS[mint];
-            if (tokenInfo?.name === 'USDC') {
-              feeTokenSymbol = 'usd-coin';
-              feeTokenDecimals = 6;
-              feeTokenMint = mint;
-            } else if (tokenInfo?.name === 'USDT') {
-              feeTokenSymbol = 'tether';
-              feeTokenDecimals = 6;
-              feeTokenMint = mint;
-            } else {
-              feeTokenSymbol = 'ethereum';
-              feeTokenDecimals = 18;
-              feeTokenMint = 'native';
-            }
-          }
-          
-          const feeTokenPrice = await fetchTokenPrice(feeTokenSymbol);
-          const feeAmount = feeAmountUSD / feeTokenPrice;
-          const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, feeTokenDecimals)));
-          
-          console.log(`${chain.toUpperCase()} fee calculation:`, {
-            feeUSD: `$${feeAmountUSD}`,
-            tokenPrice: `$${feeTokenPrice}`,
-            feeInTokens: feeAmount,
-            feeSmallest: feeSmallest.toString(),
-          });
-
-          // Calculate transfer amount
-          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
-          
-          // Generate nonce and deadline for EIP-712 signature
-          const nonce = Date.now();
-          const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes expiry
-          
-          // Return transaction parameters for frontend to sign
-          return new Response(
-            JSON.stringify({
-              chain,
-              backendWallet: evmBackendWallet.address,
-              transferAmount: transferAmountSmallest.toString(),
-              feeAmount: feeSmallest.toString(),
-              feeAmountUSD: feeAmountUSD,
-              feeToken: feeTokenMint,
-              feeTokenSymbol: gasTokenConfig?.symbol || (feeTokenDecimals === 18 ? 'ETH' : 'stablecoin'),
-              tokenContract: isNativeToken ? null : mint,
-              recipient: recipientPublicKey,
-              nonce,
-              deadline,
-              chainId: chainConfig.chainId,
-              // EIP-712 domain info
-              domain: getEIP712Domain(chainConfig.chainId),
-              message: `Authorize transfer of ${amount} to recipient and $${feeAmountUSD} fee to backend`,
-            }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        } catch (error) {
-          console.error(`${chain} build transaction error:`, error);
-          return new Response(
-            JSON.stringify({
-              error: `Failed to build ${chain} transaction`,
-              details: error instanceof Error ? error.message : 'Unknown error',
-            }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
+        // EVM handling is done in a more complete block below (around line 1147)
+        // Fall through to the later EVM block which has proper balance/allowance checking
       }
 
       // SECURITY: Validate token mint against whitelist (Solana/Sui only)
@@ -1176,7 +1075,21 @@ serve(async (req) => {
           const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
           const isNativeGas = gasTokenConfig?.isNative || false;
           
-          // Determine fee token
+          // CRITICAL: Reject native gas for EVM gasless transfers - not supported without smart contract
+          if (isNativeGas) {
+            return new Response(
+              JSON.stringify({
+                error: 'Native ETH cannot be used for fee payment in gasless transfers',
+                requiresUserGas: true,
+                suggestion: 'For gasless transfers, please select USDC or USDT for fee payment.',
+                backendWallet: evmBackendWallet.address,
+                feeAmountUSD,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          // Determine fee token (must be ERC20 at this point)
           let feeTokenSymbol = 'usd-coin';
           let feeTokenDecimals = 6;
           let feeTokenAddress = mint;
@@ -1190,12 +1103,9 @@ serve(async (req) => {
               feeTokenSymbol = 'tether';
               feeTokenDecimals = 6;
               feeTokenAddress = gasTokenConfig.mint;
-            } else if (gasTokenConfig.isNative) {
-              feeTokenSymbol = 'ethereum';
-              feeTokenDecimals = 18;
-              feeTokenAddress = 'native';
             }
           } else {
+            // Use same token as transfer token for fee
             const chainTokens = chain === 'base' ? CHAIN_CONFIG.base.tokens : CHAIN_CONFIG.ethereum.tokens;
             const tokenInfo = chainTokens[mint as keyof typeof chainTokens] as { name: string; decimals: number } | undefined;
             if (tokenInfo?.name === 'USDC') {
@@ -1290,8 +1200,8 @@ serve(async (req) => {
               feeAmount: feeAmountSmallest.toString(),
               feeAmountUSD,
               tokenContract: mint,
-              feeTokenContract: feeTokenAddress === 'native' ? null : feeTokenAddress,
-              isNativeFee: isNativeGas,
+              feeTokenContract: feeTokenAddress,
+              isNativeFee: false, // Never true for gasless EVM - native fees are rejected above
               needsApproval,
               currentAllowance: userAllowance.toString(),
               requiredAllowance: totalNeeded.toString(),
@@ -1434,13 +1344,13 @@ serve(async (req) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         } else {
-          // ERC20 transfer
+          // ERC20 transfer - both transfer and fee are via transferFrom
           const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
           
           // Check if fee is in same token or different token
-          const useSameTokenForFee = feeToken === tokenContract || feeToken === 'native' || !feeToken;
+          const useSameTokenForFee = feeToken === tokenContract || !feeToken;
           
-          if (useSameTokenForFee && !isNativeFee) {
+          if (useSameTokenForFee) {
             // Same token for transfer and fee - check combined allowance
             const allowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
             const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
@@ -1474,8 +1384,8 @@ serve(async (req) => {
             console.log('Fee to backend confirmed:', tx2.hash);
             
             txHash = tx1.hash;
-          } else if (!isNativeFee) {
-            // Different token for fee
+          } else {
+            // Different ERC20 token for fee
             const feeTokenAddress = feeToken;
             
             // Check allowance for transfer token
@@ -1524,15 +1434,6 @@ serve(async (req) => {
             console.log('Fee to backend confirmed:', tx2.hash);
             
             txHash = tx1.hash;
-          } else {
-            // Native fee token - not supported for gasless
-            return new Response(
-              JSON.stringify({ 
-                error: 'Native fee payments are not supported for gasless transfers',
-                suggestion: 'Use USDC or USDT for fee payment in gasless transfers.'
-              }),
-              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
           }
         }
 
