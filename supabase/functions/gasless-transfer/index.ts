@@ -104,6 +104,23 @@ const ERC20_ABI = [
   'function approve(address spender, uint256 amount) returns (bool)',
 ];
 
+// GaslessTransfer Contract ABI - for use after deployment
+const GASLESS_CONTRACT_ABI = [
+  'function gaslessTransfer(address sender, address receiver, address tokenToSend, uint256 amount, address feeToken, uint256 feeAmount) external',
+  'function gaslessTransferSameToken(address sender, address receiver, address token, uint256 amount, uint256 feeAmount) external',
+  'function checkApproval(address token, address owner) external view returns (uint256)',
+  'function backendWallet() external view returns (address)',
+  'event GaslessTransferExecuted(address indexed sender, address indexed receiver, address indexed tokenToSend, uint256 amount, address feeToken, uint256 feeAmount)',
+];
+
+// Contract addresses - UPDATE THESE AFTER DEPLOYMENT
+// Set to null to use direct transferFrom method (current behavior)
+// Set to deployed address to use smart contract (more gas efficient, atomic)
+const GASLESS_CONTRACT_ADDRESSES: Record<string, string | null> = {
+  ethereum: null, // Deploy and set: e.g., '0x1234...'
+  base: null,     // Deploy and set: e.g., '0x5678...'
+};
+
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
 const MAX_REQUESTS_PER_WINDOW = 1000; // Max 1000 transfers per hour per wallet
@@ -1294,6 +1311,10 @@ serve(async (req) => {
         const isNativeTransfer = !tokenContract;
         const isNativeFee = feeToken === 'native';
         
+        // Check if we have a deployed contract for this chain
+        const contractAddress = GASLESS_CONTRACT_ADDRESSES[chain];
+        const useSmartContract = contractAddress !== null && contractAddress !== undefined;
+        
         console.log('Executing EVM gasless transfer:', {
           chain,
           sender: senderAddress,
@@ -1302,6 +1323,8 @@ serve(async (req) => {
           feeAmount,
           isNativeTransfer,
           isNativeFee,
+          useSmartContract,
+          contractAddress,
         });
 
         // Verify signature using EIP-712
@@ -1331,11 +1354,6 @@ serve(async (req) => {
         let txHash: string;
 
         if (isNativeTransfer) {
-          // For native ETH transfers, user must have approved backend or use different method
-          // Since native ETH can't use transferFrom, we need a different approach
-          // The user signed authorization, but we can't move their ETH without their direct signature
-          
-          // For now, return error for native - need smart contract for true gasless native
           return new Response(
             JSON.stringify({ 
               error: 'Native ETH gasless transfers require a smart contract. Please use USDC or USDT for gasless transfers.',
@@ -1343,11 +1361,53 @@ serve(async (req) => {
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
-        } else {
-          // ERC20 transfer - both transfer and fee are via transferFrom
-          const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
+        }
+        
+        // ========================================
+        // METHOD 1: Smart Contract (if deployed)
+        // ========================================
+        if (useSmartContract && contractAddress) {
+          console.log('Using smart contract for atomic gasless transfer');
           
-          // Check if fee is in same token or different token
+          const gaslessContract = new ethers.Contract(contractAddress, GASLESS_CONTRACT_ABI, backendSigner);
+          const useSameTokenForFee = feeToken === tokenContract || !feeToken || feeToken === 'native';
+          
+          if (useSameTokenForFee) {
+            // Use gaslessTransferSameToken for gas efficiency
+            console.log('Calling gaslessTransferSameToken on contract');
+            const tx = await gaslessContract.gaslessTransferSameToken(
+              senderAddress,
+              recipientAddress,
+              tokenContract,
+              transferAmount,
+              feeAmount
+            );
+            const receipt = await tx.wait();
+            txHash = receipt.hash;
+            console.log('Smart contract transfer completed:', txHash);
+          } else {
+            // Different tokens for transfer and fee
+            console.log('Calling gaslessTransfer on contract (different fee token)');
+            const tx = await gaslessContract.gaslessTransfer(
+              senderAddress,
+              recipientAddress,
+              tokenContract,
+              transferAmount,
+              feeToken,
+              feeAmount
+            );
+            const receipt = await tx.wait();
+            txHash = receipt.hash;
+            console.log('Smart contract transfer completed:', txHash);
+          }
+        }
+        // ========================================
+        // METHOD 2: Direct transferFrom (fallback)
+        // ========================================
+        else {
+          console.log('Using direct transferFrom method (no contract deployed)');
+          
+          const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
           const useSameTokenForFee = feeToken === tokenContract || !feeToken;
           
           if (useSameTokenForFee) {
@@ -1447,6 +1507,7 @@ serve(async (req) => {
             txHash,
             explorerUrl,
             message: 'Gasless atomic transfer completed successfully',
+            method: useSmartContract ? 'smart_contract' : 'direct_transferFrom',
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );

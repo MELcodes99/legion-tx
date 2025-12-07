@@ -5,63 +5,88 @@ pragma solidity ^0.8.20;
  * @title GaslessTransfer
  * @author Legion Transfer Team
  * @notice Enables fully gasless token transfers with flexible fee payment
- * @dev This contract allows users to transfer ERC20 tokens without holding any native tokens (ETH/Base ETH)
  * 
- * HOW IT WORKS:
- * 1. User approves this contract to spend their tokens (tokenToSend and feeToken)
- * 2. User signs an EIP-712 message authorizing the transfer off-chain
- * 3. Backend relayer (backendWallet) calls executeGaslessTransfer with the user's signature
- * 4. Contract verifies the signature and executes TWO atomic transfers:
- *    - transferFrom: sender -> receiver (the actual transfer amount)
- *    - transferFrom: sender -> backendWallet (the fee, fixed at $0.40 USD equivalent)
- * 5. Backend wallet pays the network gas fees from its own ETH balance
+ * ============================
+ * HOW THIS SYSTEM WORKS
+ * ============================
  * 
- * FEE STRUCTURE:
- * - Fixed fee of $0.40 USD per transfer
- * - Fee can be paid in USDC, USDT, or any ERC20 token (caller specifies the amount)
- * - The fee amount in tokens must be calculated off-chain based on current prices
- * - Example: If paying in USDC (1 USDC = $1), fee = 400000 (0.40 USDC with 6 decimals)
+ * 1. USER FLOW:
+ *    - User selects tokenToSend (USDC, USDT, or any ERC20)
+ *    - User selects feeToken (USDC, USDT, or native ETH/Base_ETH)
+ *    - User approves BOTH tokens to this contract (if not already approved)
+ *    - That's it! User never needs ETH for gas.
+ *
+ * 2. BACKEND FLOW:
+ *    - Backend wallet (has ETH for gas) calls gaslessTransfer()
+ *    - Backend pays the network gas fees from its own ETH balance
+ *    - Contract transfers tokenToSend from sender → receiver
+ *    - Contract transfers feeToken from sender → backendWallet
+ *
+ * 3. FEE STRUCTURE:
+ *    - Fixed fee: $0.40 USD per transfer
+ *    - Fee is calculated off-chain based on current token prices
+ *    - Example: If paying in USDC, fee = 400000 (0.40 USDC with 6 decimals)
+ *    - Example: If paying in ETH at $3000/ETH, fee = 133333333333333 (0.000133 ETH)
+ *
+ * 4. SECURITY:
+ *    - ONLY backendWallet can call gaslessTransfer()
+ *    - ReentrancyGuard prevents reentrancy attacks
+ *    - SafeERC20 handles non-standard ERC20 tokens
+ *    - Both transfers must succeed or entire tx reverts (atomic)
+ *
+ * ============================
+ * DEPLOYMENT INSTRUCTIONS
+ * ============================
  * 
- * SECURITY FEATURES:
- * - ReentrancyGuard prevents reentrancy attacks
- * - EIP-712 signatures prevent replay attacks (each nonce can only be used once)
- * - Deadline prevents stale signatures from being used
- * - Only the backend wallet can submit transactions
+ * For Ethereum Mainnet:
+ *   1. Deploy with your backend wallet address as constructor argument
+ *   2. Verify on Etherscan
+ *   3. Update edge function with deployed address
+ *
+ * For Base Mainnet:
+ *   1. Deploy with same backend wallet address
+ *   2. Verify on Basescan
+ *   3. Update edge function with deployed address
+ *
+ * ============================
+ * INTEGRATION EXAMPLE
+ * ============================
+ * 
+ * Backend TypeScript call:
+ * ```
+ * const contract = new ethers.Contract(GASLESS_CONTRACT_ADDRESS, ABI, backendSigner);
+ * await contract.gaslessTransfer(
+ *   senderAddress,
+ *   receiverAddress,
+ *   USDC_ADDRESS,
+ *   parseUnits("100", 6),  // 100 USDC
+ *   USDT_ADDRESS,          // Pay fee in USDT
+ *   parseUnits("0.40", 6)  // $0.40 fee
+ * );
+ * ```
  */
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
-contract GaslessTransfer is ReentrancyGuard, EIP712 {
+contract GaslessTransfer is ReentrancyGuard {
     using SafeERC20 for IERC20;
-    using ECDSA for bytes32;
 
     /// @notice The backend wallet that can submit transactions and receives fees
     address public immutable backendWallet;
     
-    /// @notice Mapping of sender addresses to their nonces (for replay protection)
-    mapping(address => uint256) public nonces;
-    
     /// @notice The fixed fee in USD cents (40 = $0.40)
     uint256 public constant FEE_USD_CENTS = 40;
 
-    /// @notice EIP-712 typehash for the GaslessTransfer struct
-    bytes32 public constant GASLESS_TRANSFER_TYPEHASH = keccak256(
-        "GaslessTransfer(address sender,address receiver,address tokenToSend,uint256 amount,address feeToken,uint256 feeAmount,uint256 nonce,uint256 deadline)"
-    );
-
-    /// @notice Emitted when a gasless transfer is executed
+    /// @notice Emitted when a gasless transfer is executed successfully
     event GaslessTransferExecuted(
         address indexed sender,
         address indexed receiver,
         address indexed tokenToSend,
         uint256 amount,
         address feeToken,
-        uint256 feeAmount,
-        uint256 nonce
+        uint256 feeAmount
     );
 
     /// @notice Emitted when fees are collected
@@ -74,15 +99,6 @@ contract GaslessTransfer is ReentrancyGuard, EIP712 {
     /// @notice Error thrown when caller is not the backend wallet
     error OnlyBackendWallet();
     
-    /// @notice Error thrown when signature is invalid
-    error InvalidSignature();
-    
-    /// @notice Error thrown when signature deadline has passed
-    error SignatureExpired();
-    
-    /// @notice Error thrown when nonce is invalid
-    error InvalidNonce();
-    
     /// @notice Error thrown when zero address is provided
     error ZeroAddress();
     
@@ -92,8 +108,9 @@ contract GaslessTransfer is ReentrancyGuard, EIP712 {
     /**
      * @notice Constructor sets the backend wallet address
      * @param _backendWallet The address that will submit transactions and receive fees
+     * @dev This address cannot be changed after deployment
      */
-    constructor(address _backendWallet) EIP712("Legion Transfer", "1") {
+    constructor(address _backendWallet) {
         if (_backendWallet == address(0)) revert ZeroAddress();
         backendWallet = _backendWallet;
     }
@@ -108,198 +125,182 @@ contract GaslessTransfer is ReentrancyGuard, EIP712 {
 
     /**
      * @notice Execute a gasless token transfer with fee payment
-     * @dev This function is called by the backend wallet after verifying the user's signature
+     * @dev This function performs TWO atomic transfers:
+     *      1. tokenToSend: sender → receiver (the actual transfer)
+     *      2. feeToken: sender → backendWallet (the fee payment)
      * 
+     * REQUIREMENTS:
+     * - Caller MUST be the backendWallet
+     * - Sender MUST have approved this contract for tokenToSend (at least `amount`)
+     * - Sender MUST have approved this contract for feeToken (at least `feeAmount`)
+     * - Sender MUST have sufficient balance of both tokens
+     * - Both transfers MUST succeed or the entire transaction reverts
+     *
      * @param sender The address sending the tokens (must have approved this contract)
      * @param receiver The address receiving the tokens
      * @param tokenToSend The ERC20 token being transferred
      * @param amount The amount of tokens to transfer (in smallest units)
-     * @param feeToken The ERC20 token used to pay the fee
+     * @param feeToken The ERC20 token used to pay the fee (can be same as tokenToSend)
      * @param feeAmount The fee amount in feeToken's smallest units (calculated off-chain for $0.40 USD)
-     * @param deadline The timestamp after which the signature is no longer valid
-     * @param signature The EIP-712 signature from the sender authorizing this transfer
-     * 
-     * @custom:requirements
-     * - Caller must be the backendWallet
-     * - Current timestamp must be <= deadline
-     * - Signature must be valid and from the sender
-     * - Sender must have approved this contract for tokenToSend (at least `amount`)
-     * - Sender must have approved this contract for feeToken (at least `feeAmount`)
-     * - Sender must have sufficient balance of both tokens
      */
-    function executeGaslessTransfer(
+    function gaslessTransfer(
         address sender,
         address receiver,
         IERC20 tokenToSend,
         uint256 amount,
         IERC20 feeToken,
-        uint256 feeAmount,
-        uint256 deadline,
-        bytes calldata signature
+        uint256 feeAmount
     ) external onlyBackend nonReentrant {
-        // Validate inputs
+        // === INPUT VALIDATION ===
         if (sender == address(0) || receiver == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
-        if (block.timestamp > deadline) revert SignatureExpired();
-
-        // Get current nonce for the sender
-        uint256 currentNonce = nonces[sender];
-
-        // Build the struct hash for signature verification
-        bytes32 structHash = keccak256(abi.encode(
-            GASLESS_TRANSFER_TYPEHASH,
-            sender,
-            receiver,
-            address(tokenToSend),
-            amount,
-            address(feeToken),
-            feeAmount,
-            currentNonce,
-            deadline
-        ));
-
-        // Recover the signer from the signature
-        bytes32 digest = _hashTypedDataV4(structHash);
-        address recoveredSigner = ECDSA.recover(digest, signature);
-
-        // Verify the signature is from the sender
-        if (recoveredSigner != sender) revert InvalidSignature();
-
-        // Increment the nonce to prevent replay attacks
-        nonces[sender] = currentNonce + 1;
-
-        // Execute the main transfer: sender -> receiver
+        
+        // === EXECUTE TRANSFERS (ATOMIC) ===
+        
+        // Transfer 1: Main transfer - sender → receiver
+        // Uses SafeERC20 to handle non-standard tokens (like USDT on mainnet)
         tokenToSend.safeTransferFrom(sender, receiver, amount);
 
-        // Execute the fee transfer: sender -> backendWallet
+        // Transfer 2: Fee payment - sender → backendWallet
+        // Only if there's a fee to collect (feeAmount > 0)
         if (feeAmount > 0) {
             feeToken.safeTransferFrom(sender, backendWallet, feeAmount);
             emit FeeCollected(sender, address(feeToken), feeAmount);
         }
 
+        // === EMIT EVENT ===
         emit GaslessTransferExecuted(
             sender,
             receiver,
             address(tokenToSend),
             amount,
             address(feeToken),
-            feeAmount,
-            currentNonce
+            feeAmount
         );
     }
 
     /**
-     * @notice Execute a simple transfer (same token for transfer and fee)
-     * @dev Convenience function when the fee token is the same as the transfer token
-     * 
+     * @notice Convenience function when fee token is the same as transfer token
+     * @dev Saves gas by avoiding duplicate token address parameters
+     *
      * @param sender The address sending the tokens
      * @param receiver The address receiving the tokens
-     * @param token The ERC20 token being transferred and used for fees
+     * @param token The ERC20 token for both transfer and fee payment
      * @param amount The amount of tokens to transfer
-     * @param feeAmount The fee amount in the same token
-     * @param deadline The signature expiration timestamp
-     * @param signature The EIP-712 signature from the sender
+     * @param feeAmount The fee amount (in same token)
      */
-    function executeSimpleTransfer(
+    function gaslessTransferSameToken(
         address sender,
         address receiver,
         IERC20 token,
         uint256 amount,
-        uint256 feeAmount,
-        uint256 deadline,
-        bytes calldata signature
+        uint256 feeAmount
     ) external onlyBackend nonReentrant {
-        executeGaslessTransfer(sender, receiver, token, amount, token, feeAmount, deadline, signature);
-    }
-
-    /**
-     * @notice Get the current nonce for an address
-     * @param account The address to check
-     * @return The current nonce
-     */
-    function getNonce(address account) external view returns (uint256) {
-        return nonces[account];
-    }
-
-    /**
-     * @notice Get the domain separator for EIP-712 signatures
-     * @return The domain separator bytes32 value
-     */
-    function getDomainSeparator() external view returns (bytes32) {
-        return _domainSeparatorV4();
-    }
-
-    /**
-     * @notice Calculate the digest that needs to be signed for a gasless transfer
-     * @dev This can be called off-chain to construct the message for signing
-     * 
-     * @param sender The sender address
-     * @param receiver The receiver address
-     * @param tokenToSend The transfer token address
-     * @param amount The transfer amount
-     * @param feeToken The fee token address
-     * @param feeAmount The fee amount
-     * @param deadline The signature deadline
-     * @return The EIP-712 digest to be signed
-     */
-    function getTransferDigest(
-        address sender,
-        address receiver,
-        address tokenToSend,
-        uint256 amount,
-        address feeToken,
-        uint256 feeAmount,
-        uint256 deadline
-    ) external view returns (bytes32) {
-        uint256 currentNonce = nonces[sender];
+        if (sender == address(0) || receiver == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
         
-        bytes32 structHash = keccak256(abi.encode(
-            GASLESS_TRANSFER_TYPEHASH,
+        // Transfer full amount to receiver first
+        token.safeTransferFrom(sender, receiver, amount);
+        
+        // Then collect fee
+        if (feeAmount > 0) {
+            token.safeTransferFrom(sender, backendWallet, feeAmount);
+            emit FeeCollected(sender, address(token), feeAmount);
+        }
+
+        emit GaslessTransferExecuted(
             sender,
             receiver,
-            tokenToSend,
+            address(token),
             amount,
-            feeToken,
-            feeAmount,
-            currentNonce,
-            deadline
-        ));
+            address(token),
+            feeAmount
+        );
+    }
 
-        return _hashTypedDataV4(structHash);
+    /**
+     * @notice Check if a user has approved this contract for a specific token
+     * @param token The ERC20 token to check
+     * @param owner The address to check approval for
+     * @return allowance The current approval amount
+     */
+    function checkApproval(
+        IERC20 token,
+        address owner
+    ) external view returns (uint256 allowance) {
+        return token.allowance(owner, address(this));
+    }
+
+    /**
+     * @notice Get the required approval amount for a transfer
+     * @dev Helper function for frontend to know how much approval is needed
+     * @param tokenToSend Token being transferred
+     * @param feeToken Token used for fee
+     * @param amount Transfer amount
+     * @param feeAmount Fee amount
+     * @param sender User address
+     * @return tokenToSendApprovalNeeded Amount still needed for transfer token
+     * @return feeTokenApprovalNeeded Amount still needed for fee token
+     */
+    function getRequiredApprovals(
+        IERC20 tokenToSend,
+        IERC20 feeToken,
+        uint256 amount,
+        uint256 feeAmount,
+        address sender
+    ) external view returns (uint256 tokenToSendApprovalNeeded, uint256 feeTokenApprovalNeeded) {
+        uint256 currentTransferAllowance = tokenToSend.allowance(sender, address(this));
+        uint256 currentFeeAllowance = feeToken.allowance(sender, address(this));
+        
+        // If same token, need combined amount
+        if (address(tokenToSend) == address(feeToken)) {
+            uint256 totalNeeded = amount + feeAmount;
+            if (currentTransferAllowance < totalNeeded) {
+                tokenToSendApprovalNeeded = totalNeeded - currentTransferAllowance;
+            }
+            feeTokenApprovalNeeded = 0; // Already covered
+        } else {
+            if (currentTransferAllowance < amount) {
+                tokenToSendApprovalNeeded = amount - currentTransferAllowance;
+            }
+            if (currentFeeAllowance < feeAmount) {
+                feeTokenApprovalNeeded = feeAmount - currentFeeAllowance;
+            }
+        }
     }
 }
 
 /**
- * DEPLOYMENT INSTRUCTIONS:
+ * ============================
+ * CONTRACT ABI (for ethers.js)
+ * ============================
  * 
- * 1. Deploy this contract with your backend wallet address as constructor argument
- * 2. The backend wallet address cannot be changed after deployment
+ * const GASLESS_TRANSFER_ABI = [
+ *   "function gaslessTransfer(address sender, address receiver, address tokenToSend, uint256 amount, address feeToken, uint256 feeAmount) external",
+ *   "function gaslessTransferSameToken(address sender, address receiver, address token, uint256 amount, uint256 feeAmount) external",
+ *   "function checkApproval(address token, address owner) external view returns (uint256)",
+ *   "function getRequiredApprovals(address tokenToSend, address feeToken, uint256 amount, uint256 feeAmount, address sender) external view returns (uint256, uint256)",
+ *   "function backendWallet() external view returns (address)",
+ *   "event GaslessTransferExecuted(address indexed sender, address indexed receiver, address indexed tokenToSend, uint256 amount, address feeToken, uint256 feeAmount)",
+ *   "event FeeCollected(address indexed payer, address indexed feeToken, uint256 amount)"
+ * ];
  * 
- * For Ethereum Mainnet:
- * - Deploy using Remix, Hardhat, or Foundry
- * - Verify the contract on Etherscan
- * - Note the deployed contract address
+ * ============================
+ * DEPLOYMENT SCRIPT (Foundry)
+ * ============================
  * 
- * For Base Mainnet:
- * - Same process, deploy to Base
- * - Verify on Basescan
+ * forge create --rpc-url $RPC_URL \
+ *   --private-key $DEPLOYER_PRIVATE_KEY \
+ *   --constructor-args $BACKEND_WALLET_ADDRESS \
+ *   --verify \
+ *   src/contracts/GaslessTransfer.sol:GaslessTransfer
  * 
- * INTEGRATION:
+ * ============================
+ * AFTER DEPLOYMENT
+ * ============================
  * 
- * After deployment, update the edge function with:
- * 1. Contract addresses for each chain
- * 2. Update executeGaslessTransfer to call the contract instead of direct transferFrom
- * 3. The contract handles atomic execution and replay protection
- * 
- * USER FLOW:
- * 1. User approves contract address (not backend wallet) to spend tokens
- * 2. User signs EIP-712 message with transfer details
- * 3. Backend calls contract.executeGaslessTransfer() with signature
- * 4. Contract executes both transfers atomically
- * 
- * BENEFITS OF CONTRACT APPROACH:
- * - True atomic execution (both transfers in one tx)
- * - On-chain replay protection via nonces
- * - Gas optimization through batched calls
- * - Transparent fee handling on-chain
+ * 1. Note the deployed contract address
+ * 2. Add to edge function as GASLESS_CONTRACT_ETH and GASLESS_CONTRACT_BASE
+ * 3. Users approve the CONTRACT address (not backend wallet)
+ * 4. Backend calls contract.gaslessTransfer() to execute transfers
  */
