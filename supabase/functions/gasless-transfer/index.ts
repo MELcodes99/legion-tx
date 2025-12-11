@@ -963,19 +963,21 @@ serve(async (req) => {
           let feeCoin;
           
           if (coinsToUse.length === 1) {
-            // Single coin case
-            const [mainCoin] = tx.splitCoins(tx.object(coinsToUse[0]), [
-              tx.pure.u64(transferAmountSmallest),
-              ...(coinType === feeCoinType ? [tx.pure.u64(feeSmallest)] : []),
-            ]);
-            transferCoin = mainCoin;
+            // Single coin case - split appropriately based on whether fee uses same token
             if (coinType === feeCoinType) {
+              // Same token for transfer and fee - split into two amounts
               const splits = tx.splitCoins(tx.object(coinsToUse[0]), [
                 tx.pure.u64(transferAmountSmallest),
                 tx.pure.u64(feeSmallest),
               ]);
               transferCoin = splits[0];
               feeCoin = splits[1];
+            } else {
+              // Different tokens - only split for transfer amount
+              const [mainCoin] = tx.splitCoins(tx.object(coinsToUse[0]), [
+                tx.pure.u64(transferAmountSmallest),
+              ]);
+              transferCoin = mainCoin;
             }
           } else {
             // Multiple coins - merge first
