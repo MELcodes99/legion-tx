@@ -552,9 +552,10 @@ export const MultiChainTransferForm = () => {
         }
         const {
           transaction: base64Tx,
-          fee,
-          amountAfterFee
+          amounts
         } = buildResponse.data;
+        const fee = amounts?.feeUSD || gasFee;
+        const amountAfterFee = fullAmount;
         const binaryString = atob(base64Tx);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
@@ -625,9 +626,10 @@ export const MultiChainTransferForm = () => {
         }
         const {
           transaction: base64Tx,
-          fee,
-          amountAfterFee
+          amounts: suiAmounts
         } = buildResponse.data;
+        const fee = suiAmounts?.feeUSD || gasFee;
+        const amountAfterFee = fullAmount;
         toast({
           title: 'Sign the transaction',
           description: 'Please approve in your Sui wallet'
