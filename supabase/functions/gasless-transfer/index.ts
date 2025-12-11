@@ -331,11 +331,22 @@ serve(async (req) => {
     let evmBackendWallet: ethers.Wallet | null = null;
     if (evmBackendWalletPrivateKey) {
       try {
-        // Handle both with and without 0x prefix
-        const privateKey = evmBackendWalletPrivateKey.startsWith('0x') 
-          ? evmBackendWalletPrivateKey 
-          : `0x${evmBackendWalletPrivateKey}`;
-        evmBackendWallet = new ethers.Wallet(privateKey);
+        let privateKeyHex: string;
+        
+        // Check if it's a JSON array format (like Solana wallet)
+        const trimmedKey = evmBackendWalletPrivateKey.trim();
+        if (trimmedKey.startsWith('[')) {
+          // Parse as JSON array and convert to hex
+          const privateKeyArray = JSON.parse(trimmedKey);
+          const bytes = new Uint8Array(privateKeyArray);
+          privateKeyHex = '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+          console.log('EVM backend wallet parsed from JSON array format');
+        } else {
+          // Handle hex string format (with or without 0x prefix)
+          privateKeyHex = trimmedKey.startsWith('0x') ? trimmedKey : `0x${trimmedKey}`;
+        }
+        
+        evmBackendWallet = new ethers.Wallet(privateKeyHex);
         console.log('EVM backend wallet loaded:', evmBackendWallet.address);
       } catch (error) {
         console.error('Error parsing EVM backend wallet:', error);
