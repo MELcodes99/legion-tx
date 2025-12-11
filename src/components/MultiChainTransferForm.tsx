@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useCurrentAccount as useSuiAccount, useSignTransaction } from '@mysten/dapp-kit';
-import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt, useWalletClient, usePublicClient } from 'wagmi';
 import { base, mainnet } from 'wagmi/chains';
-import { parseUnits, formatUnits } from 'viem';
+import { parseUnits, formatUnits, encodeFunctionData, parseAbi } from 'viem';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { supabase } from '@/integrations/supabase/client';
@@ -52,6 +52,8 @@ export const MultiChainTransferForm = () => {
     address: evmAddress,
     chain: evmChain
   } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
   const suiClient = new SuiClient({
     url: 'https://fullnode.mainnet.sui.io:443'
   });
@@ -723,18 +725,22 @@ export const MultiChainTransferForm = () => {
           needsApproval
         });
 
-        // Get window.ethereum provider
-        const ethereum = (window as any).ethereum;
-        if (!ethereum) {
-          throw new Error('No Ethereum provider found. Please install MetaMask or another wallet.');
+        // Verify wallet client is available
+        if (!walletClient) {
+          throw new Error('Wallet client not available. Please reconnect your wallet.');
         }
 
         // Validate EVM address
-        const senderAddress = evmAddress?.toString();
+        const senderAddress = evmAddress as `0x${string}`;
         if (!senderAddress || !senderAddress.startsWith('0x')) {
           throw new Error('Invalid EVM wallet address. Please reconnect your wallet.');
         }
         console.log('Using EVM sender address:', senderAddress);
+
+        // ERC20 ABI for approve function
+        const erc20Abi = parseAbi([
+          'function approve(address spender, uint256 amount) returns (bool)'
+        ]);
 
         // Step 1: Handle approval if needed
         if (needsApproval) {
@@ -743,56 +749,70 @@ export const MultiChainTransferForm = () => {
             description: 'Please approve the token transfer in your wallet'
           });
 
-          // Encode approve(spender, amount) - max uint256 for unlimited approval
-          const maxUint256 = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
-          const approveData = `0x095ea7b3${backendWallet.toLowerCase().replace('0x', '').padStart(64, '0')}${maxUint256.replace('0x', '')}`;
           try {
-            console.log('Sending approval transaction:', { from: senderAddress, to: tokenContract });
-            const approveTxHash = await ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: senderAddress,
-                to: tokenContract,
-                data: approveData
-              }]
+            console.log('Sending approval transaction via walletClient:', { 
+              from: senderAddress, 
+              to: tokenContract, 
+              spender: backendWallet 
             });
+            
+            const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
+            const approveHash = await walletClient.writeContract({
+              address: tokenContract as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'approve',
+              args: [backendWallet as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+              account: senderAddress,
+              chain: targetChain,
+            });
+
             toast({
               title: 'Waiting for approval...',
               description: 'Confirming approval transaction'
             });
 
-            // Wait for approval confirmation
-            const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
-            let approved = false;
-            let attempts = 0;
-            while (!approved && attempts < 60) {
-              const receiptResponse = await fetch(rpcUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  jsonrpc: '2.0',
-                  method: 'eth_getTransactionReceipt',
-                  params: [approveTxHash],
-                  id: 1
-                })
+            // Wait for approval confirmation using publicClient
+            if (publicClient) {
+              const receipt = await publicClient.waitForTransactionReceipt({ 
+                hash: approveHash,
+                timeout: 60_000 
               });
-              const receiptData = await receiptResponse.json();
-              if (receiptData.result?.status === '0x1') {
-                approved = true;
-              } else if (receiptData.result?.status === '0x0') {
+              if (receipt.status !== 'success') {
                 throw new Error('Approval transaction failed');
               }
-              if (!approved) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                attempts++;
+            } else {
+              // Fallback: wait with RPC polling
+              const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
+              let approved = false;
+              let attempts = 0;
+              while (!approved && attempts < 60) {
+                const receiptResponse = await fetch(rpcUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    method: 'eth_getTransactionReceipt',
+                    params: [approveHash],
+                    id: 1
+                  })
+                });
+                const receiptData = await receiptResponse.json();
+                if (receiptData.result?.status === '0x1') {
+                  approved = true;
+                } else if (receiptData.result?.status === '0x0') {
+                  throw new Error('Approval transaction failed');
+                }
+                if (!approved) {
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  attempts++;
+                }
               }
+              if (!approved) throw new Error('Approval confirmation timeout');
             }
-            if (!approved) throw new Error('Approval confirmation timeout');
-            console.log('Token approval confirmed:', approveTxHash);
+            console.log('Token approval confirmed:', approveHash);
           } catch (approvalError: any) {
-            if (approvalError.code === 4001) {
+            console.error('Approval error:', approvalError);
+            if (approvalError.code === 4001 || approvalError.message?.includes('rejected')) {
               throw new Error('Token approval rejected by user');
             }
             throw approvalError;
@@ -805,44 +825,28 @@ export const MultiChainTransferForm = () => {
             title: 'Fee token approval required',
             description: 'Please approve the fee token transfer'
           });
-          const maxUint256 = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
-          const approveData = `0x095ea7b3${backendWallet.toLowerCase().replace('0x', '').padStart(64, '0')}${maxUint256.replace('0x', '')}`;
-          const approveTxHash = await ethereum.request({
-            method: 'eth_sendTransaction',
-            params: [{
-              from: senderAddress,
-              to: feeTokenContract,
-              data: approveData
-            }]
+
+          const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
+          const feeApproveHash = await walletClient.writeContract({
+            address: feeTokenContract as `0x${string}`,
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [backendWallet as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+            account: senderAddress,
+            chain: targetChain,
           });
 
           // Wait for fee token approval
-          const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
-          let approved = false;
-          let attempts = 0;
-          while (!approved && attempts < 60) {
-            const receiptResponse = await fetch(rpcUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: 'eth_getTransactionReceipt',
-                params: [approveTxHash],
-                id: 1
-              })
+          if (publicClient) {
+            const receipt = await publicClient.waitForTransactionReceipt({ 
+              hash: feeApproveHash,
+              timeout: 60_000 
             });
-            const receiptData = await receiptResponse.json();
-            if (receiptData.result?.status === '0x1') {
-              approved = true;
-            }
-            if (!approved) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              attempts++;
+            if (receipt.status !== 'success') {
+              throw new Error('Fee token approval failed');
             }
           }
-          if (!approved) throw new Error('Fee token approval timeout');
+          console.log('Fee token approval confirmed:', feeApproveHash);
         }
 
         // Step 2: Sign EIP-712 typed data for authorization
@@ -850,61 +854,41 @@ export const MultiChainTransferForm = () => {
           title: 'Sign authorization',
           description: 'Please sign the transfer authorization in your wallet'
         });
-        const typedData = {
-          types: {
-            EIP712Domain: [{
-              name: 'name',
-              type: 'string'
-            }, {
-              name: 'version',
-              type: 'string'
-            }, {
-              name: 'chainId',
-              type: 'uint256'
-            }],
-            Transfer: [{
-              name: 'sender',
-              type: 'address'
-            }, {
-              name: 'recipient',
-              type: 'address'
-            }, {
-              name: 'amount',
-              type: 'uint256'
-            }, {
-              name: 'fee',
-              type: 'uint256'
-            }, {
-              name: 'token',
-              type: 'address'
-            }, {
-              name: 'nonce',
-              type: 'uint256'
-            }, {
-              name: 'deadline',
-              type: 'uint256'
-            }]
-          },
-          primaryType: 'Transfer',
-          domain,
-          message: {
-            sender: message.sender,
-            recipient: message.recipient,
-            amount: message.amount,
-            fee: message.fee,
-            token: message.token,
-            nonce: message.nonce,
-            deadline: message.deadline
-          }
-        };
-        let signature: string;
+
+        let signature: `0x${string}`;
         try {
-          signature = await ethereum.request({
-            method: 'eth_signTypedData_v4',
-            params: [senderAddress, JSON.stringify(typedData)]
+          signature = await walletClient.signTypedData({
+            account: senderAddress,
+            domain: {
+              name: domain.name,
+              version: domain.version,
+              chainId: BigInt(domain.chainId),
+            },
+            types: {
+              Transfer: [
+                { name: 'sender', type: 'address' },
+                { name: 'recipient', type: 'address' },
+                { name: 'amount', type: 'uint256' },
+                { name: 'fee', type: 'uint256' },
+                { name: 'token', type: 'address' },
+                { name: 'nonce', type: 'uint256' },
+                { name: 'deadline', type: 'uint256' },
+              ],
+            },
+            primaryType: 'Transfer',
+            message: {
+              sender: message.sender as `0x${string}`,
+              recipient: message.recipient as `0x${string}`,
+              amount: BigInt(message.amount),
+              fee: BigInt(message.fee),
+              token: message.token as `0x${string}`,
+              nonce: BigInt(message.nonce),
+              deadline: BigInt(message.deadline),
+            },
           });
         } catch (signError: any) {
-          if (signError.code === 4001) {
+          console.error('Signature error:', signError);
+          if (signError.code === 4001 || signError.message?.includes('rejected')) {
             throw new Error('Signature rejected by user');
           }
           throw signError;
