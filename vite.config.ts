@@ -13,31 +13,6 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // Stub out native USB module to prevent build errors
-      "usb": path.resolve(__dirname, "./src/stubs/usb.ts"),
-      "node-hid": path.resolve(__dirname, "./src/stubs/usb.ts"),
     },
-  },
-  optimizeDeps: {
-    exclude: ["usb", "node-hid"],
-    esbuildOptions: {
-      // Define global for node modules that expect it
-      define: {
-        global: "globalThis",
-      },
-    },
-  },
-  build: {
-    commonjsOptions: {
-      // Ignore native modules during build
-      ignore: ["usb", "node-hid"],
-    },
-    rollupOptions: {
-      external: ["usb", "node-hid"],
-    },
-  },
-  // Define USB as empty module to prevent build errors
-  define: {
-    "process.env": {},
   },
 }));

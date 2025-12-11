@@ -1,5 +1,5 @@
 // Multi-chain token configuration
-export type ChainType = 'solana' | 'sui' | 'base' | 'ethereum';
+export type ChainType = 'solana' | 'sui';
 
 export interface TokenConfig {
   name: string;
@@ -8,7 +8,7 @@ export interface TokenConfig {
   decimals: number;
   chain: ChainType;
   gasFee: number; // Fixed gas fee in USD
-  isNative: boolean; // Is this the chain's native token (SOL, SUI, ETH)
+  isNative: boolean; // Is this the chain's native token (SOL, SUI)
 }
 
 export const TOKENS: Record<string, TokenConfig> = {
@@ -41,11 +41,11 @@ export const TOKENS: Record<string, TokenConfig> = {
     isNative: true,
   },
   
-  // Sui tokens
+  // Sui tokens - Note: Sui has multiple USDC/USDT implementations
   'USDC_SUI': {
     name: 'USD Coin',
     symbol: 'USDC',
-    mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
+    mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', // Native Sui USDC
     decimals: 6,
     chain: 'sui',
     gasFee: 0.40,
@@ -54,7 +54,7 @@ export const TOKENS: Record<string, TokenConfig> = {
   'USDT_SUI': {
     name: 'Tether USD',
     symbol: 'USDT',
-    mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT',
+    mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', // Native Sui USDT
     decimals: 6,
     chain: 'sui',
     gasFee: 0.40,
@@ -69,75 +69,9 @@ export const TOKENS: Record<string, TokenConfig> = {
     gasFee: 0.40,
     isNative: true,
   },
-
-  // Base tokens - verified contract addresses
-  'USDC_BASE': {
-    name: 'USD Coin',
-    symbol: 'USDC',
-    mint: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // Official Base USDC
-    decimals: 6,
-    chain: 'base',
-    gasFee: 0.40,
-    isNative: false,
-  },
-  'USDT_BASE': {
-    name: 'Tether USD',
-    symbol: 'USDT',
-    mint: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // Official Bridged USDT on Base
-    decimals: 6,
-    chain: 'base',
-    gasFee: 0.40,
-    isNative: false,
-  },
-  'BASE_ETH': {
-    name: 'Ethereum',
-    symbol: 'ETH',
-    mint: '0x0000000000000000000000000000000000000000', // Native ETH on Base
-    decimals: 18,
-    chain: 'base',
-    gasFee: 0.40,
-    isNative: true,
-  },
-
-  // Ethereum tokens
-  'USDC_ETH': {
-    name: 'USD Coin',
-    symbol: 'USDC',
-    mint: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // Ethereum USDC
-    decimals: 6,
-    chain: 'ethereum',
-    gasFee: 0.40,
-    isNative: false,
-  },
-  'USDT_ETH': {
-    name: 'Tether USD',
-    symbol: 'USDT',
-    mint: '0xdAC17F958D2ee523a2206206994597C13D831ec7', // Ethereum USDT
-    decimals: 6,
-    chain: 'ethereum',
-    gasFee: 0.40,
-    isNative: false,
-  },
-  'ETH': {
-    name: 'Ethereum',
-    symbol: 'ETH',
-    mint: '0x0000000000000000000000000000000000000000', // Native ETH
-    decimals: 18,
-    chain: 'ethereum',
-    gasFee: 0.40,
-    isNative: true,
-  },
 };
 
 export const MIN_TRANSFER_USD = 5;
-
-// Chain display names
-export const CHAIN_NAMES: Record<ChainType, string> = {
-  solana: 'Solana',
-  sui: 'Sui',
-  base: 'Base',
-  ethereum: 'Ethereum',
-};
 
 // Get tokens by chain
 export const getTokensByChain = (chain: ChainType): TokenConfig[] => {
@@ -153,6 +87,5 @@ export const getTokenConfig = (key: string): TokenConfig | undefined => {
 export const getTokenDisplayName = (key: string): string => {
   const config = TOKENS[key];
   if (!config) return key;
-  const chainName = CHAIN_NAMES[config.chain];
-  return `${config.symbol} (${chainName})`;
+  return `${config.symbol} (${config.chain === 'solana' ? 'Sol' : 'Sui'})`;
 };

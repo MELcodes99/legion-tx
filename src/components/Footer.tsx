@@ -1,5 +1,8 @@
+
+
 export const Footer = () => {
-  return <footer className="container mx-auto px-4 py-6 sm:py-8 mt-12 sm:mt-20 border-t border-border/50">
+  return (
+    <footer className="container mx-auto px-4 py-6 sm:py-8 mt-12 sm:mt-20 border-t border-border/50">
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-center">
           {/* About */}
@@ -7,7 +10,9 @@ export const Footer = () => {
             <h3 className="font-semibold text-base sm:text-lg mb-2 sm:mb-3 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
               Legion
             </h3>
-            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">Multi-chain Flexible gas transfers across Solana, Sui, Base & Ethereum.</p>
+            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+              Built on Solana for lightning-fast token transfers without the burden of gas fees.
+            </p>
           </div>
         </div>
 
@@ -18,5 +23,6 @@ export const Footer = () => {
           </p>
         </div>
       </div>
-    </footer>;
+    </footer>
+  );
 };
