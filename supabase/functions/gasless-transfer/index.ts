@@ -58,6 +58,7 @@ const CHAIN_CONFIG = {
   },
   base: {
     rpcUrl: 'https://mainnet.base.org',
+    fallbackRpcs: ['https://base.llamarpc.com', 'https://base.meowrpc.com'],
     chainId: 8453,
     gasFee: 0.40, // Fixed $0.40 fee for Base
     coingeckoId: 'ethereum', // ETH price for gas
@@ -70,6 +71,7 @@ const CHAIN_CONFIG = {
   },
   ethereum: {
     rpcUrl: 'https://eth.llamarpc.com',
+    fallbackRpcs: ['https://rpc.ankr.com/eth', 'https://eth.meowrpc.com'],
     chainId: 1,
     gasFee: 0.40, // Fixed $0.40 fee for Ethereum
     coingeckoId: 'ethereum', // ETH price for gas
@@ -1305,8 +1307,29 @@ serve(async (req) => {
 
       try {
         const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
-        const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
-        const backendSigner = evmBackendWallet.connect(provider);
+        
+        // Try primary RPC, fallback to alternatives if needed
+        let provider: ethers.JsonRpcProvider;
+        let backendSigner: ethers.Wallet;
+        const allRpcs = [chainConfig.rpcUrl, ...(chainConfig.fallbackRpcs || [])];
+        
+        for (let i = 0; i < allRpcs.length; i++) {
+          try {
+            provider = new ethers.JsonRpcProvider(allRpcs[i]);
+            // Quick test to verify RPC is working
+            await provider.getBlockNumber();
+            backendSigner = evmBackendWallet.connect(provider);
+            console.log(`Using RPC: ${allRpcs[i]}`);
+            break;
+          } catch (rpcError) {
+            console.log(`RPC ${allRpcs[i]} failed, trying next...`);
+            if (i === allRpcs.length - 1) {
+              throw new Error(`All RPC endpoints failed for ${chain}`);
+            }
+          }
+        }
+        provider = provider!;
+        backendSigner = backendSigner!;
         
         const isNativeTransfer = !tokenContract;
         const isNativeFee = feeToken === 'native';

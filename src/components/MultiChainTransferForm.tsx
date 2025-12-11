@@ -255,45 +255,41 @@ export const MultiChainTransferForm = () => {
       console.log(`Fetching EVM balances for address: ${evmAddress} on chain: ${evmChain.id}`);
       const newBalances: Partial<BalanceMap> = {};
 
-      // Use free public RPCs that don't require API keys
-      const primaryRpc = evmChain.id === base.id ? 'https://mainnet.base.org' : 'https://cloudflare-eth.com';
-      const fallbackRpc = evmChain.id === base.id ? 'https://base.llamarpc.com' : 'https://eth.llamarpc.com';
+      // Use reliable public RPCs - prioritize LlamaRPC which has better uptime
+      const rpcs = evmChain.id === base.id 
+        ? ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base.meowrpc.com']
+        : ['https://eth.llamarpc.com', 'https://rpc.ankr.com/eth', 'https://eth.meowrpc.com'];
 
-      // Helper function to make RPC call with fallback
+      // Helper function to make RPC call with multiple fallbacks
       const makeRpcCall = async (body: object): Promise<any> => {
-        try {
-          const response = await fetch(primaryRpc, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body)
-          });
-          const data = await response.json();
-          // Check for authorization errors and retry with fallback
-          if (data.error?.code === -32000 || data.error?.message?.includes('Unauthorized')) {
-            console.log('Primary RPC failed, trying fallback...');
-            const fallbackResponse = await fetch(fallbackRpc, {
+        let lastError: any = null;
+        
+        for (const rpc of rpcs) {
+          try {
+            const response = await fetch(rpc, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body)
             });
-            return await fallbackResponse.json();
+            const data = await response.json();
+            
+            // Check for any RPC errors (not just -32000)
+            if (data.error) {
+              console.log(`RPC ${rpc} returned error:`, data.error);
+              lastError = data;
+              continue; // Try next RPC
+            }
+            return data;
+          } catch (error) {
+            console.log(`RPC ${rpc} failed:`, error);
+            lastError = { error: { message: String(error) } };
+            continue; // Try next RPC
           }
-          return data;
-        } catch (error) {
-          console.log('Primary RPC error, trying fallback...', error);
-          const fallbackResponse = await fetch(fallbackRpc, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body)
-          });
-          return await fallbackResponse.json();
         }
+        
+        // All RPCs failed, return last error
+        console.error('All RPCs failed, returning last error');
+        return lastError || { error: { message: 'All RPC endpoints failed' } };
       };
       try {
         // Fetch native ETH balance
@@ -758,7 +754,7 @@ export const MultiChainTransferForm = () => {
             });
 
             // Wait for approval confirmation
-            const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://cloudflare-eth.com';
+            const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
             let approved = false;
             let attempts = 0;
             while (!approved && attempts < 60) {
@@ -813,7 +809,7 @@ export const MultiChainTransferForm = () => {
           });
 
           // Wait for fee token approval
-          const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://cloudflare-eth.com';
+          const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
           let approved = false;
           let attempts = 0;
           while (!approved && attempts < 60) {
