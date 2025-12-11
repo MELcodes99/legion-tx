@@ -729,6 +729,13 @@ export const MultiChainTransferForm = () => {
           throw new Error('No Ethereum provider found. Please install MetaMask or another wallet.');
         }
 
+        // Validate EVM address
+        const senderAddress = evmAddress?.toString();
+        if (!senderAddress || !senderAddress.startsWith('0x')) {
+          throw new Error('Invalid EVM wallet address. Please reconnect your wallet.');
+        }
+        console.log('Using EVM sender address:', senderAddress);
+
         // Step 1: Handle approval if needed
         if (needsApproval) {
           toast({
@@ -740,10 +747,11 @@ export const MultiChainTransferForm = () => {
           const maxUint256 = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
           const approveData = `0x095ea7b3${backendWallet.toLowerCase().replace('0x', '').padStart(64, '0')}${maxUint256.replace('0x', '')}`;
           try {
+            console.log('Sending approval transaction:', { from: senderAddress, to: tokenContract });
             const approveTxHash = await ethereum.request({
               method: 'eth_sendTransaction',
               params: [{
-                from: evmAddress,
+                from: senderAddress,
                 to: tokenContract,
                 data: approveData
               }]
@@ -802,7 +810,7 @@ export const MultiChainTransferForm = () => {
           const approveTxHash = await ethereum.request({
             method: 'eth_sendTransaction',
             params: [{
-              from: evmAddress,
+              from: senderAddress,
               to: feeTokenContract,
               data: approveData
             }]
@@ -893,7 +901,7 @@ export const MultiChainTransferForm = () => {
         try {
           signature = await ethereum.request({
             method: 'eth_signTypedData_v4',
-            params: [evmAddress, JSON.stringify(typedData)]
+            params: [senderAddress, JSON.stringify(typedData)]
           });
         } catch (signError: any) {
           if (signError.code === 4001) {
@@ -912,7 +920,7 @@ export const MultiChainTransferForm = () => {
           body: {
             action: 'execute_evm_transfer',
             chain: tokenConfig.chain,
-            senderAddress: evmAddress,
+            senderAddress: senderAddress,
             recipientAddress: recipient,
             transferAmount,
             feeAmount,
