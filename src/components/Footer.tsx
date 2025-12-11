@@ -4,10 +4,10 @@ export const Footer = () => {
         <div className="flex justify-center">
           {/* About */}
           <div className="text-center">
-            <h3 className="font-semibold text-base sm:text-lg mb-2 sm:mb-3 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            <h3 className="font-semibold text-base sm:text-lg mb-2 sm:mb-3 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent font-serif">
               Legion
             </h3>
-            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">Multi-chain Flexible gas transfers across Solana, Sui, Base & Ethereum.</p>
+            <p className="text-xs text-muted-foreground leading-relaxed font-serif sm:text-base">Multi-chain Flexible gas transfers across Solana, Sui, Base & Ethereum.</p>
           </div>
         </div>
 
