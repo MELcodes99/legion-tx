@@ -742,18 +742,26 @@ export const MultiChainTransferForm = () => {
           'function approve(address spender, uint256 amount) returns (bool)'
         ]);
 
+        // Calculate display amounts
+        const transferAmountDisplay = Number(transferAmount) / Math.pow(10, tokenConfig.decimals);
+        const feeAmountDisplay = Number(feeAmount) / Math.pow(10, tokenConfig.decimals);
+        const totalAmountDisplay = transferAmountDisplay + feeAmountDisplay;
+
         // Step 1: Handle approval if needed
         if (needsApproval) {
           toast({
-            title: 'Approval required',
-            description: 'Please approve the token transfer in your wallet'
+            title: `Approve ${tokenConfig.symbol} Spending`,
+            description: `Sending: ${transferAmountDisplay} ${tokenConfig.symbol} + Fee: ${feeAmountDisplay} ${tokenConfig.symbol} (Total: ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol})`,
+            duration: 10000,
           });
 
           try {
             console.log('Sending approval transaction via walletClient:', { 
               from: senderAddress, 
               to: tokenContract, 
-              spender: backendWallet 
+              spender: backendWallet,
+              transferAmount: transferAmountDisplay,
+              feeAmount: feeAmountDisplay,
             });
             
             const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
@@ -767,8 +775,8 @@ export const MultiChainTransferForm = () => {
             });
 
             toast({
-              title: 'Waiting for approval...',
-              description: 'Confirming approval transaction'
+              title: 'Approval Submitted',
+              description: 'Waiting for blockchain confirmation...'
             });
 
             // Wait for approval confirmation using publicClient
@@ -851,8 +859,9 @@ export const MultiChainTransferForm = () => {
 
         // Step 2: Sign EIP-712 typed data for authorization
         toast({
-          title: 'Sign authorization',
-          description: 'Please sign the transfer authorization in your wallet'
+          title: `Sign Transfer: ${transferAmountDisplay} ${tokenConfig.symbol}`,
+          description: `To: ${recipient.slice(0, 6)}...${recipient.slice(-4)} | Fee: ${feeAmountDisplay} ${tokenConfig.symbol} ($${feeAmountUSD.toFixed(2)})`,
+          duration: 10000,
         });
 
         let signature: `0x${string}`;
