@@ -1418,9 +1418,8 @@ serve(async (req) => {
               transferAmount,
               feeAmount
             );
-            const receipt = await tx.wait();
-            txHash = receipt.hash;
-            console.log('Smart contract transfer completed:', txHash);
+            txHash = tx.hash;
+            console.log('Smart contract transfer submitted:', txHash);
           } else {
             // Different tokens for transfer and fee
             console.log('Calling gaslessTransfer on contract (different fee token)');
@@ -1432,9 +1431,8 @@ serve(async (req) => {
               feeToken,
               feeAmount
             );
-            const receipt = await tx.wait();
-            txHash = receipt.hash;
-            console.log('Smart contract transfer completed:', txHash);
+            txHash = tx.hash;
+            console.log('Smart contract transfer submitted:', txHash);
           }
         }
         // ========================================
@@ -1467,18 +1465,15 @@ serve(async (req) => {
             // Execute atomic transfer: backend does transferFrom for both transfers
             const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
             
-            // Transfer 1: Sender -> Recipient (transfer amount)
-            console.log('Executing transferFrom: sender -> recipient');
+            // Send both transactions without waiting for confirmation (much faster)
+            console.log('Sending transferFrom transactions...');
             const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
-            await tx1.wait();
-            console.log('Transfer to recipient confirmed:', tx1.hash);
+            console.log('Transfer tx submitted:', tx1.hash);
             
-            // Transfer 2: Sender -> Backend (fee)
-            console.log('Executing transferFrom: sender -> backend (fee)');
             const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-            await tx2.wait();
-            console.log('Fee to backend confirmed:', tx2.hash);
+            console.log('Fee tx submitted:', tx2.hash);
             
+            // Don't wait for confirmation - return immediately with tx hash
             txHash = tx1.hash;
           } else {
             // Different ERC20 token for fee
@@ -1513,21 +1508,16 @@ serve(async (req) => {
               );
             }
             
-            // Execute transfers
+            // Execute transfers without waiting for confirmations
             const transferTokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
             const feeTokenWithSigner = new ethers.Contract(feeTokenAddress, ERC20_ABI, backendSigner);
             
-            // Transfer 1: Sender -> Recipient (transfer amount)
-            console.log('Executing transferFrom: sender -> recipient (transfer token)');
+            console.log('Sending transferFrom transactions...');
             const tx1 = await transferTokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
-            await tx1.wait();
-            console.log('Transfer to recipient confirmed:', tx1.hash);
+            console.log('Transfer tx submitted:', tx1.hash);
             
-            // Transfer 2: Sender -> Backend (fee in fee token)
-            console.log('Executing transferFrom: sender -> backend (fee token)');
             const tx2 = await feeTokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-            await tx2.wait();
-            console.log('Fee to backend confirmed:', tx2.hash);
+            console.log('Fee tx submitted:', tx2.hash);
             
             txHash = tx1.hash;
           }
