@@ -1687,13 +1687,9 @@ serve(async (req) => {
               );
               console.log('Permit tx submitted:', permitTx.hash);
               
-              // Wait for permit to be confirmed before transferFrom
-              await permitTx.wait();
-              console.log('Permit confirmed');
-              
-              // Refresh allowance after permit
-              currentAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
-              console.log('Allowance after permit:', currentAllowance.toString());
+              // Optimistically assume allowance will be updated on-chain for this amount
+              currentAllowance = BigInt(permitValue || totalNeeded.toString());
+              console.log('Allowance after permit (optimistic):', currentAllowance.toString());
             } catch (permitError) {
               console.error('Permit failed:', permitError);
               return new Response(
@@ -1739,23 +1735,15 @@ serve(async (req) => {
             const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
             console.log('Tx1 (sender → recipient) submitted:', tx1.hash);
             
-            // Wait for tx1 to be confirmed before submitting tx2
-            const receipt1 = await tx1.wait();
-            console.log('Tx1 confirmed in block:', receipt1?.blockNumber);
-
             // Step 2: Sender → backend: transfer fee
             console.log('Submitting tx2: sender → backend for fee:', feeAmount, 'to', evmBackendWallet.address);
             const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
             console.log('Tx2 (sender → backend fee) submitted:', tx2.hash);
             
-            // Wait for tx2 to be confirmed
-            const receipt2 = await tx2.wait();
-            console.log('Tx2 confirmed in block:', receipt2?.blockNumber);
-            
             txHash = tx1.hash;
             feeTxHash = tx2.hash;
             
-            console.log('Both transfers completed successfully:', {
+            console.log('Both transfers submitted successfully:', {
               transferTxHash: tx1.hash,
               feeTxHash: tx2.hash,
               backendWallet: evmBackendWallet.address,
@@ -1766,13 +1754,9 @@ serve(async (req) => {
             
             const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
             console.log('Tx1 (transfer) submitted:', tx1.hash);
-            const receipt1 = await tx1.wait();
-            console.log('Tx1 confirmed in block:', receipt1?.blockNumber);
             
             const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
             console.log('Tx2 (fee) submitted:', tx2.hash);
-            const receipt2 = await tx2.wait();
-            console.log('Tx2 confirmed in block:', receipt2?.blockNumber);
             
             txHash = tx1.hash;
             feeTxHash = tx2.hash;
