@@ -1654,7 +1654,22 @@ serve(async (req) => {
           
           const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
           const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
-          const useSameTokenForFee = feeToken === tokenContract || !feeToken;
+          
+          // Case-insensitive comparison for EVM addresses + handle null/undefined/native
+          const normalizedFeeToken = feeToken?.toLowerCase();
+          const normalizedTokenContract = tokenContract?.toLowerCase();
+          const useSameTokenForFee = !feeToken || 
+            feeToken === 'native' || 
+            normalizedFeeToken === normalizedTokenContract;
+          
+          console.log('Fee token check:', {
+            feeToken,
+            tokenContract,
+            normalizedFeeToken,
+            normalizedTokenContract,
+            useSameTokenForFee,
+          });
+          
           const totalNeeded = useSameTokenForFee 
             ? BigInt(transferAmount) + BigInt(feeAmount) 
             : BigInt(transferAmount);
