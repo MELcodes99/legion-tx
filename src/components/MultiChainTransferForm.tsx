@@ -711,6 +711,11 @@ export const MultiChainTransferForm = () => {
           tokenContract,
           feeTokenContract,
           isNativeFee,
+          // Permit support (for truly gasless USDC)
+          supportsPermit,
+          permitNonce,
+          permitDomain,
+          // Legacy approval (only for tokens that don't support permit)
           needsApproval,
           feeTokenNeedsApproval,
           domain,
@@ -724,6 +729,7 @@ export const MultiChainTransferForm = () => {
           feeAmount,
           feeAmountUSD,
           tokenContract,
+          supportsPermit,
           needsApproval
         });
 
@@ -739,160 +745,79 @@ export const MultiChainTransferForm = () => {
         }
         console.log('Using EVM sender address:', senderAddress);
 
-        // ERC20 ABI for approve function
-        const erc20Abi = parseAbi([
-          'function approve(address spender, uint256 amount) returns (bool)'
-        ]);
-
         // Calculate display amounts
         const transferAmountDisplay = Number(transferAmount) / Math.pow(10, tokenConfig.decimals);
         const feeAmountDisplay = Number(feeAmount) / Math.pow(10, tokenConfig.decimals);
         const totalAmountDisplay = transferAmountDisplay + feeAmountDisplay;
 
-        // Step 1: Handle approval if needed
-        if (needsApproval) {
+        // Variables for permit (if supported)
+        let permitSignature: `0x${string}` | undefined;
+        let permitDeadline: number | undefined;
+        let permitValue: string | undefined;
+
+        // Step 1: Handle permit or approval
+        if (supportsPermit) {
+          // Sign EIP-2612 Permit (gasless approval - no ETH needed!)
           toast({
-            title: `Approve ${tokenConfig.symbol} Spending`,
-            description: `Sending: ${transferAmountDisplay} ${tokenConfig.symbol} + Fee: ${feeAmountDisplay} ${tokenConfig.symbol} (Total: ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol})`,
+            title: `Sign Permit for ${tokenConfig.symbol}`,
+            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol} (no gas required)`,
             duration: 10000,
           });
 
+          const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
+          permitDeadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+          permitValue = totalNeeded.toString();
+
           try {
-            console.log('Sending approval transaction via walletClient:', { 
-              from: senderAddress, 
-              to: tokenContract, 
+            console.log('Signing EIP-2612 permit:', {
+              owner: senderAddress,
               spender: backendWallet,
-              transferAmount: transferAmountDisplay,
-              feeAmount: feeAmountDisplay,
+              value: permitValue,
+              nonce: permitNonce,
+              deadline: permitDeadline,
+              domain: permitDomain
             });
-            
-            const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
-            
-            // Always reset allowance to 0 first (USDC/USDT safe approve pattern)
-            console.log('Resetting allowance to 0 before setting unlimited (USDC/USDT pattern)');
-            const resetHash = await walletClient.writeContract({
-              address: tokenContract as `0x${string}`,
-              abi: erc20Abi,
-              functionName: 'approve',
-              args: [backendWallet as `0x${string}`, BigInt(0)],
+
+            permitSignature = await walletClient.signTypedData({
               account: senderAddress,
-              chain: targetChain,
+              domain: {
+                name: permitDomain.name,
+                version: permitDomain.version,
+                chainId: BigInt(permitDomain.chainId),
+                verifyingContract: permitDomain.verifyingContract as `0x${string}`,
+              },
+              types: {
+                Permit: [
+                  { name: 'owner', type: 'address' },
+                  { name: 'spender', type: 'address' },
+                  { name: 'value', type: 'uint256' },
+                  { name: 'nonce', type: 'uint256' },
+                  { name: 'deadline', type: 'uint256' },
+                ],
+              },
+              primaryType: 'Permit',
+              message: {
+                owner: senderAddress,
+                spender: backendWallet as `0x${string}`,
+                value: BigInt(permitValue),
+                nonce: BigInt(permitNonce),
+                deadline: BigInt(permitDeadline),
+              },
             });
-
-            // Wait for reset confirmation (best effort)
-            if (publicClient) {
-              await publicClient.waitForTransactionReceipt({ 
-                hash: resetHash,
-                timeout: 60_000 
-              });
+            console.log('Permit signature obtained:', permitSignature);
+          } catch (permitError: any) {
+            console.error('Permit signing error:', permitError);
+            if (permitError.code === 4001 || permitError.message?.includes('rejected')) {
+              throw new Error('Permit signature rejected by user');
             }
-            console.log('Allowance reset confirmed:', resetHash);
-            
-            // Now set the new allowance
-            const approveHash = await walletClient.writeContract({
-              address: tokenContract as `0x${string}`,
-              abi: erc20Abi,
-              functionName: 'approve',
-              args: [backendWallet as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
-              account: senderAddress,
-              chain: targetChain,
-            });
-
-            toast({
-              title: 'Approval Submitted',
-              description: 'Waiting for blockchain confirmation...'
-            });
-
-            // Wait for approval confirmation using publicClient
-            if (publicClient) {
-              const receipt = await publicClient.waitForTransactionReceipt({ 
-                hash: approveHash,
-                timeout: 60_000 
-              });
-              if (receipt.status !== 'success') {
-                throw new Error('Approval transaction failed');
-              }
-            } else {
-              // Fallback: wait with RPC polling
-              const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
-              let approved = false;
-              let attempts = 0;
-              while (!approved && attempts < 60) {
-                const receiptResponse = await fetch(rpcUrl, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    jsonrpc: '2.0',
-                    method: 'eth_getTransactionReceipt',
-                    params: [approveHash],
-                    id: 1
-                  })
-                });
-                const receiptData = await receiptResponse.json();
-                if (receiptData.result?.status === '0x1') {
-                  approved = true;
-                } else if (receiptData.result?.status === '0x0') {
-                  throw new Error('Approval transaction failed');
-                }
-                if (!approved) {
-                  await new Promise(resolve => setTimeout(resolve, 1000));
-                  attempts++;
-                }
-              }
-              if (!approved) throw new Error('Approval confirmation timeout');
-            }
-            console.log('Token approval confirmed:', approveHash);
-          } catch (approvalError: any) {
-            console.error('Approval error:', approvalError);
-            if (approvalError.code === 4001 || approvalError.message?.includes('rejected')) {
-              throw new Error('Token approval rejected by user');
-            }
-            throw approvalError;
+            throw permitError;
           }
-        }
-
-        // Step 1b: Handle fee token approval if needed (when using different token for fees)
-        if (feeTokenNeedsApproval && feeTokenContract) {
-          toast({
-            title: 'Fee token approval required',
-            description: 'Please approve the fee token transfer'
-          });
-
-          const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
-
-          // Always reset fee token allowance to 0 first (safe approve pattern)
-          const resetHash = await walletClient.writeContract({
-            address: feeTokenContract as `0x${string}`,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [backendWallet as `0x${string}`, BigInt(0)],
-            account: senderAddress,
-            chain: targetChain,
-          });
-          if (publicClient) {
-            await publicClient.waitForTransactionReceipt({ hash: resetHash, timeout: 60_000 });
-          }
-          
-          const feeApproveHash = await walletClient.writeContract({
-            address: feeTokenContract as `0x${string}`,
-            abi: erc20Abi,
-            functionName: 'approve',
-            args: [backendWallet as `0x${string}`, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
-            account: senderAddress,
-            chain: targetChain,
-          });
-
-          // Wait for fee token approval
-          if (publicClient) {
-            const receipt = await publicClient.waitForTransactionReceipt({ 
-              hash: feeApproveHash,
-              timeout: 60_000 
-            });
-            if (receipt.status !== 'success') {
-              throw new Error('Fee token approval failed');
-            }
-          }
-          console.log('Fee token approval confirmed:', feeApproveHash);
+        } else if (needsApproval || feeTokenNeedsApproval) {
+          // Token doesn't support permit - user needs ETH for on-chain approval
+          throw new Error(
+            `${tokenConfig.symbol} on ${tokenConfig.chain === 'ethereum' ? 'Ethereum' : 'Base'} requires ETH for approval. ` +
+            `Please use USDC for truly gasless transfers, or add ETH to your wallet for approval transactions.`
+          );
         }
 
         // Step 2: Sign EIP-712 typed data for authorization
@@ -959,7 +884,13 @@ export const MultiChainTransferForm = () => {
             feeToken: isNativeFee ? 'native' : feeTokenContract || tokenContract,
             signature,
             nonce,
-            deadline
+            deadline,
+            // EIP-2612 Permit data (for gasless approval)
+            ...(permitSignature && {
+              permitSignature,
+              permitDeadline,
+              permitValue,
+            }),
           }
         });
         if (executeResponse.error) {
