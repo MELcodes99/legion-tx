@@ -1271,19 +1271,30 @@ serve(async (req) => {
             }
           }
 
-          // Permit2 is disabled for now because many tokens (like USDT) do not
-          // support true gasless approvals via Permit2 without a prior on-chain
-          // approval transaction from the user. This caused frequent
-          // "TRANSFER_FROM_FAILED" errors. We therefore only rely on native
-          // EIP-2612 permits when available and otherwise fall back to standard
-          // allowance flows.
-          const permit2Nonce = BigInt(0);
-          const supportsPermit2 = false;
+          // Permit2 nonce (for tokens that don't support native permit)
+          let permit2Nonce = BigInt(0);
+          let supportsPermit2 = false;
+          
+          if (!supportsNativePermit) {
+            try {
+              const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, provider);
+              const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
+              permit2Nonce = BigInt(nonce);
+              supportsPermit2 = true;
+              
+              console.log('Permit2 available for token:', {
+                token: mint,
+                permit2Nonce: permit2Nonce.toString(),
+              });
+            } catch (e) {
+              console.log('Permit2 check failed (treating as unsupported for this token):', e);
+            }
+          }
 
           // Determine the best gasless method available
-          const canUsePermit2 = false;
-          const supportsPermit = supportsNativePermit;
-          const usePermit2 = false;
+          const canUsePermit2 = !supportsNativePermit && supportsPermit2 && feeTokenAddress === mint;
+          const supportsPermit = supportsNativePermit || canUsePermit2;
+          const usePermit2 = canUsePermit2;
 
           // Check if approval is needed (only relevant if no gasless option available)
           const needsApproval = !supportsPermit && userAllowance < totalNeeded;
@@ -1571,9 +1582,9 @@ serve(async (req) => {
           }
         }
         // ========================================
-        // METHOD 2: Permit2 transfer (currently disabled)
+        // METHOD 2: Permit2 transfer (for tokens without native permit)
         // ========================================
-        else if (false && usePermit2 && permit2Signature) {
+        else if (usePermit2 && permit2Signature) {
           console.log('Using Permit2 for gasless transfer');
           
           const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, backendSigner);
@@ -1605,7 +1616,7 @@ serve(async (req) => {
             };
             
             const transferDetails = {
-              to: evmBackendWallet!.address,
+              to: evmBackendWallet.address,
               requestedAmount: permittedAmount,
             };
             
@@ -1624,7 +1635,7 @@ serve(async (req) => {
             
             // Backend keeps the difference as fee
             txHash = tx1.hash;
-          } catch (permit2Error: any) {
+          } catch (permit2Error) {
             console.error('Permit2 transfer failed:', permit2Error);
             return new Response(
               JSON.stringify({ 
@@ -1687,11 +1698,11 @@ serve(async (req) => {
               );
               console.log('Permit tx submitted:', permitTx.hash);
               
-              // MUST wait for permit to be confirmed before transferFrom
-              const permitReceipt = await permitTx.wait();
-              console.log('Permit confirmed in block:', permitReceipt?.blockNumber);
+              // Wait for permit to be confirmed before transferFrom
+              await permitTx.wait();
+              console.log('Permit confirmed');
               
-              // Refresh allowance after permit is confirmed
+              // Refresh allowance after permit
               currentAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
               console.log('Allowance after permit:', currentAllowance.toString());
             } catch (permitError) {
@@ -1739,15 +1750,23 @@ serve(async (req) => {
             const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
             console.log('Tx1 (sender → recipient) submitted:', tx1.hash);
             
+            // Wait for tx1 to be confirmed before submitting tx2
+            const receipt1 = await tx1.wait();
+            console.log('Tx1 confirmed in block:', receipt1?.blockNumber);
+
             // Step 2: Sender → backend: transfer fee
             console.log('Submitting tx2: sender → backend for fee:', feeAmount, 'to', evmBackendWallet.address);
             const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
             console.log('Tx2 (sender → backend fee) submitted:', tx2.hash);
             
+            // Wait for tx2 to be confirmed
+            const receipt2 = await tx2.wait();
+            console.log('Tx2 confirmed in block:', receipt2?.blockNumber);
+            
             txHash = tx1.hash;
             feeTxHash = tx2.hash;
             
-            console.log('Both transfers submitted successfully:', {
+            console.log('Both transfers completed successfully:', {
               transferTxHash: tx1.hash,
               feeTxHash: tx2.hash,
               backendWallet: evmBackendWallet.address,
@@ -1758,9 +1777,13 @@ serve(async (req) => {
             
             const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
             console.log('Tx1 (transfer) submitted:', tx1.hash);
+            const receipt1 = await tx1.wait();
+            console.log('Tx1 confirmed in block:', receipt1?.blockNumber);
             
             const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
             console.log('Tx2 (fee) submitted:', tx2.hash);
+            const receipt2 = await tx2.wait();
+            console.log('Tx2 confirmed in block:', receipt2?.blockNumber);
             
             txHash = tx1.hash;
             feeTxHash = tx2.hash;

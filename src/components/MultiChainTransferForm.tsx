@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, AlertCircle, Clock } from 'lucide-react';
+import { Loader2, Send, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ProcessingLogo } from './ProcessingLogo';
 import { ConnectedWalletInfo } from './ConnectedWalletInfo';
@@ -823,78 +823,72 @@ export const MultiChainTransferForm = () => {
             }
             throw permitError;
           }
-        } else if (needsApproval || feeTokenNeedsApproval) {
-          // Token doesn't support gasless permit - do on-chain approval first
+        } else if (usePermit2 && permitDomain) {
+          // Sign Permit2 (universal gasless permit - for USDT and other tokens)
           toast({
-            title: `Approving ${tokenConfig.symbol}...`,
-            description: `One-time approval to enable gasless transfers. Please confirm in your wallet.`,
-            duration: 15000,
+            title: `Sign Permit2 for ${tokenConfig.symbol}`,
+            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol} via Permit2`,
+            duration: 10000,
           });
 
           const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
-          const approvalAmount = totalNeeded;
+          permit2Deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+          permit2Amount = totalNeeded.toString();
+          permit2Nonce = String(permitNonce);
 
           try {
-            const chain = tokenConfig.chain === 'ethereum' ? mainnet : base;
+            console.log('Signing Permit2 PermitTransferFrom:', {
+              token: tokenContract,
+              amount: permit2Amount,
+              spender: backendWallet,
+              nonce: permit2Nonce,
+              deadline: permit2Deadline,
+            });
 
-            // USDT on Ethereum has a non-standard approve pattern: it often requires
-            // resetting allowance to 0 before setting a new non-zero allowance.
-            const isUsdtOnEthereum =
-              tokenConfig.symbol === 'USDT' && tokenConfig.chain === 'ethereum';
-
-            if (isUsdtOnEthereum) {
-              console.log('USDT detected, performing reset-to-zero then approve flow');
-
-              // 1) Reset allowance to 0
-              const resetTxHash = await walletClient.writeContract({
-                address: tokenContract as `0x${string}`,
-                abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
-                functionName: 'approve',
-                args: [backendWallet as `0x${string}`, 0n],
-                account: senderAddress,
-                chain,
-              });
-
-              toast({
-                title: 'Resetting USDT allowance...',
-                description: 'First setting allowance to 0 (required by USDT).',
-              });
-
-              await publicClient?.waitForTransactionReceipt({ hash: resetTxHash });
-              console.log('USDT allowance reset tx confirmed:', resetTxHash);
-            }
-
-            // 2) Set allowance to required amount
-            const approveTxHash = await walletClient.writeContract({
-              address: tokenContract as `0x${string}`,
-              abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
-              functionName: 'approve',
-              args: [backendWallet as `0x${string}`, approvalAmount],
+            permit2Signature = await walletClient.signTypedData({
               account: senderAddress,
-              chain,
+              domain: {
+                name: 'Permit2',
+                chainId: BigInt(permitDomain.chainId),
+                verifyingContract: permit2Address as `0x${string}`,
+              },
+              types: {
+                PermitTransferFrom: [
+                  { name: 'permitted', type: 'TokenPermissions' },
+                  { name: 'spender', type: 'address' },
+                  { name: 'nonce', type: 'uint256' },
+                  { name: 'deadline', type: 'uint256' },
+                ],
+                TokenPermissions: [
+                  { name: 'token', type: 'address' },
+                  { name: 'amount', type: 'uint256' },
+                ],
+              },
+              primaryType: 'PermitTransferFrom',
+              message: {
+                permitted: {
+                  token: tokenContract as `0x${string}`,
+                  amount: BigInt(permit2Amount),
+                },
+                spender: backendWallet as `0x${string}`,
+                nonce: BigInt(permit2Nonce),
+                deadline: BigInt(permit2Deadline),
+              },
             });
-
-            toast({
-              title: 'Waiting for approval confirmation...',
-              description: 'This may take a moment.',
-            });
-
-            // Wait for approval tx to be mined
-            await publicClient?.waitForTransactionReceipt({ hash: approveTxHash });
-
-            toast({
-              title: 'Approval successful!',
-              description: `${tokenConfig.symbol} is now approved for gasless transfers. Proceeding...`,
-            });
-
-            console.log('Approval tx confirmed:', approveTxHash);
-          } catch (approveError: any) {
-            console.error('Approval error:', approveError);
-            if (approveError.code === 4001 || approveError.message?.includes('rejected')) {
-              throw new Error('Approval rejected by user');
+            console.log('Permit2 signature obtained:', permit2Signature);
+          } catch (permit2Error: any) {
+            console.error('Permit2 signing error:', permit2Error);
+            if (permit2Error.code === 4001 || permit2Error.message?.includes('rejected')) {
+              throw new Error('Permit2 signature rejected by user');
             }
-            throw new Error(`Approval failed: ${approveError.shortMessage || approveError.message || 'Unknown error'}`);
+            throw permit2Error;
           }
+        } else if (needsApproval || feeTokenNeedsApproval) {
+          // Token doesn't support any permit - user needs ETH for on-chain approval
+          throw new Error(
+            `${tokenConfig.symbol} requires a one-time approval of the Permit2 contract. ` +
+            `Please approve Permit2 (${permit2Address}) for ${tokenConfig.symbol} first, then retry.`
+          );
         }
 
         // Step 2: Sign EIP-712 typed data for authorization
@@ -1241,71 +1235,53 @@ export const MultiChainTransferForm = () => {
           </Select>
         </div>
 
-        {/* USDT on Ethereum Coming Soon Card */}
-        {selectedToken === 'USDT_ETH' ? (
-          <div className="rounded-xl border-2 border-dashed border-amber-500/50 bg-amber-500/10 p-6 text-center space-y-3">
-            <div className="flex justify-center">
-              <div className="rounded-full bg-amber-500/20 p-3">
-                <Clock className="h-8 w-8 text-amber-500" />
-              </div>
-            </div>
-            <h3 className="text-lg font-semibold text-amber-500">Coming Soon</h3>
-            <p className="text-sm text-muted-foreground">
-              USDT transfers on Ethereum mainnet are currently under development. 
-              Please use <span className="font-medium text-foreground">USDC on Ethereum</span> for gasless transfers.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="recipient" className="text-sm">Recipient Address</Label>
-              <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
-            </div>
+        <div className="space-y-2">
+          <Label htmlFor="recipient" className="text-sm">Recipient Address</Label>
+          <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+        </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
-              <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
-            </div>
+        <div className="space-y-2">
+          <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
+          <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+        </div>
 
-            {amount && parseFloat(amount) > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Transfer Amount:</span>
-                  <span className="font-medium">${parseFloat(amount).toFixed(2)}</span>
+        {amount && parseFloat(amount) > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Transfer Amount:</span>
+              <span className="font-medium">${parseFloat(amount).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Gas Fee ({selectedGasTokenConfig?.symbol || 'token'}):</span>
+              <span className="font-medium">{getGasFeeDisplay()}</span>
+            </div>
+            <div className="h-px bg-border/50 my-1" />
+            <div className="flex justify-between font-semibold text-base">
+              <span>Recipient Receives:</span>
+              <span className="text-primary">${parseFloat(amount).toFixed(2)}</span>
+            </div>
+            {selectedToken === selectedGasToken && <div className="mt-2 pt-2 border-t border-border/50">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Total Needed ({selectedTokenConfig?.symbol}):</span>
+                  <span className="font-semibold text-accent">${(parseFloat(amount) + gasFee).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Gas Fee ({selectedGasTokenConfig?.symbol || 'token'}):</span>
-                  <span className="font-medium">{getGasFeeDisplay()}</span>
-                </div>
-                <div className="h-px bg-border/50 my-1" />
-                <div className="flex justify-between font-semibold text-base">
-                  <span>Recipient Receives:</span>
-                  <span className="text-primary">${parseFloat(amount).toFixed(2)}</span>
-                </div>
-                {selectedToken === selectedGasToken && <div className="mt-2 pt-2 border-t border-border/50">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Total Needed ({selectedTokenConfig?.symbol}):</span>
-                      <span className="font-semibold text-accent">${(parseFloat(amount) + gasFee).toFixed(2)}</span>
-                    </div>
-                  </div>}
-                {selectedGasTokenConfig?.isNative && !tokenPrices && <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>}
               </div>}
+            {selectedGasTokenConfig?.isNative && !tokenPrices && <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>}
+          </div>}
 
-            {error && <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>}
+        {error && <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>}
 
-            <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono">
-              {isLoading ? <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="hidden xs:inline">Processing...</span>
-                </> : <>
-                  <Send className="h-4 w-4" />
-                  Send Now
-                </>}
-            </Button>
-          </>
-        )}
+        <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono">
+          {isLoading ? <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="hidden xs:inline">Processing...</span>
+            </> : <>
+              <Send className="h-4 w-4" />
+              Send Now
+            </>}
+        </Button>
       </CardContent>
     </Card>;
 };
