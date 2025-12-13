@@ -768,58 +768,25 @@ export const MultiChainTransferForm = () => {
             
             const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
             
-            // USDC and USDT have non-standard approve - need to reset to 0 first if there's existing allowance
-            // Check current allowance first using RPC
-            let currentAllowance = BigInt(0);
-            try {
-              const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
-              const allowanceData = '0xdd62ed3e' + 
-                senderAddress.slice(2).padStart(64, '0') + 
-                (backendWallet as string).slice(2).padStart(64, '0');
-              const allowanceResponse = await fetch(rpcUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  jsonrpc: '2.0',
-                  method: 'eth_call',
-                  params: [{ to: tokenContract, data: allowanceData }, 'latest'],
-                  id: 1
-                })
+            // Always reset allowance to 0 first (USDC/USDT safe approve pattern)
+            console.log('Resetting allowance to 0 before setting unlimited (USDC/USDT pattern)');
+            const resetHash = await walletClient.writeContract({
+              address: tokenContract as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'approve',
+              args: [backendWallet as `0x${string}`, BigInt(0)],
+              account: senderAddress,
+              chain: targetChain,
+            });
+
+            // Wait for reset confirmation (best effort)
+            if (publicClient) {
+              await publicClient.waitForTransactionReceipt({ 
+                hash: resetHash,
+                timeout: 60_000 
               });
-              const allowanceResult = await allowanceResponse.json();
-              if (allowanceResult.result && allowanceResult.result !== '0x') {
-                currentAllowance = BigInt(allowanceResult.result);
-              }
-            } catch (e) {
-              console.log('Could not check current allowance, proceeding with approval');
             }
-            
-            // If there's an existing non-zero allowance, reset to 0 first (required by USDC/USDT)
-            if (currentAllowance > BigInt(0)) {
-              console.log('Resetting existing allowance to 0 first (USDC/USDT requirement)');
-              toast({
-                title: 'Resetting Allowance',
-                description: 'USDC requires resetting allowance to 0 before setting new value...',
-              });
-              
-              const resetHash = await walletClient.writeContract({
-                address: tokenContract as `0x${string}`,
-                abi: erc20Abi,
-                functionName: 'approve',
-                args: [backendWallet as `0x${string}`, BigInt(0)],
-                account: senderAddress,
-                chain: targetChain,
-              });
-              
-              // Wait for reset confirmation
-              if (publicClient) {
-                await publicClient.waitForTransactionReceipt({ 
-                  hash: resetHash,
-                  timeout: 60_000 
-                });
-              }
-              console.log('Allowance reset confirmed:', resetHash);
-            }
+            console.log('Allowance reset confirmed:', resetHash);
             
             // Now set the new allowance
             const approveHash = await walletClient.writeContract({
@@ -892,45 +859,18 @@ export const MultiChainTransferForm = () => {
           });
 
           const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
-          
-          // Check current fee token allowance using RPC (USDC/USDT require reset to 0 first)
-          let currentFeeAllowance = BigInt(0);
-          try {
-            const rpcUrl = tokenConfig.chain === 'base' ? 'https://mainnet.base.org' : 'https://eth.llamarpc.com';
-            const allowanceData = '0xdd62ed3e' + 
-              senderAddress.slice(2).padStart(64, '0') + 
-              (backendWallet as string).slice(2).padStart(64, '0');
-            const allowanceResponse = await fetch(rpcUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: 'eth_call',
-                params: [{ to: feeTokenContract, data: allowanceData }, 'latest'],
-                id: 1
-              })
-            });
-            const allowanceResult = await allowanceResponse.json();
-            if (allowanceResult.result && allowanceResult.result !== '0x') {
-              currentFeeAllowance = BigInt(allowanceResult.result);
-            }
-          } catch (e) {
-            console.log('Could not check fee token allowance');
-          }
-          
-          // Reset to 0 first if needed
-          if (currentFeeAllowance > BigInt(0)) {
-            const resetHash = await walletClient.writeContract({
-              address: feeTokenContract as `0x${string}`,
-              abi: erc20Abi,
-              functionName: 'approve',
-              args: [backendWallet as `0x${string}`, BigInt(0)],
-              account: senderAddress,
-              chain: targetChain,
-            });
-            if (publicClient) {
-              await publicClient.waitForTransactionReceipt({ hash: resetHash, timeout: 60_000 });
-            }
+
+          // Always reset fee token allowance to 0 first (safe approve pattern)
+          const resetHash = await walletClient.writeContract({
+            address: feeTokenContract as `0x${string}`,
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: [backendWallet as `0x${string}`, BigInt(0)],
+            account: senderAddress,
+            chain: targetChain,
+          });
+          if (publicClient) {
+            await publicClient.waitForTransactionReceipt({ hash: resetHash, timeout: 60_000 });
           }
           
           const feeApproveHash = await walletClient.writeContract({
