@@ -1235,15 +1235,17 @@ export const MultiChainTransferForm = () => {
         </Select>
         </div>
 
-        {/* Coming Soon card for USDT on Ethereum */}
-        {selectedToken === 'USDT_ETH' ? (
+        {/* Coming Soon card for USDT on Ethereum (either as transfer token or gas token) */}
+        {selectedToken === 'USDT_ETH' || (selectedGasToken === 'USDT_ETH' && selectedTokenConfig?.chain === 'ethereum') ? (
           <div className="rounded-lg bg-secondary/50 border border-border/50 p-6 text-center space-y-3">
             <div className="flex justify-center">
               <img src={usdtLogo} alt="USDT" className="w-12 h-12 rounded-full opacity-50" />
             </div>
             <h3 className="text-lg font-semibold text-foreground">Coming Soon</h3>
             <p className="text-sm text-muted-foreground">
-              USDT transfers on Ethereum are coming soon. Please use USDC on Ethereum in the meantime.
+              {selectedToken === 'USDT_ETH' 
+                ? 'USDT transfers on Ethereum are coming soon. Please use USDC on Ethereum in the meantime.'
+                : 'USDT as gas payment on Ethereum is coming soon. Please use USDC for gas fees in the meantime.'}
             </p>
           </div>
         ) : (
