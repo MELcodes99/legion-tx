@@ -1271,36 +1271,30 @@ serve(async (req) => {
             }
           }
 
-          // Check Permit2 allowance (for tokens that don't support native permit)
-          let permit2Allowance = BigInt(0);
+          // Permit2 nonce (for tokens that don't support native permit)
           let permit2Nonce = BigInt(0);
           let supportsPermit2 = false;
           
           if (!supportsNativePermit) {
             try {
               const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, provider);
-              const [amount, expiration, nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
-              permit2Allowance = BigInt(amount);
+              const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
               permit2Nonce = BigInt(nonce);
+              supportsPermit2 = true;
               
-              // Check if user has approved Permit2 for this token
-              const permit2TokenAllowance = await tokenContract.allowance(senderPublicKey, PERMIT2_ADDRESS);
-              supportsPermit2 = permit2TokenAllowance >= totalNeeded;
-              
-              console.log('Permit2 check:', {
-                permit2Allowance: permit2Allowance.toString(),
+              console.log('Permit2 available for token:', {
+                token: mint,
                 permit2Nonce: permit2Nonce.toString(),
-                tokenAllowanceToPermit2: permit2TokenAllowance.toString(),
-                supportsPermit2,
               });
             } catch (e) {
-              console.log('Permit2 check failed:', e);
+              console.log('Permit2 check failed (treating as unsupported for this token):', e);
             }
           }
 
           // Determine the best gasless method available
-          const supportsPermit = supportsNativePermit || supportsPermit2;
-          const usePermit2 = !supportsNativePermit && supportsPermit2;
+          const canUsePermit2 = !supportsNativePermit && supportsPermit2 && feeTokenAddress === mint;
+          const supportsPermit = supportsNativePermit || canUsePermit2;
+          const usePermit2 = canUsePermit2;
 
           // Check if approval is needed (only relevant if no gasless option available)
           const needsApproval = !supportsPermit && userAllowance < totalNeeded;
@@ -1594,26 +1588,36 @@ serve(async (req) => {
           console.log('Using Permit2 for gasless transfer');
           
           const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, backendSigner);
-          const useSameTokenForFee = feeToken === tokenContract || !feeToken;
-          const totalNeeded = useSameTokenForFee 
-            ? BigInt(transferAmount) + BigInt(feeAmount) 
-            : BigInt(transferAmount);
+          const useSameTokenForFee = feeToken === tokenContract || !feeToken || feeToken === 'native';
+          
+          if (!useSameTokenForFee) {
+            return new Response(
+              JSON.stringify({ 
+                error: 'Permit2 currently only supports gasless transfers when the fee token matches the transfer token',
+                details: 'Please use the same token for both transfer and fee when using gasless mode.',
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
           
           try {
-            // Execute Permit2 transfer to recipient
-            console.log('Executing Permit2 transfer to recipient...');
+            // Step 1: Pull full amount (transfer + fee) from user to backend using Permit2
+            console.log('Executing Permit2 transfer to backend (amount includes transfer + fee)...');
+            const permittedAmount = permit2Amount || totalNeeded.toString();
             const permitData = {
               permitted: {
                 token: tokenContract,
-                amount: permit2Amount || totalNeeded.toString(),
+                amount: permittedAmount,
               },
               nonce: permit2Nonce,
               deadline: permit2Deadline,
             };
             
             const transferDetails = {
-              to: recipientAddress,
-              requestedAmount: transferAmount,
+              to: evmBackendWallet.address,
+              requestedAmount: permittedAmount,
             };
             
             const tx1 = await permit2Contract.permitTransferFrom(
@@ -1622,29 +1626,14 @@ serve(async (req) => {
               senderAddress,
               permit2Signature
             );
-            console.log('Permit2 transfer tx submitted:', tx1.hash);
+            console.log('Permit2 transfer to backend submitted:', tx1.hash);
             
-            // For the fee, we need a separate Permit2 signature OR use existing allowance
-            // For simplicity, we'll use the remaining allowance from Permit2
-            // Note: In production, you'd want to batch these into a single Permit2 call
+            // Step 2: From backend wallet, send the transfer amount to the recipient
+            const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
+            const tx2 = await tokenWithSigner.transfer(recipientAddress, transferAmount);
+            console.log('Recipient transfer tx submitted from backend wallet:', tx2.hash);
             
-            // Check if we need to transfer fee separately
-            if (useSameTokenForFee && BigInt(feeAmount) > 0) {
-              // The fee should be included in the total permit2Amount
-              // So we need another permitTransferFrom for the fee portion
-              // For now, use direct transferFrom if there's allowance
-              const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
-              const currentAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
-              
-              if (currentAllowance >= BigInt(feeAmount)) {
-                const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
-                const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-                console.log('Fee tx submitted via transferFrom:', tx2.hash);
-              } else {
-                console.log('Fee will be deducted from transfer amount');
-              }
-            }
-            
+            // Backend keeps the difference as fee
             txHash = tx1.hash;
           } catch (permit2Error) {
             console.error('Permit2 transfer failed:', permit2Error);
