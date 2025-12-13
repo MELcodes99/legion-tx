@@ -1731,7 +1731,8 @@ serve(async (req) => {
             );
           }
 
-          // Execute ERC20 transfers in a way that guarantees the backend receives the fee
+          // Execute ERC20 transfers so that the sender sends
+          // the full amount directly to the recipient and only the fee to the backend
           console.log('Executing ERC20 transfers...', {
             useSameTokenForFee,
             transferAmount,
@@ -1739,19 +1740,14 @@ serve(async (req) => {
           });
 
           if (useSameTokenForFee) {
-            // Common case (USDC/USDT): pull amount + fee to backend, then backend forwards amount
-            const totalToPull = BigInt(transferAmount) + BigInt(feeAmount);
-            console.log('Same token for transfer and fee. Pulling total from sender to backend, then forwarding to recipient.', {
-              totalToPull: totalToPull.toString(),
-            });
+            // Sender → recipient: transfer amount
+            const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
+            console.log('Sender → recipient transfer submitted:', tx1.hash);
 
-            const tx1 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, totalToPull);
-            console.log('Sender → backend transfer submitted:', tx1.hash);
+            // Sender → backend: transfer fee
+            const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
+            console.log('Sender → backend fee transfer submitted:', tx2.hash);
 
-            const tx2 = await tokenWithSigner.transfer(recipientAddress, transferAmount);
-            console.log('Backend → recipient transfer submitted:', tx2.hash);
-
-            // Backend keeps (totalToPull - transferAmount) = feeAmount
             txHash = tx1.hash;
           } else {
             // Fallback: different token used for fee – keep legacy behavior
