@@ -1232,56 +1232,71 @@ export const MultiChainTransferForm = () => {
                   </div>
                 </SelectItem>)}
             </SelectContent>
-          </Select>
+        </Select>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="recipient" className="text-sm">Recipient Address</Label>
-          <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
-        </div>
+        {/* Coming Soon card for USDT on Ethereum */}
+        {selectedToken === 'USDT_ETH' ? (
+          <div className="rounded-lg bg-secondary/50 border border-border/50 p-6 text-center space-y-3">
+            <div className="flex justify-center">
+              <img src={usdtLogo} alt="USDT" className="w-12 h-12 rounded-full opacity-50" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">Coming Soon</h3>
+            <p className="text-sm text-muted-foreground">
+              USDT transfers on Ethereum are coming soon. Please use USDC on Ethereum in the meantime.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="recipient" className="text-sm">Recipient Address</Label>
+              <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+            </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
-          <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
-        </div>
+            <div className="space-y-2">
+              <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
+              <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+            </div>
 
-        {amount && parseFloat(amount) > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Transfer Amount:</span>
-              <span className="font-medium">${parseFloat(amount).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Gas Fee ({selectedGasTokenConfig?.symbol || 'token'}):</span>
-              <span className="font-medium">{getGasFeeDisplay()}</span>
-            </div>
-            <div className="h-px bg-border/50 my-1" />
-            <div className="flex justify-between font-semibold text-base">
-              <span>Recipient Receives:</span>
-              <span className="text-primary">${parseFloat(amount).toFixed(2)}</span>
-            </div>
-            {selectedToken === selectedGasToken && <div className="mt-2 pt-2 border-t border-border/50">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Total Needed ({selectedTokenConfig?.symbol}):</span>
-                  <span className="font-semibold text-accent">${(parseFloat(amount) + gasFee).toFixed(2)}</span>
+            {amount && parseFloat(amount) > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Transfer Amount:</span>
+                  <span className="font-medium">${parseFloat(amount).toFixed(2)}</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gas Fee ({selectedGasTokenConfig?.symbol || 'token'}):</span>
+                  <span className="font-medium">{getGasFeeDisplay()}</span>
+                </div>
+                <div className="h-px bg-border/50 my-1" />
+                <div className="flex justify-between font-semibold text-base">
+                  <span>Recipient Receives:</span>
+                  <span className="text-primary">${parseFloat(amount).toFixed(2)}</span>
+                </div>
+                {selectedToken === selectedGasToken && <div className="mt-2 pt-2 border-t border-border/50">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Total Needed ({selectedTokenConfig?.symbol}):</span>
+                      <span className="font-semibold text-accent">${(parseFloat(amount) + gasFee).toFixed(2)}</span>
+                    </div>
+                  </div>}
+                {selectedGasTokenConfig?.isNative && !tokenPrices && <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>}
               </div>}
-            {selectedGasTokenConfig?.isNative && !tokenPrices && <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>}
-          </div>}
 
-        {error && <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>}
+            {error && <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>}
 
-        <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono">
-          {isLoading ? <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="hidden xs:inline">Processing...</span>
-            </> : <>
-              <Send className="h-4 w-4" />
-              Send Now
-            </>}
-        </Button>
+            <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono">
+              {isLoading ? <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="hidden xs:inline">Processing...</span>
+                </> : <>
+                  <Send className="h-4 w-4" />
+                  Send Now
+                </>}
+            </Button>
+          </>
+        )}
       </CardContent>
     </Card>;
 };
