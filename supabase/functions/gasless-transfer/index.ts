@@ -1571,9 +1571,9 @@ serve(async (req) => {
           }
         }
         // ========================================
-        // METHOD 2: Permit2 transfer (for tokens without native permit)
+        // METHOD 2: Permit2 transfer (currently disabled)
         // ========================================
-        else if (usePermit2 && permit2Signature) {
+        else if (false && usePermit2 && permit2Signature) {
           console.log('Using Permit2 for gasless transfer');
           
           const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, backendSigner);
@@ -1605,7 +1605,7 @@ serve(async (req) => {
             };
             
             const transferDetails = {
-              to: evmBackendWallet.address,
+              to: evmBackendWallet!.address,
               requestedAmount: permittedAmount,
             };
             
@@ -1624,7 +1624,7 @@ serve(async (req) => {
             
             // Backend keeps the difference as fee
             txHash = tx1.hash;
-          } catch (permit2Error) {
+          } catch (permit2Error: any) {
             console.error('Permit2 transfer failed:', permit2Error);
             return new Response(
               JSON.stringify({ 

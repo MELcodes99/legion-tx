@@ -823,71 +823,12 @@ export const MultiChainTransferForm = () => {
             }
             throw permitError;
           }
-        } else if (usePermit2 && permitDomain) {
-          // Sign Permit2 (universal gasless permit - for USDT and other tokens)
-          toast({
-            title: `Sign Permit2 for ${tokenConfig.symbol}`,
-            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol} via Permit2`,
-            duration: 10000,
-          });
-
-          const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
-          permit2Deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
-          permit2Amount = totalNeeded.toString();
-          permit2Nonce = String(permitNonce);
-
-          try {
-            console.log('Signing Permit2 PermitTransferFrom:', {
-              token: tokenContract,
-              amount: permit2Amount,
-              spender: backendWallet,
-              nonce: permit2Nonce,
-              deadline: permit2Deadline,
-            });
-
-            permit2Signature = await walletClient.signTypedData({
-              account: senderAddress,
-              domain: {
-                name: 'Permit2',
-                chainId: BigInt(permitDomain.chainId),
-                verifyingContract: permit2Address as `0x${string}`,
-              },
-              types: {
-                PermitTransferFrom: [
-                  { name: 'permitted', type: 'TokenPermissions' },
-                  { name: 'spender', type: 'address' },
-                  { name: 'nonce', type: 'uint256' },
-                  { name: 'deadline', type: 'uint256' },
-                ],
-                TokenPermissions: [
-                  { name: 'token', type: 'address' },
-                  { name: 'amount', type: 'uint256' },
-                ],
-              },
-              primaryType: 'PermitTransferFrom',
-              message: {
-                permitted: {
-                  token: tokenContract as `0x${string}`,
-                  amount: BigInt(permit2Amount),
-                },
-                spender: backendWallet as `0x${string}`,
-                nonce: BigInt(permit2Nonce),
-                deadline: BigInt(permit2Deadline),
-              },
-            });
-            console.log('Permit2 signature obtained:', permit2Signature);
-          } catch (permit2Error: any) {
-            console.error('Permit2 signing error:', permit2Error);
-            if (permit2Error.code === 4001 || permit2Error.message?.includes('rejected')) {
-              throw new Error('Permit2 signature rejected by user');
-            }
-            throw permit2Error;
-          }
         } else if (needsApproval || feeTokenNeedsApproval) {
-          // Token doesn't support any permit - user needs ETH for on-chain approval
+          // Token doesn't support any gasless permit - requires a one-time standard ERC20 approval
           throw new Error(
-            `${tokenConfig.symbol} requires a one-time approval of the Permit2 contract. ` +
-            `Please approve Permit2 (${permit2Address}) for ${tokenConfig.symbol} first, then retry.`
+            `${tokenConfig.symbol} does not support fully gasless approvals. ` +
+            `Please do a one-time ERC20 approve transaction for the backend wallet ${backendWallet} ` +
+            `for at least the transfer amount plus fee, then retry, or use USDC for a fully gasless flow.`
           );
         }
 
