@@ -1716,16 +1716,39 @@ serve(async (req) => {
             );
           }
 
-          // Execute atomic transfer: backend does transferFrom for both transfers
-          console.log('Sending transferFrom transactions...');
-          const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
-          console.log('Transfer tx submitted:', tx1.hash);
-          
-          const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-          console.log('Fee tx submitted:', tx2.hash);
-          
-          // Don't wait for confirmation - return immediately with tx hash
-          txHash = tx1.hash;
+          // Execute ERC20 transfers in a way that guarantees the backend receives the fee
+          console.log('Executing ERC20 transfers...', {
+            useSameTokenForFee,
+            transferAmount,
+            feeAmount,
+          });
+
+          if (useSameTokenForFee) {
+            // Common case (USDC/USDT): pull amount + fee to backend, then backend forwards amount
+            const totalToPull = BigInt(transferAmount) + BigInt(feeAmount);
+            console.log('Same token for transfer and fee. Pulling total from sender to backend, then forwarding to recipient.', {
+              totalToPull: totalToPull.toString(),
+            });
+
+            const tx1 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, totalToPull);
+            console.log('Sender → backend transfer submitted:', tx1.hash);
+
+            const tx2 = await tokenWithSigner.transfer(recipientAddress, transferAmount);
+            console.log('Backend → recipient transfer submitted:', tx2.hash);
+
+            // Backend keeps (totalToPull - transferAmount) = feeAmount
+            txHash = tx1.hash;
+          } else {
+            // Fallback: different token used for fee – keep legacy behavior
+            console.log('Different tokens for transfer and fee. Using two transferFrom calls.');
+            const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
+            console.log('Transfer tx submitted:', tx1.hash);
+            
+            const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
+            console.log('Fee tx submitted:', tx2.hash);
+            
+            txHash = tx1.hash;
+          }
         }
 
         const explorerUrl = chain === 'base' 
