@@ -824,12 +824,49 @@ export const MultiChainTransferForm = () => {
             throw permitError;
           }
         } else if (needsApproval || feeTokenNeedsApproval) {
-          // Token doesn't support any gasless permit - requires a one-time standard ERC20 approval
-          throw new Error(
-            `${tokenConfig.symbol} does not support fully gasless approvals. ` +
-            `Please do a one-time ERC20 approve transaction for the backend wallet ${backendWallet} ` +
-            `for at least the transfer amount plus fee, then retry, or use USDC for a fully gasless flow.`
-          );
+          // Token doesn't support gasless permit - do on-chain approval first
+          toast({
+            title: `Approving ${tokenConfig.symbol}...`,
+            description: `One-time approval to enable gasless transfers. Please confirm in your wallet.`,
+            duration: 15000,
+          });
+
+          const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
+          // Use max uint256 for unlimited approval (common pattern)
+          const approvalAmount = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
+
+          try {
+            const chainId = tokenConfig.chain === 'ethereum' ? mainnet : base;
+            const approveTxHash = await walletClient.writeContract({
+              address: tokenContract as `0x${string}`,
+              abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
+              functionName: 'approve',
+              args: [backendWallet as `0x${string}`, approvalAmount],
+              account: senderAddress,
+              chain: chainId,
+            });
+
+            toast({
+              title: 'Waiting for approval confirmation...',
+              description: 'This may take a moment.',
+            });
+
+            // Wait for approval tx to be mined
+            await publicClient?.waitForTransactionReceipt({ hash: approveTxHash });
+
+            toast({
+              title: 'Approval successful!',
+              description: `${tokenConfig.symbol} is now approved for gasless transfers. Proceeding...`,
+            });
+
+            console.log('Approval tx confirmed:', approveTxHash);
+          } catch (approveError: any) {
+            console.error('Approval error:', approveError);
+            if (approveError.code === 4001 || approveError.message?.includes('rejected')) {
+              throw new Error('Approval rejected by user');
+            }
+            throw new Error(`Approval failed: ${approveError.message || 'Unknown error'}`);
+          }
         }
 
         // Step 2: Sign EIP-712 typed data for authorization
