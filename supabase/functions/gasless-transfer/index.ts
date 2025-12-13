@@ -1271,30 +1271,19 @@ serve(async (req) => {
             }
           }
 
-          // Permit2 nonce (for tokens that don't support native permit)
-          let permit2Nonce = BigInt(0);
-          let supportsPermit2 = false;
-          
-          if (!supportsNativePermit) {
-            try {
-              const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, provider);
-              const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
-              permit2Nonce = BigInt(nonce);
-              supportsPermit2 = true;
-              
-              console.log('Permit2 available for token:', {
-                token: mint,
-                permit2Nonce: permit2Nonce.toString(),
-              });
-            } catch (e) {
-              console.log('Permit2 check failed (treating as unsupported for this token):', e);
-            }
-          }
+          // Permit2 is disabled for now because many tokens (like USDT) do not
+          // support true gasless approvals via Permit2 without a prior on-chain
+          // approval transaction from the user. This caused frequent
+          // "TRANSFER_FROM_FAILED" errors. We therefore only rely on native
+          // EIP-2612 permits when available and otherwise fall back to standard
+          // allowance flows.
+          const permit2Nonce = BigInt(0);
+          const supportsPermit2 = false;
 
           // Determine the best gasless method available
-          const canUsePermit2 = !supportsNativePermit && supportsPermit2 && feeTokenAddress === mint;
-          const supportsPermit = supportsNativePermit || canUsePermit2;
-          const usePermit2 = canUsePermit2;
+          const canUsePermit2 = false;
+          const supportsPermit = supportsNativePermit;
+          const usePermit2 = false;
 
           // Check if approval is needed (only relevant if no gasless option available)
           const needsApproval = !supportsPermit && userAllowance < totalNeeded;
