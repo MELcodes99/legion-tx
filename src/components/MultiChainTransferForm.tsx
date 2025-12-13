@@ -711,11 +711,14 @@ export const MultiChainTransferForm = () => {
           tokenContract,
           feeTokenContract,
           isNativeFee,
-          // Permit support (for truly gasless USDC)
+          // Permit support (for truly gasless transfers)
           supportsPermit,
+          supportsNativePermit,
+          usePermit2,
           permitNonce,
           permitDomain,
-          // Legacy approval (only for tokens that don't support permit)
+          permit2Address,
+          // Legacy approval (only for tokens that don't support any permit)
           needsApproval,
           feeTokenNeedsApproval,
           domain,
@@ -730,6 +733,8 @@ export const MultiChainTransferForm = () => {
           feeAmountUSD,
           tokenContract,
           supportsPermit,
+          supportsNativePermit,
+          usePermit2,
           needsApproval
         });
 
@@ -750,13 +755,19 @@ export const MultiChainTransferForm = () => {
         const feeAmountDisplay = Number(feeAmount) / Math.pow(10, tokenConfig.decimals);
         const totalAmountDisplay = transferAmountDisplay + feeAmountDisplay;
 
-        // Variables for permit (if supported)
+        // Variables for permit signatures
         let permitSignature: `0x${string}` | undefined;
         let permitDeadline: number | undefined;
         let permitValue: string | undefined;
+        
+        // Variables for Permit2 signatures
+        let permit2Signature: `0x${string}` | undefined;
+        let permit2Nonce: string | undefined;
+        let permit2Deadline: number | undefined;
+        let permit2Amount: string | undefined;
 
         // Step 1: Handle permit or approval
-        if (supportsPermit) {
+        if (supportsNativePermit && permitDomain) {
           // Sign EIP-2612 Permit (gasless approval - no ETH needed!)
           toast({
             title: `Sign Permit for ${tokenConfig.symbol}`,
@@ -812,11 +823,71 @@ export const MultiChainTransferForm = () => {
             }
             throw permitError;
           }
+        } else if (usePermit2 && permitDomain) {
+          // Sign Permit2 (universal gasless permit - for USDT and other tokens)
+          toast({
+            title: `Sign Permit2 for ${tokenConfig.symbol}`,
+            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol} via Permit2`,
+            duration: 10000,
+          });
+
+          const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
+          permit2Deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+          permit2Amount = totalNeeded.toString();
+          permit2Nonce = String(permitNonce);
+
+          try {
+            console.log('Signing Permit2 PermitTransferFrom:', {
+              token: tokenContract,
+              amount: permit2Amount,
+              spender: backendWallet,
+              nonce: permit2Nonce,
+              deadline: permit2Deadline,
+            });
+
+            permit2Signature = await walletClient.signTypedData({
+              account: senderAddress,
+              domain: {
+                name: 'Permit2',
+                chainId: BigInt(permitDomain.chainId),
+                verifyingContract: permit2Address as `0x${string}`,
+              },
+              types: {
+                PermitTransferFrom: [
+                  { name: 'permitted', type: 'TokenPermissions' },
+                  { name: 'spender', type: 'address' },
+                  { name: 'nonce', type: 'uint256' },
+                  { name: 'deadline', type: 'uint256' },
+                ],
+                TokenPermissions: [
+                  { name: 'token', type: 'address' },
+                  { name: 'amount', type: 'uint256' },
+                ],
+              },
+              primaryType: 'PermitTransferFrom',
+              message: {
+                permitted: {
+                  token: tokenContract as `0x${string}`,
+                  amount: BigInt(permit2Amount),
+                },
+                spender: backendWallet as `0x${string}`,
+                nonce: BigInt(permit2Nonce),
+                deadline: BigInt(permit2Deadline),
+              },
+            });
+            console.log('Permit2 signature obtained:', permit2Signature);
+          } catch (permit2Error: any) {
+            console.error('Permit2 signing error:', permit2Error);
+            if (permit2Error.code === 4001 || permit2Error.message?.includes('rejected')) {
+              throw new Error('Permit2 signature rejected by user');
+            }
+            throw permit2Error;
+          }
         } else if (needsApproval || feeTokenNeedsApproval) {
-          // Token doesn't support permit - user needs ETH for on-chain approval
+          // Token doesn't support any permit - user needs ETH for on-chain approval
           throw new Error(
-            `${tokenConfig.symbol} on ${tokenConfig.chain === 'ethereum' ? 'Ethereum' : 'Base'} requires ETH for approval. ` +
-            `Please use USDC for truly gasless transfers, or add ETH to your wallet for approval transactions.`
+            `${tokenConfig.symbol} requires a one-time approval of the Permit2 contract. ` +
+            `Please approve Permit2 (${permit2Address}) for ${tokenConfig.symbol} first, then retry.`
           );
         }
 
@@ -890,6 +961,14 @@ export const MultiChainTransferForm = () => {
               permitSignature,
               permitDeadline,
               permitValue,
+            }),
+            // Permit2 data (for tokens without native permit)
+            ...(permit2Signature && {
+              usePermit2: true,
+              permit2Signature,
+              permit2Nonce,
+              permit2Deadline,
+              permit2Amount,
             }),
           }
         });
