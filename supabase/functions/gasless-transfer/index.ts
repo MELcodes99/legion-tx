@@ -1687,9 +1687,13 @@ serve(async (req) => {
               );
               console.log('Permit tx submitted:', permitTx.hash);
               
-              // Optimistically assume allowance will be updated on-chain for this amount
-              currentAllowance = BigInt(permitValue || totalNeeded.toString());
-              console.log('Allowance after permit (optimistic):', currentAllowance.toString());
+              // MUST wait for permit to be confirmed before transferFrom
+              const permitReceipt = await permitTx.wait();
+              console.log('Permit confirmed in block:', permitReceipt?.blockNumber);
+              
+              // Refresh allowance after permit is confirmed
+              currentAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
+              console.log('Allowance after permit:', currentAllowance.toString());
             } catch (permitError) {
               console.error('Permit failed:', permitError);
               return new Response(
