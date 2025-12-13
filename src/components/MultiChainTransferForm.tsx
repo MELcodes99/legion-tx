@@ -832,18 +832,46 @@ export const MultiChainTransferForm = () => {
           });
 
           const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
-          // Use max uint256 for unlimited approval (common pattern)
-          const approvalAmount = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
+          const approvalAmount = totalNeeded;
 
           try {
-            const chainId = tokenConfig.chain === 'ethereum' ? mainnet : base;
+            const chain = tokenConfig.chain === 'ethereum' ? mainnet : base;
+
+            // USDT on Ethereum has a non-standard approve pattern: it often requires
+            // resetting allowance to 0 before setting a new non-zero allowance.
+            const isUsdtOnEthereum =
+              tokenConfig.symbol === 'USDT' && tokenConfig.chain === 'ethereum';
+
+            if (isUsdtOnEthereum) {
+              console.log('USDT detected, performing reset-to-zero then approve flow');
+
+              // 1) Reset allowance to 0
+              const resetTxHash = await walletClient.writeContract({
+                address: tokenContract as `0x${string}`,
+                abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
+                functionName: 'approve',
+                args: [backendWallet as `0x${string}`, 0n],
+                account: senderAddress,
+                chain,
+              });
+
+              toast({
+                title: 'Resetting USDT allowance...',
+                description: 'First setting allowance to 0 (required by USDT).',
+              });
+
+              await publicClient?.waitForTransactionReceipt({ hash: resetTxHash });
+              console.log('USDT allowance reset tx confirmed:', resetTxHash);
+            }
+
+            // 2) Set allowance to required amount
             const approveTxHash = await walletClient.writeContract({
               address: tokenContract as `0x${string}`,
               abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
               functionName: 'approve',
               args: [backendWallet as `0x${string}`, approvalAmount],
               account: senderAddress,
-              chain: chainId,
+              chain,
             });
 
             toast({
@@ -865,7 +893,7 @@ export const MultiChainTransferForm = () => {
             if (approveError.code === 4001 || approveError.message?.includes('rejected')) {
               throw new Error('Approval rejected by user');
             }
-            throw new Error(`Approval failed: ${approveError.message || 'Unknown error'}`);
+            throw new Error(`Approval failed: ${approveError.shortMessage || approveError.message || 'Unknown error'}`);
           }
         }
 
