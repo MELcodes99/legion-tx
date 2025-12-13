@@ -104,6 +104,10 @@ const ERC20_ABI = [
   'function decimals() view returns (uint8)',
   'function allowance(address owner, address spender) view returns (uint256)',
   'function approve(address spender, uint256 amount) returns (bool)',
+  // EIP-2612 Permit functions (for gasless approvals)
+  'function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)',
+  'function nonces(address owner) view returns (uint256)',
+  'function DOMAIN_SEPARATOR() view returns (bytes32)',
 ];
 
 // GaslessTransfer Contract ABI - for use after deployment
@@ -122,6 +126,19 @@ const GASLESS_CONTRACT_ADDRESSES: Record<string, string | null> = {
   ethereum: null, // Deploy and set: e.g., '0x1234...'
   base: null,     // Deploy and set: e.g., '0x5678...'
 };
+
+// USDC contract addresses that support EIP-2612 permit (gasless approvals)
+const PERMIT_SUPPORTED_TOKENS: Record<string, { name: string; version: string }> = {
+  // Ethereum USDC
+  '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48': { name: 'USD Coin', version: '2' },
+  // Base USDC
+  '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913': { name: 'USD Coin', version: '2' },
+};
+
+// Helper to check if token supports permit
+function getPermitConfig(tokenAddress: string): { name: string; version: string } | null {
+  return PERMIT_SUPPORTED_TOKENS[tokenAddress] || null;
+}
 
 // Rate limiting configuration
 const RATE_LIMIT_WINDOW_MINUTES = 60; // 1 hour window
@@ -1207,21 +1224,44 @@ serve(async (req) => {
             }
           }
 
-          // Check if approval is needed
-          const needsApproval = userAllowance < totalNeeded;
+          // Check if token supports EIP-2612 permit (gasless approval)
+          const permitConfig = getPermitConfig(mint);
+          const supportsPermit = permitConfig !== null;
+          
+          // Get permit nonce if token supports permit
+          let permitNonce = 0;
+          if (supportsPermit) {
+            try {
+              permitNonce = Number(await tokenContract.nonces(senderPublicKey));
+            } catch (e) {
+              console.log('Could not get permit nonce, token may not support permit:', e);
+            }
+          }
+
+          // Check if approval is needed (only relevant if permit not supported)
+          const needsApproval = !supportsPermit && userAllowance < totalNeeded;
           let feeTokenNeedsApproval = false;
           let feeTokenAllowance = BigInt(0);
           
           if (!useSameToken && !isNativeGas) {
-            const feeTokenContract = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
-            feeTokenAllowance = await feeTokenContract.allowance(senderPublicKey, evmBackendWallet.address);
-            feeTokenNeedsApproval = feeTokenAllowance < feeAmountSmallest;
+            const feeTokenContractInstance = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
+            feeTokenAllowance = await feeTokenContractInstance.allowance(senderPublicKey, evmBackendWallet.address);
+            const feePermitConfig = getPermitConfig(feeTokenAddress);
+            feeTokenNeedsApproval = !feePermitConfig && feeTokenAllowance < feeAmountSmallest;
           }
 
           // Generate operation ID and deadline for replay protection
           const operationId = `${senderPublicKey}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
           const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour validity
           const nonce = Date.now();
+
+          // Build permit domain if supported
+          const permitDomain = supportsPermit ? {
+            name: permitConfig!.name,
+            version: permitConfig!.version,
+            chainId: chainConfig.chainId,
+            verifyingContract: mint,
+          } : null;
 
           return new Response(
             JSON.stringify({
@@ -1233,7 +1273,12 @@ serve(async (req) => {
               feeAmountUSD,
               tokenContract: mint,
               feeTokenContract: feeTokenAddress,
-              isNativeFee: false, // Never true for gasless EVM - native fees are rejected above
+              isNativeFee: false,
+              // Permit support - for truly gasless flow
+              supportsPermit,
+              permitNonce,
+              permitDomain,
+              // Legacy approval (only needed if permit not supported)
               needsApproval,
               currentAllowance: userAllowance.toString(),
               requiredAllowance: totalNeeded.toString(),
@@ -1290,6 +1335,10 @@ serve(async (req) => {
         signature,
         nonce,
         deadline,
+        // EIP-2612 Permit data (for gasless approval)
+        permitSignature,
+        permitDeadline,
+        permitValue,
       } = body as {
         chain: 'base' | 'ethereum';
         senderAddress: string;
@@ -1301,6 +1350,10 @@ serve(async (req) => {
         signature: string;
         nonce: number;
         deadline: number;
+        // Permit fields (optional - only for tokens that support EIP-2612)
+        permitSignature?: string;
+        permitDeadline?: number;
+        permitValue?: string;
       };
 
       if (!evmBackendWallet) {
@@ -1436,91 +1489,85 @@ serve(async (req) => {
           }
         }
         // ========================================
-        // METHOD 2: Direct transferFrom (fallback)
+        // METHOD 2: Direct transferFrom (with permit if available)
         // ========================================
         else {
-          console.log('Using direct transferFrom method (no contract deployed)');
+          console.log('Using direct transferFrom method');
           
           const tokenContractInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
+          const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
           const useSameTokenForFee = feeToken === tokenContract || !feeToken;
+          const totalNeeded = useSameTokenForFee 
+            ? BigInt(transferAmount) + BigInt(feeAmount) 
+            : BigInt(transferAmount);
           
-          if (useSameTokenForFee) {
-            // Same token for transfer and fee - check combined allowance
-            const allowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
-            const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
+          // Check current allowance
+          let currentAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
+          console.log('Current allowance:', currentAllowance.toString(), 'Needed:', totalNeeded.toString());
+          
+          // If we have a permit signature and allowance is insufficient, call permit first
+          if (permitSignature && currentAllowance < totalNeeded) {
+            console.log('Calling permit to set allowance gaslessly...');
             
-            if (allowance < totalNeeded) {
+            // Parse the permit signature into v, r, s components
+            const sig = ethers.Signature.from(permitSignature);
+            
+            try {
+              // Call permit on the token contract (backend pays gas)
+              const permitTx = await tokenWithSigner.permit(
+                senderAddress,
+                evmBackendWallet.address,
+                permitValue || totalNeeded.toString(),
+                permitDeadline,
+                sig.v,
+                sig.r,
+                sig.s
+              );
+              console.log('Permit tx submitted:', permitTx.hash);
+              
+              // Wait for permit to be confirmed before transferFrom
+              await permitTx.wait();
+              console.log('Permit confirmed');
+              
+              // Refresh allowance after permit
+              currentAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
+              console.log('Allowance after permit:', currentAllowance.toString());
+            } catch (permitError) {
+              console.error('Permit failed:', permitError);
               return new Response(
                 JSON.stringify({ 
-                  error: 'Insufficient allowance',
-                  details: `Please approve ${evmBackendWallet.address} to spend your tokens first`,
-                  requiredAllowance: totalNeeded.toString(),
-                  currentAllowance: allowance.toString(),
-                  spenderAddress: evmBackendWallet.address,
+                  error: 'Permit failed',
+                  details: permitError instanceof Error ? permitError.message : 'Unknown permit error',
                 }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
-
-            // Execute atomic transfer: backend does transferFrom for both transfers
-            const tokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
-            
-            // Send both transactions without waiting for confirmation (much faster)
-            console.log('Sending transferFrom transactions...');
-            const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
-            console.log('Transfer tx submitted:', tx1.hash);
-            
-            const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-            console.log('Fee tx submitted:', tx2.hash);
-            
-            // Don't wait for confirmation - return immediately with tx hash
-            txHash = tx1.hash;
-          } else {
-            // Different ERC20 token for fee
-            const feeTokenAddress = feeToken;
-            
-            // Check allowance for transfer token
-            const transferAllowance = await tokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
-            if (transferAllowance < BigInt(transferAmount)) {
-              return new Response(
-                JSON.stringify({ 
-                  error: 'Insufficient transfer token allowance',
-                  details: `Please approve ${evmBackendWallet.address} to spend your transfer token first`,
-                  requiredAllowance: transferAmount,
-                  currentAllowance: transferAllowance.toString(),
-                }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-              );
-            }
-            
-            // Check allowance for fee token
-            const feeTokenContract = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
-            const feeAllowance = await feeTokenContract.allowance(senderAddress, evmBackendWallet.address);
-            if (feeAllowance < BigInt(feeAmount)) {
-              return new Response(
-                JSON.stringify({ 
-                  error: 'Insufficient fee token allowance',
-                  details: `Please approve ${evmBackendWallet.address} to spend your fee token first`,
-                  requiredAllowance: feeAmount,
-                  currentAllowance: feeAllowance.toString(),
-                }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-              );
-            }
-            
-            // Execute transfers without waiting for confirmations
-            const transferTokenWithSigner = new ethers.Contract(tokenContract!, ERC20_ABI, backendSigner);
-            const feeTokenWithSigner = new ethers.Contract(feeTokenAddress, ERC20_ABI, backendSigner);
-            
-            console.log('Sending transferFrom transactions...');
-            const tx1 = await transferTokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
-            console.log('Transfer tx submitted:', tx1.hash);
-            
-            const tx2 = await feeTokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-            console.log('Fee tx submitted:', tx2.hash);
-            
-            txHash = tx1.hash;
           }
+          
+          // Final allowance check
+          if (currentAllowance < totalNeeded) {
+            return new Response(
+              JSON.stringify({ 
+                error: 'Insufficient allowance',
+                details: `Allowance is ${currentAllowance.toString()} but need ${totalNeeded.toString()}. Token may not support gasless permit.`,
+                requiredAllowance: totalNeeded.toString(),
+                currentAllowance: currentAllowance.toString(),
+                spenderAddress: evmBackendWallet.address,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+
+          // Execute atomic transfer: backend does transferFrom for both transfers
+          console.log('Sending transferFrom transactions...');
+          const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
+          console.log('Transfer tx submitted:', tx1.hash);
+          
+          const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
+          console.log('Fee tx submitted:', tx2.hash);
+          
+          // Don't wait for confirmation - return immediately with tx hash
+          txHash = tx1.hash;
         }
 
         const explorerUrl = chain === 'base' 
