@@ -1274,18 +1274,34 @@ serve(async (req) => {
           // Permit2 nonce (for tokens that don't support native permit)
           let permit2Nonce = BigInt(0);
           let supportsPermit2 = false;
+          let permit2ApprovalNeeded = false;
           
           if (!supportsNativePermit) {
             try {
-              const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, provider);
-              const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
-              permit2Nonce = BigInt(nonce);
-              supportsPermit2 = true;
-              
-              console.log('Permit2 available for token:', {
+              // First check if user has approved Permit2 contract to spend their tokens
+              const userPermit2Allowance = await tokenContract.allowance(senderPublicKey, PERMIT2_ADDRESS);
+              console.log('User Permit2 allowance for token:', {
                 token: mint,
-                permit2Nonce: permit2Nonce.toString(),
+                allowance: userPermit2Allowance.toString(),
+                needed: totalNeeded.toString(),
               });
+              
+              if (userPermit2Allowance >= totalNeeded) {
+                // User has approved Permit2, now get the nonce
+                const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, provider);
+                const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
+                permit2Nonce = BigInt(nonce);
+                supportsPermit2 = true;
+                
+                console.log('Permit2 available for token:', {
+                  token: mint,
+                  permit2Nonce: permit2Nonce.toString(),
+                });
+              } else {
+                // User needs to approve Permit2 first
+                permit2ApprovalNeeded = true;
+                console.log('Permit2 approval needed - user must approve Permit2 contract first');
+              }
             } catch (e) {
               console.log('Permit2 check failed (treating as unsupported for this token):', e);
             }
@@ -1339,6 +1355,21 @@ serve(async (req) => {
               chainId: chainConfig.chainId,
               verifyingContract: PERMIT2_ADDRESS,
             };
+          }
+
+          // If Permit2 approval is needed, inform the user
+          if (permit2ApprovalNeeded) {
+            return new Response(
+              JSON.stringify({
+                error: 'Permit2 approval required',
+                permit2ApprovalNeeded: true,
+                permit2Address: PERMIT2_ADDRESS,
+                tokenContract: mint,
+                requiredAmount: totalNeeded.toString(),
+                details: `USDT requires a one-time approval to the Permit2 contract. Please approve ${PERMIT2_ADDRESS} to spend your USDT first.`,
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
           }
 
           return new Response(
