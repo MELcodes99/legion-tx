@@ -703,6 +703,57 @@ export const MultiChainTransferForm = () => {
         if (buildData.requiresUserGas) {
           throw new Error(buildData.suggestion || 'Native ETH transfers require you to pay gas. Use USDC or USDT for gasless transfers.');
         }
+        
+        // Check if Permit2 approval is needed (for USDT on Base/Ethereum)
+        if (buildData.permit2ApprovalNeeded) {
+          // Request user to approve Permit2 contract
+          toast({
+            title: 'Permit2 Approval Required',
+            description: 'USDT requires a one-time approval. Please approve the transaction in your wallet.',
+            duration: 10000,
+          });
+          
+          const permit2Address = buildData.permit2Address as `0x${string}`;
+          const maxApproval = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
+          const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
+          
+          try {
+            // Send approval transaction to Permit2 contract
+            const approvalHash = await walletClient!.writeContract({
+              address: tokenConfig.mint as `0x${string}`,
+              abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
+              functionName: 'approve',
+              args: [permit2Address, maxApproval],
+              account: evmAddress as `0x${string}`,
+              chain: targetChain,
+            });
+            
+            toast({
+              title: 'Approval submitted',
+              description: 'Waiting for confirmation...',
+            });
+            
+            // Wait for the approval transaction to be confirmed using the hook's public client
+            if (publicClient) {
+              await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+            }
+            
+            toast({
+              title: 'Approval confirmed!',
+              description: 'Now retrying the transfer...',
+            });
+            
+            // Retry the transfer by recursively calling handleTransfer
+            // The user now has the approval, so it should work
+            return handleTransfer();
+          } catch (approvalError: any) {
+            console.error('Permit2 approval error:', approvalError);
+            if (approvalError.code === 4001 || approvalError.message?.includes('rejected')) {
+              throw new Error('Approval rejected by user. USDT transfers require a one-time Permit2 approval.');
+            }
+            throw new Error(`Failed to approve Permit2: ${approvalError.message}`);
+          }
+        }
         const {
           backendWallet,
           transferAmount,
