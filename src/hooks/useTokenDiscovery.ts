@@ -1,0 +1,372 @@
+import { useState, useEffect, useCallback } from 'react';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { useSuiClient } from '@mysten/dapp-kit';
+import { createPublicClient, http, parseAbi } from 'viem';
+import { mainnet, base } from 'viem/chains';
+import { ChainType, TOKENS, TokenConfig } from '@/config/tokens';
+import { supabase } from '@/integrations/supabase/client';
+
+export interface DiscoveredToken {
+  key: string;
+  address: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+  balance: number;
+  usdValue: number;
+  chain: ChainType;
+  isNative: boolean;
+  logoUrl?: string;
+}
+
+interface TokenPrice {
+  [address: string]: number;
+}
+
+const MIN_USD_VALUE = 2;
+
+// ERC20 ABI for balance and metadata
+const erc20Abi = parseAbi([
+  'function balanceOf(address owner) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)',
+  'function name() view returns (string)',
+]);
+
+// Well-known token lists for EVM chains
+const KNOWN_EVM_TOKENS: Record<number, { address: string; symbol: string; name: string; decimals: number }[]> = {
+  [mainnet.id]: [
+    { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+    { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+    { address: '0x6B175474E89094C44Da98b954EescdeCB5BE3bF', symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+    { address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', symbol: 'WBTC', name: 'Wrapped BTC', decimals: 8 },
+    { address: '0x514910771AF9Ca656af840dff83E8264EcF986CA', symbol: 'LINK', name: 'Chainlink', decimals: 18 },
+    { address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', symbol: 'UNI', name: 'Uniswap', decimals: 18 },
+    { address: '0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9', symbol: 'AAVE', name: 'Aave', decimals: 18 },
+    { address: '0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE', symbol: 'SHIB', name: 'Shiba Inu', decimals: 18 },
+    { address: '0x6982508145454Ce325dDbE47a25d4ec3d2311933', symbol: 'PEPE', name: 'Pepe', decimals: 18 },
+  ],
+  [base.id]: [
+    { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', name: 'USD Coin', decimals: 6 },
+    { address: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', symbol: 'USDT', name: 'Tether USD', decimals: 6 },
+    { address: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', symbol: 'DAI', name: 'Dai Stablecoin', decimals: 18 },
+    { address: '0x4200000000000000000000000000000000000006', symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 },
+    { address: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22', symbol: 'cbETH', name: 'Coinbase Wrapped Staked ETH', decimals: 18 },
+  ],
+};
+
+export const useTokenDiscovery = (
+  solanaPublicKey: PublicKey | null,
+  suiAccount: { address: string } | null,
+  evmAddress: string | undefined,
+  evmChainId: number | undefined
+) => {
+  const { connection } = useConnection();
+  const suiClient = useSuiClient();
+  const [discoveredTokens, setDiscoveredTokens] = useState<DiscoveredToken[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [tokenPrices, setTokenPrices] = useState<TokenPrice>({});
+
+  // Fetch token prices from edge function
+  const fetchTokenPrices = useCallback(async (tokens: { address: string; chain: ChainType }[]) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('get-token-prices', {
+        body: { tokens }
+      });
+      
+      if (error) throw error;
+      return data?.prices || {};
+    } catch (error) {
+      console.error('Error fetching token prices:', error);
+      // Return fallback prices for known stablecoins
+      const fallbackPrices: TokenPrice = {};
+      tokens.forEach(t => {
+        const addr = t.address.toLowerCase();
+        if (addr.includes('usdc') || addr.includes('usdt') || addr.includes('dai')) {
+          fallbackPrices[t.address] = 1;
+        }
+      });
+      return fallbackPrices;
+    }
+  }, []);
+
+  // Discover Solana tokens
+  const discoverSolanaTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
+    if (!solanaPublicKey || !connection) return [];
+
+    const tokens: DiscoveredToken[] = [];
+
+    try {
+      // Get native SOL balance
+      const solBalance = await connection.getBalance(solanaPublicKey);
+      const solAmount = solBalance / 1e9;
+      
+      // Get all token accounts
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+        solanaPublicKey,
+        { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
+      );
+
+      // Collect token addresses for price fetching
+      const tokenAddresses: { address: string; chain: ChainType }[] = [
+        { address: 'So11111111111111111111111111111111111111112', chain: 'solana' }
+      ];
+
+      for (const account of tokenAccounts.value) {
+        const parsedInfo = account.account.data.parsed.info;
+        const mint = parsedInfo.mint;
+        const tokenAmount = parsedInfo.tokenAmount;
+        
+        if (tokenAmount.uiAmount > 0) {
+          tokenAddresses.push({ address: mint, chain: 'solana' });
+        }
+      }
+
+      // Fetch prices
+      const prices = await fetchTokenPrices(tokenAddresses);
+
+      // Add SOL if value >= $2
+      const solPrice = prices['So11111111111111111111111111111111111111112'] || 0;
+      const solUsdValue = solAmount * solPrice;
+      if (solUsdValue >= MIN_USD_VALUE) {
+        tokens.push({
+          key: 'SOL',
+          address: 'So11111111111111111111111111111111111111112',
+          symbol: 'SOL',
+          name: 'Solana',
+          decimals: 9,
+          balance: solAmount,
+          usdValue: solUsdValue,
+          chain: 'solana',
+          isNative: true,
+        });
+      }
+
+      // Process SPL tokens
+      for (const account of tokenAccounts.value) {
+        const parsedInfo = account.account.data.parsed.info;
+        const mint = parsedInfo.mint;
+        const tokenAmount = parsedInfo.tokenAmount;
+        
+        if (tokenAmount.uiAmount > 0) {
+          const price = prices[mint] || 0;
+          const usdValue = tokenAmount.uiAmount * price;
+          
+          if (usdValue >= MIN_USD_VALUE) {
+            // Check if it's a known token
+            const knownToken = Object.entries(TOKENS).find(
+              ([_, config]) => config.chain === 'solana' && config.mint === mint
+            );
+
+            tokens.push({
+              key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
+              address: mint,
+              symbol: knownToken ? knownToken[1].symbol : mint.slice(0, 6),
+              name: knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`,
+              decimals: tokenAmount.decimals,
+              balance: tokenAmount.uiAmount,
+              usdValue,
+              chain: 'solana',
+              isNative: false,
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error discovering Solana tokens:', error);
+    }
+
+    return tokens;
+  }, [solanaPublicKey, connection, fetchTokenPrices]);
+
+  // Discover Sui tokens
+  const discoverSuiTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
+    if (!suiAccount) return [];
+
+    const tokens: DiscoveredToken[] = [];
+
+    try {
+      const allBalances = await suiClient.getAllBalances({
+        owner: suiAccount.address
+      });
+
+      const tokenAddresses: { address: string; chain: ChainType }[] = [];
+
+      for (const balance of allBalances) {
+        if (Number(balance.totalBalance) > 0) {
+          tokenAddresses.push({ address: balance.coinType, chain: 'sui' });
+        }
+      }
+
+      const prices = await fetchTokenPrices(tokenAddresses);
+
+      for (const balance of allBalances) {
+        const balanceAmount = Number(balance.totalBalance);
+        if (balanceAmount <= 0) continue;
+
+        const coinType = balance.coinType;
+        const isSui = coinType === '0x2::sui::SUI';
+        const decimals = isSui ? 9 : 6; // SUI has 9 decimals, most tokens have 6
+        const amount = balanceAmount / Math.pow(10, decimals);
+        const price = prices[coinType] || 0;
+        const usdValue = amount * price;
+
+        if (usdValue >= MIN_USD_VALUE) {
+          // Extract symbol from coin type
+          const parts = coinType.split('::');
+          const symbol = parts[parts.length - 1] || coinType.slice(0, 6);
+
+          const knownToken = Object.entries(TOKENS).find(
+            ([_, config]) => config.chain === 'sui' && config.mint === coinType
+          );
+
+          tokens.push({
+            key: knownToken ? knownToken[0] : `SUI_${symbol}`,
+            address: coinType,
+            symbol: knownToken ? knownToken[1].symbol : symbol,
+            name: knownToken ? knownToken[1].name : symbol,
+            decimals,
+            balance: amount,
+            usdValue,
+            chain: 'sui',
+            isNative: isSui,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error discovering Sui tokens:', error);
+    }
+
+    return tokens;
+  }, [suiAccount, suiClient, fetchTokenPrices]);
+
+  // Discover EVM tokens (Ethereum/Base)
+  const discoverEvmTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
+    if (!evmAddress || !evmChainId) return [];
+
+    const tokens: DiscoveredToken[] = [];
+    const chain = evmChainId === base.id ? 'base' : 'ethereum';
+    const viemChain = evmChainId === base.id ? base : mainnet;
+
+    const publicClient = createPublicClient({
+      chain: viemChain,
+      transport: http(viemChain.id === base.id ? 'https://mainnet.base.org' : 'https://cloudflare-eth.com'),
+    });
+
+    try {
+      // Get native ETH balance
+      const ethBalance = await publicClient.getBalance({ address: evmAddress as `0x${string}` });
+      const ethAmount = Number(ethBalance) / 1e18;
+
+      const tokenAddresses: { address: string; chain: ChainType }[] = [
+        { address: '0x0000000000000000000000000000000000000000', chain }
+      ];
+
+      // Check known tokens
+      const knownTokens = KNOWN_EVM_TOKENS[evmChainId] || [];
+      
+      for (const token of knownTokens) {
+        tokenAddresses.push({ address: token.address, chain });
+      }
+
+      const prices = await fetchTokenPrices(tokenAddresses);
+
+      // Add ETH if value >= $2
+      const ethPrice = prices['0x0000000000000000000000000000000000000000'] || 0;
+      const ethUsdValue = ethAmount * ethPrice;
+      if (ethUsdValue >= MIN_USD_VALUE) {
+        tokens.push({
+          key: chain === 'base' ? 'BASE_ETH' : 'ETH',
+          address: '0x0000000000000000000000000000000000000000',
+          symbol: 'ETH',
+          name: 'Ethereum',
+          decimals: 18,
+          balance: ethAmount,
+          usdValue: ethUsdValue,
+          chain,
+          isNative: true,
+        });
+      }
+
+      // Check ERC20 tokens
+      for (const token of knownTokens) {
+        try {
+          // Use call directly to avoid authorizationList requirement
+          const data = await publicClient.call({
+            to: token.address as `0x${string}`,
+            data: `0x70a08231000000000000000000000000${evmAddress.slice(2)}` as `0x${string}`,
+          });
+          
+          const balance = data.data ? BigInt(data.data) : BigInt(0);
+          const tokenBalance = Number(balance) / Math.pow(10, token.decimals);
+          
+          if (tokenBalance > 0) {
+            const price = prices[token.address] || 0;
+            const usdValue = tokenBalance * price;
+
+            if (usdValue >= MIN_USD_VALUE) {
+              // Find if it's a known token in our config
+              const knownConfigToken = Object.entries(TOKENS).find(
+                ([_, config]) => config.chain === chain && config.mint.toLowerCase() === token.address.toLowerCase()
+              );
+
+              tokens.push({
+                key: knownConfigToken ? knownConfigToken[0] : `${chain.toUpperCase()}_${token.symbol}`,
+                address: token.address,
+                symbol: token.symbol,
+                name: token.name,
+                decimals: token.decimals,
+                balance: tokenBalance,
+                usdValue,
+                chain,
+                isNative: false,
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching balance for ${token.symbol}:`, error);
+        }
+      }
+    } catch (error) {
+      console.error('Error discovering EVM tokens:', error);
+    }
+
+    return tokens;
+  }, [evmAddress, evmChainId, fetchTokenPrices]);
+
+  // Main discovery function
+  const discoverTokens = useCallback(async () => {
+    setIsLoading(true);
+
+    try {
+      const [solanaTokens, suiTokens, evmTokens] = await Promise.all([
+        discoverSolanaTokens(),
+        discoverSuiTokens(),
+        discoverEvmTokens(),
+      ]);
+
+      setDiscoveredTokens([...solanaTokens, ...suiTokens, ...evmTokens]);
+    } catch (error) {
+      console.error('Error discovering tokens:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
+
+  // Auto-discover when wallet changes
+  useEffect(() => {
+    const hasWallet = solanaPublicKey || suiAccount || evmAddress;
+    if (hasWallet) {
+      discoverTokens();
+    } else {
+      setDiscoveredTokens([]);
+    }
+  }, [solanaPublicKey, suiAccount, evmAddress, evmChainId, discoverTokens]);
+
+  return {
+    discoveredTokens,
+    isLoading,
+    refreshTokens: discoverTokens,
+  };
+};
