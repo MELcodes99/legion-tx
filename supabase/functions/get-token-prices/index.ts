@@ -214,33 +214,45 @@ serve(async (req) => {
       }
     }
 
-    // For MON token - DexScreener may not have it, try CoinGecko fallback
+    // For MON token - Use Jupiter API FIRST as it's most reliable for Solana SPL tokens
     const monAddress = 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2';
     if (!prices[monAddress] && solanaTokens.includes(monAddress)) {
-      console.log('MON not found in DexScreener, trying CoinGecko...');
-      // Try multiple possible CoinGecko IDs for MON
-      const possibleIds = ['mon-protocol', 'monad-protocol', 'monprotocol'];
-      for (const geckoId of possibleIds) {
-        const monPrices = await fetchCoinGeckoPrices([geckoId]);
-        if (monPrices[geckoId]) {
-          prices[monAddress] = monPrices[geckoId];
-          console.log(`MON price from CoinGecko (${geckoId}):`, monPrices[geckoId]);
-          break;
+      console.log('Fetching MON price from Jupiter API...');
+      try {
+        // Jupiter Price API v2 is the most reliable for Solana tokens
+        const jupResponse = await fetch(`https://api.jup.ag/price/v2?ids=${monAddress}`);
+        if (jupResponse.ok) {
+          const jupData = await jupResponse.json();
+          console.log('Jupiter API response for MON:', JSON.stringify(jupData));
+          if (jupData.data?.[monAddress]?.price) {
+            prices[monAddress] = parseFloat(jupData.data[monAddress].price);
+            console.log('MON price from Jupiter:', prices[monAddress]);
+          }
+        } else {
+          console.log('Jupiter API status:', jupResponse.status);
         }
+      } catch (e) {
+        console.log('Jupiter price fetch failed for MON:', e);
       }
-      // If still no price, try to get it from Jupiter API as last resort
+      
+      // If Jupiter fails, try Birdeye API
       if (!prices[monAddress]) {
+        console.log('Jupiter failed, trying Birdeye for MON...');
         try {
-          const jupResponse = await fetch(`https://api.jup.ag/price/v2?ids=${monAddress}`);
-          if (jupResponse.ok) {
-            const jupData = await jupResponse.json();
-            if (jupData.data?.[monAddress]?.price) {
-              prices[monAddress] = parseFloat(jupData.data[monAddress].price);
-              console.log('MON price from Jupiter:', prices[monAddress]);
+          const birdeyeResponse = await fetch(
+            `https://public-api.birdeye.so/public/price?address=${monAddress}`,
+            { headers: { 'Accept': 'application/json' } }
+          );
+          if (birdeyeResponse.ok) {
+            const birdeyeData = await birdeyeResponse.json();
+            console.log('Birdeye response for MON:', JSON.stringify(birdeyeData));
+            if (birdeyeData.data?.value) {
+              prices[monAddress] = birdeyeData.data.value;
+              console.log('MON price from Birdeye:', prices[monAddress]);
             }
           }
         } catch (e) {
-          console.log('Jupiter price fetch failed for MON:', e);
+          console.log('Birdeye price fetch failed for MON:', e);
         }
       }
     }
