@@ -1166,42 +1166,28 @@ export const MultiChainTransferForm = () => {
           chainLogo={connectedChain === 'solana' ? solanaLogo : connectedChain === 'sui' ? suiLogo : connectedChain === 'base' ? baseLogo : connectedChain === 'ethereum' ? ethLogo : undefined}
         />
 
-        {/* View Available Balance Button - Opens Modal */}
-        {hasWalletConnected && (
-          <Button
-            variant="outline"
-            onClick={() => setTokenSelectionOpen(true)}
-            disabled={isDiscoveringTokens}
-            className="w-full flex justify-between items-center bg-secondary/30 hover:bg-secondary/50 text-xs sm:text-sm"
-          >
-            <span className="font-medium flex items-center gap-2">
-              <Wallet className="h-4 w-4" />
-              {isDiscoveringTokens ? 'Loading tokens...' : 'View Available Balance'}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          </Button>
-        )}
-
         <div className="space-y-2">
           <Label htmlFor="token" className="text-sm">Token to Send</Label>
           {selectedDiscoveredToken ? (
             <button
               type="button"
               onClick={() => setTokenSelectionOpen(true)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-md bg-secondary/50 border border-border/50 hover:bg-secondary/70 transition-colors"
+              disabled={isDiscoveringTokens}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-md bg-secondary/50 border border-border/50 hover:bg-secondary/70 transition-colors"
             >
               <div className="flex items-center gap-3">
                 {selectedDiscoveredToken.logoUrl ? (
-                  <img src={selectedDiscoveredToken.logoUrl} alt={selectedDiscoveredToken.symbol} className="w-6 h-6 rounded-full" />
+                  <img src={selectedDiscoveredToken.logoUrl} alt={selectedDiscoveredToken.symbol} className="w-7 h-7 rounded-full" />
                 ) : (
-                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center">
                     <span className="text-xs font-bold text-primary">{selectedDiscoveredToken.symbol.slice(0, 2)}</span>
                   </div>
                 )}
                 <div className="text-left">
                   <div className="font-medium text-sm">{selectedDiscoveredToken.symbol}</div>
                   <div className="text-xs text-muted-foreground">
-                    Balance: {selectedDiscoveredToken.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} (${selectedDiscoveredToken.usdValue.toFixed(2)})
+                    Balance: {selectedDiscoveredToken.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} 
+                    {selectedDiscoveredToken.usdValue > 0 && ` ($${selectedDiscoveredToken.usdValue.toFixed(2)})`}
                   </div>
                 </div>
               </div>
@@ -1211,11 +1197,20 @@ export const MultiChainTransferForm = () => {
             <button
               type="button"
               onClick={() => setTokenSelectionOpen(true)}
-              disabled={!hasWalletConnected}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-md bg-secondary/50 border border-border/50 hover:bg-secondary/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!hasWalletConnected || isDiscoveringTokens}
+              className="w-full flex items-center justify-between px-3 py-2.5 rounded-md bg-secondary/50 border border-border/50 hover:bg-secondary/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="text-sm text-muted-foreground">
-                {hasWalletConnected ? 'Select a token from Available Balance' : 'Connect a wallet first'}
+              <span className="text-sm text-muted-foreground flex items-center gap-2">
+                {isDiscoveringTokens ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading tokens...
+                  </>
+                ) : hasWalletConnected ? (
+                  'Select a token'
+                ) : (
+                  'Connect a wallet first'
+                )}
               </span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </button>
