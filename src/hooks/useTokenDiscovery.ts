@@ -8,18 +8,18 @@ import { ChainType, TOKENS, TokenConfig } from '@/config/tokens';
 import { supabase } from '@/integrations/supabase/client';
 import { batchFetchLogos, getSolanaTokenMetadata, SOLANA_TOKEN_MINTS, LOCAL_TOKEN_LOGOS } from '@/services/tokenLogos';
 
-// Known Solana tokens to always check for
+// Known Solana tokens to always check for (decimals fetched from actual token accounts)
 const KNOWN_SOLANA_TOKENS = [
-  { address: SOLANA_TOKEN_MINTS.PENGU, symbol: 'PENGU', name: 'Pudgy Penguins', decimals: 6 },
-  { address: SOLANA_TOKEN_MINTS.WET, symbol: 'WET', name: 'Wet', decimals: 9 },
-  { address: SOLANA_TOKEN_MINTS.TRUMP, symbol: 'TRUMP', name: 'Official Trump', decimals: 6 },
-  { address: SOLANA_TOKEN_MINTS.JUP, symbol: 'JUP', name: 'Jupiter', decimals: 6 },
-  { address: SOLANA_TOKEN_MINTS.GRASS, symbol: 'GRASS', name: 'Grass', decimals: 9 },
-  { address: SOLANA_TOKEN_MINTS.RAY, symbol: 'RAY', name: 'Raydium', decimals: 6 },
-  { address: SOLANA_TOKEN_MINTS.BONK, symbol: 'BONK', name: 'Bonk', decimals: 5 },
-  { address: SOLANA_TOKEN_MINTS.MET, symbol: 'MET', name: 'Metaplex', decimals: 9 },
-  { address: SOLANA_TOKEN_MINTS.PUMP, symbol: 'PUMP', name: 'Pump', decimals: 6 },
-  { address: SOLANA_TOKEN_MINTS.MON, symbol: 'MON', name: 'Mon Protocol', decimals: 9 },
+  { address: SOLANA_TOKEN_MINTS.PENGU, symbol: 'PENGU', name: 'Pudgy Penguins' },
+  { address: SOLANA_TOKEN_MINTS.WET, symbol: 'WET', name: 'Wet' },
+  { address: SOLANA_TOKEN_MINTS.TRUMP, symbol: 'TRUMP', name: 'Official Trump' },
+  { address: SOLANA_TOKEN_MINTS.JUP, symbol: 'JUP', name: 'Jupiter' },
+  { address: SOLANA_TOKEN_MINTS.GRASS, symbol: 'GRASS', name: 'Grass' },
+  { address: SOLANA_TOKEN_MINTS.RAY, symbol: 'RAY', name: 'Raydium' },
+  { address: SOLANA_TOKEN_MINTS.BONK, symbol: 'BONK', name: 'Bonk' },
+  { address: SOLANA_TOKEN_MINTS.MET, symbol: 'MET', name: 'Metaplex' },
+  { address: SOLANA_TOKEN_MINTS.PUMP, symbol: 'PUMP', name: 'Pump' },
+  { address: SOLANA_TOKEN_MINTS.MON, symbol: 'MON', name: 'Mon Protocol' },
 ];
 
 export interface DiscoveredToken {
@@ -177,21 +177,21 @@ export const useTokenDiscovery = (
           const price = prices[knownToken.address] || 0;
           const usdValue = tokenData.uiAmount * price;
           
-          if (usdValue >= MIN_USD_VALUE) {
-            tokens.push({
-              key: `SOL_${knownToken.symbol}`,
-              address: knownToken.address,
-              symbol: knownToken.symbol,
-              name: knownToken.name,
-              decimals: tokenData.decimals,
-              balance: tokenData.uiAmount,
-              usdValue,
-              chain: 'solana',
-              isNative: false,
-              logoUrl: LOCAL_TOKEN_LOGOS[knownToken.address] || undefined,
-            });
-            processedMints.add(knownToken.address);
-          }
+          // Always show known tokens if user has balance, even if < $2 for debugging
+          // In production, use: if (usdValue >= MIN_USD_VALUE)
+          tokens.push({
+            key: `SOL_${knownToken.symbol}`,
+            address: knownToken.address,
+            symbol: knownToken.symbol,
+            name: knownToken.name,
+            decimals: tokenData.decimals,
+            balance: tokenData.uiAmount,
+            usdValue,
+            chain: 'solana',
+            isNative: false,
+            logoUrl: LOCAL_TOKEN_LOGOS[knownToken.address] || undefined,
+          });
+          processedMints.add(knownToken.address);
         }
       }
 
@@ -411,9 +411,12 @@ export const useTokenDiscovery = (
         const logoAddresses = allTokens.map(t => ({ address: t.address, chain: t.chain }));
         const logos = await batchFetchLogos(logoAddresses);
         
-        // Attach logos to tokens
+        // Attach logos to tokens - preserve local logos for known tokens
         for (const token of allTokens) {
-          token.logoUrl = logos[token.address] || undefined;
+          // Don't overwrite existing local logo
+          if (!token.logoUrl) {
+            token.logoUrl = logos[token.address] || undefined;
+          }
         }
       }
 
