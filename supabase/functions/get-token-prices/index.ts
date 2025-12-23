@@ -58,19 +58,19 @@ const STABLECOINS = new Set([
   '0x6B175474E89094C44Da98b954EedscdeCB5BE3bF', // DAI ETH
 ]);
 
-// Fetch Solana token prices from Jupiter Price API
-async function fetchJupiterPrices(addresses: string[]): Promise<Record<string, number>> {
+// Fetch Solana token prices from DexScreener API (no auth required)
+async function fetchDexScreenerPrices(addresses: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
   
   if (addresses.length === 0) return prices;
   
   try {
-    // Jupiter Price API v2
-    const ids = addresses.join(',');
-    console.log('Fetching Jupiter prices for:', ids);
+    // DexScreener API - free, no auth required
+    const tokenAddresses = addresses.join(',');
+    console.log('Fetching DexScreener prices for:', tokenAddresses);
     
     const response = await fetch(
-      `https://api.jup.ag/price/v2?ids=${ids}`,
+      `https://api.dexscreener.com/latest/dex/tokens/${tokenAddresses}`,
       {
         headers: { 'Accept': 'application/json' }
       }
@@ -78,28 +78,40 @@ async function fetchJupiterPrices(addresses: string[]): Promise<Record<string, n
     
     if (response.ok) {
       const data = await response.json();
-      console.log('Jupiter API response:', JSON.stringify(data));
+      console.log('DexScreener response pairs count:', data.pairs?.length || 0);
       
-      if (data.data) {
-        for (const [address, priceData] of Object.entries(data.data)) {
-          const price = (priceData as any)?.price;
-          if (price !== undefined && price !== null) {
-            const numPrice = typeof price === 'number' ? price : parseFloat(price);
-            if (!isNaN(numPrice)) {
-              prices[address] = numPrice;
-              console.log(`Jupiter price for ${address}: $${numPrice}`);
+      if (data.pairs && Array.isArray(data.pairs)) {
+        // Group by base token address and get the pair with highest liquidity
+        const tokenPrices: Record<string, { price: number; liquidity: number }> = {};
+        
+        for (const pair of data.pairs) {
+          if (pair.chainId === 'solana' && pair.priceUsd) {
+            const baseAddress = pair.baseToken?.address;
+            const price = parseFloat(pair.priceUsd);
+            const liquidity = pair.liquidity?.usd || 0;
+            
+            if (baseAddress && !isNaN(price)) {
+              // Keep the price from the pair with highest liquidity
+              if (!tokenPrices[baseAddress] || liquidity > tokenPrices[baseAddress].liquidity) {
+                tokenPrices[baseAddress] = { price, liquidity };
+                console.log(`DexScreener price for ${baseAddress}: $${price} (liquidity: $${liquidity})`);
+              }
             }
           }
         }
+        
+        for (const [address, data] of Object.entries(tokenPrices)) {
+          prices[address] = data.price;
+        }
       }
     } else {
-      console.error('Jupiter API error:', response.status, await response.text());
+      console.error('DexScreener API error:', response.status, await response.text());
     }
   } catch (error) {
-    console.error('Error fetching Jupiter prices:', error);
+    console.error('Error fetching DexScreener prices:', error);
   }
   
-  console.log('Final Jupiter prices:', JSON.stringify(prices));
+  console.log('Final DexScreener prices:', JSON.stringify(prices));
   return prices;
 }
 
@@ -178,18 +190,28 @@ serve(async (req) => {
     console.log('Fetching prices for tokens:', JSON.stringify(tokens));
     console.log('Solana tokens to fetch:', solanaTokens);
 
-    // Fetch Solana prices from Jupiter in parallel with CoinGecko
-    const [jupiterPrices, geckoPrices] = await Promise.all([
-      fetchJupiterPrices(solanaTokens),
+    // Fetch Solana prices from DexScreener in parallel with CoinGecko
+    const [dexScreenerPrices, geckoPrices] = await Promise.all([
+      fetchDexScreenerPrices(solanaTokens),
       fetchCoinGeckoPrices(Array.from(geckoIdsToFetch))
     ]);
 
-    console.log('Jupiter prices received:', JSON.stringify(jupiterPrices));
+    console.log('DexScreener prices received:', JSON.stringify(dexScreenerPrices));
     console.log('CoinGecko prices received:', JSON.stringify(geckoPrices));
 
-    // Merge Jupiter prices
-    for (const [address, price] of Object.entries(jupiterPrices)) {
+    // Merge DexScreener prices
+    for (const [address, price] of Object.entries(dexScreenerPrices)) {
       prices[address] = price;
+    }
+
+    // For SOL native token, use CoinGecko if not found
+    const solAddress = 'So11111111111111111111111111111111111111112';
+    if (!prices[solAddress] && solanaTokens.includes(solAddress)) {
+      const solPrices = await fetchCoinGeckoPrices(['solana']);
+      if (solPrices['solana']) {
+        prices[solAddress] = solPrices['solana'];
+        console.log('SOL price from CoinGecko:', solPrices['solana']);
+      }
     }
 
     // Merge CoinGecko prices by mapping back to addresses
