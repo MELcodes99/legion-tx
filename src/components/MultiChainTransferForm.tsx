@@ -538,12 +538,38 @@ export const MultiChainTransferForm = () => {
     setIsLoading(true);
     try {
       if (!tokenConfig) throw new Error('Invalid token selected');
-      const fullAmount = parseFloat(amount);
+      const amountUSD = parseFloat(amount);
+      
+      // Calculate token amount from USD
+      const getTokenAmountFromUSD = (usdValue: number) => {
+        // For stablecoins, 1:1 with USD
+        if (tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT') {
+          return usdValue;
+        }
+        // For native tokens, convert using real-time prices
+        if (tokenPrices) {
+          if (tokenConfig.symbol === 'SOL') return usdValue / tokenPrices.solana;
+          if (tokenConfig.symbol === 'SUI') return usdValue / tokenPrices.sui;
+          if (tokenConfig.symbol === 'ETH') return usdValue / tokenPrices.ethereum;
+        }
+        // For discovered tokens with USD value
+        if (selectedDiscoveredToken && selectedDiscoveredToken.usdValue > 0 && selectedDiscoveredToken.balance > 0) {
+          const pricePerToken = selectedDiscoveredToken.usdValue / selectedDiscoveredToken.balance;
+          return usdValue / pricePerToken;
+        }
+        return usdValue;
+      };
+      
+      const tokenAmount = getTokenAmountFromUSD(amountUSD);
+      const isStablecoin = tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT';
+      
       console.log('=== MULTI-CHAIN GASLESS TRANSFER START ===');
       console.log('Chain:', tokenConfig.chain);
       console.log('Token:', selectedToken);
-      console.log('Amount:', fullAmount);
+      console.log('Amount USD:', amountUSD);
+      console.log('Token Amount:', tokenAmount);
       console.log('Gas token:', selectedGasToken);
+      
       if (tokenConfig.chain === 'solana') {
         toast({
           title: 'Building transaction...',
@@ -555,10 +581,12 @@ export const MultiChainTransferForm = () => {
             chain: 'solana',
             senderPublicKey: solanaPublicKey!.toBase58(),
             recipientPublicKey: recipient,
-            amount: fullAmount,
+            amountUSD: amountUSD,
+            tokenAmount: tokenAmount,
             mint: tokenConfig.mint,
             decimals: tokenConfig.decimals,
-            gasToken: selectedGasToken
+            gasToken: selectedGasToken,
+            tokenSymbol: tokenConfig.symbol
           }
         });
         if (buildResponse.error) {
@@ -569,7 +597,7 @@ export const MultiChainTransferForm = () => {
           amounts
         } = buildResponse.data;
         const fee = amounts?.feeUSD || gasFee;
-        const amountAfterFee = fullAmount;
+        const actualTokenAmount = amounts?.tokenAmount ? parseFloat(amounts.tokenAmount) / Math.pow(10, tokenConfig.decimals) : tokenAmount;
         const binaryString = atob(base64Tx);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
@@ -579,7 +607,7 @@ export const MultiChainTransferForm = () => {
         const transaction = Transaction.from(bytes);
         toast({
           title: 'Sign the transaction',
-          description: 'Please approve in your wallet'
+          description: `Approve sending ${isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6)} ${tokenConfig.symbol}`
         });
         const signedTx = await solanaSignTransaction!(transaction);
         const serialized = signedTx.serialize({
@@ -598,7 +626,8 @@ export const MultiChainTransferForm = () => {
             signedTransaction: signedBase64Tx,
             senderPublicKey: solanaPublicKey!.toBase58(),
             recipientPublicKey: recipient,
-            amount: fullAmount,
+            amountUSD: amountUSD,
+            tokenAmount: tokenAmount,
             mint: tokenConfig.mint,
             gasToken: selectedGasToken
           }
@@ -610,10 +639,13 @@ export const MultiChainTransferForm = () => {
           signature
         } = submitResponse.data;
         const gasTokenConfig = getTokenConfig(selectedGasToken);
-        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}` : `Fee: $${fee.toFixed(2)}`;
+        const displayAmount = isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6);
+        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint 
+          ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}` 
+          : `Fee: $${fee.toFixed(2)}`;
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}. ${feeMessage}`
+          description: `Sent ${displayAmount} ${tokenConfig.symbol} ($${amountUSD.toFixed(2)}). ${feeMessage}`
         });
         setRecipient('');
         setAmount('');
@@ -629,10 +661,12 @@ export const MultiChainTransferForm = () => {
             chain: 'sui',
             senderPublicKey: suiAccount.address,
             recipientPublicKey: recipient,
-            amount: fullAmount,
+            amountUSD: amountUSD,
+            tokenAmount: tokenAmount,
             mint: tokenConfig.mint,
             decimals: tokenConfig.decimals,
-            gasToken: selectedGasToken
+            gasToken: selectedGasToken,
+            tokenSymbol: tokenConfig.symbol
           }
         });
         if (buildResponse.error) {
@@ -643,10 +677,10 @@ export const MultiChainTransferForm = () => {
           amounts: suiAmounts
         } = buildResponse.data;
         const fee = suiAmounts?.feeUSD || gasFee;
-        const amountAfterFee = fullAmount;
+        const actualTokenAmount = suiAmounts?.tokenAmount ? parseFloat(suiAmounts.tokenAmount) / Math.pow(10, tokenConfig.decimals) : tokenAmount;
         toast({
           title: 'Sign the transaction',
-          description: 'Please approve in your Sui wallet'
+          description: `Approve sending ${isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6)} ${tokenConfig.symbol}`
         });
         const binaryString = atob(base64Tx);
         const txBytes = new Uint8Array(binaryString.length);
@@ -669,7 +703,8 @@ export const MultiChainTransferForm = () => {
             userSignature: signedTx.signature,
             senderPublicKey: suiAccount.address,
             recipientPublicKey: recipient,
-            amount: fullAmount,
+            amountUSD: amountUSD,
+            tokenAmount: tokenAmount,
             mint: tokenConfig.mint,
             gasToken: selectedGasToken
           }
@@ -681,10 +716,13 @@ export const MultiChainTransferForm = () => {
           digest
         } = submitResponse.data;
         const gasTokenConfig = getTokenConfig(selectedGasToken);
-        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}` : `Fee: $${fee.toFixed(2)}`;
+        const displayAmount = isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6);
+        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint 
+          ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}` 
+          : `Fee: $${fee.toFixed(2)}`;
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${amountAfterFee.toFixed(2)} ${tokenConfig.symbol}. ${feeMessage}`
+          description: `Sent ${displayAmount} ${tokenConfig.symbol} ($${amountUSD.toFixed(2)}). ${feeMessage}`
         });
         setRecipient('');
         setAmount('');
@@ -702,10 +740,12 @@ export const MultiChainTransferForm = () => {
             chain: tokenConfig.chain,
             senderPublicKey: evmAddress,
             recipientPublicKey: recipient,
-            amount: fullAmount,
+            amountUSD: amountUSD,
+            tokenAmount: tokenAmount,
             mint: tokenConfig.isNative ? 'native' : tokenConfig.mint,
             decimals: tokenConfig.decimals,
-            gasToken: selectedGasToken
+            gasToken: selectedGasToken,
+            tokenSymbol: tokenConfig.symbol
           }
         });
         if (buildResponse.error) {
@@ -1047,9 +1087,10 @@ export const MultiChainTransferForm = () => {
           txHash,
           explorerUrl
         } = executeResponse.data;
+        const displayAmount = isStablecoin ? tokenAmount.toFixed(2) : tokenAmount.toFixed(6);
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${fullAmount} ${tokenConfig.symbol} to recipient. Fee: $${feeAmountUSD.toFixed(2)}. Gas paid by backend.`
+          description: `Sent ${displayAmount} ${tokenConfig.symbol} ($${amountUSD.toFixed(2)}) to recipient. Fee: $${feeAmountUSD.toFixed(2)}. Gas paid by backend.`
         });
         console.log('Gasless transfer complete:', explorerUrl);
         setRecipient('');
@@ -1271,28 +1312,119 @@ export const MultiChainTransferForm = () => {
               <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
             </div>
 
-            {amount && parseFloat(amount) > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Transfer Amount:</span>
-                  <span className="font-medium">${parseFloat(amount).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Gas Fee ({selectedGasTokenConfig?.symbol || 'token'}):</span>
-                  <span className="font-medium">{getGasFeeDisplay()}</span>
-                </div>
-                <div className="h-px bg-border/50 my-1" />
-                <div className="flex justify-between font-semibold text-base">
-                  <span>Recipient Receives:</span>
-                  <span className="text-primary">${parseFloat(amount).toFixed(2)}</span>
-                </div>
-                {selectedToken === selectedGasToken && <div className="mt-2 pt-2 border-t border-border/50">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Total Needed ({selectedTokenConfig?.symbol}):</span>
-                      <span className="font-semibold text-accent">${(parseFloat(amount) + gasFee).toFixed(2)}</span>
+            {amount && parseFloat(amount) > 0 && (() => {
+              const amountUsd = parseFloat(amount);
+              const tokenConfig = selectedDiscoveredToken || selectedTokenConfig;
+              
+              // Calculate token amount from USD value
+              const getTokenAmount = () => {
+                if (!tokenConfig) return 0;
+                // For stablecoins (USDC/USDT), 1:1 with USD
+                if (tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT') {
+                  return amountUsd;
+                }
+                // For native tokens, use real-time prices
+                if (tokenPrices) {
+                  if (tokenConfig.symbol === 'SOL') return amountUsd / tokenPrices.solana;
+                  if (tokenConfig.symbol === 'SUI') return amountUsd / tokenPrices.sui;
+                  if (tokenConfig.symbol === 'ETH') return amountUsd / tokenPrices.ethereum;
+                }
+                // For discovered tokens with USD value
+                if (selectedDiscoveredToken && selectedDiscoveredToken.usdValue > 0 && selectedDiscoveredToken.balance > 0) {
+                  const pricePerToken = selectedDiscoveredToken.usdValue / selectedDiscoveredToken.balance;
+                  return amountUsd / pricePerToken;
+                }
+                return amountUsd; // Fallback
+              };
+              
+              // Calculate gas fee in tokens
+              const getGasFeeInTokens = () => {
+                if (!selectedGasTokenConfig) return gasFee;
+                // For stablecoins, fee is in USD
+                if (selectedGasTokenConfig.symbol === 'USDC' || selectedGasTokenConfig.symbol === 'USDT') {
+                  return gasFee;
+                }
+                // For native tokens, convert from USD
+                if (tokenPrices) {
+                  if (selectedGasTokenConfig.symbol === 'SOL') return gasFee / tokenPrices.solana;
+                  if (selectedGasTokenConfig.symbol === 'SUI') return gasFee / tokenPrices.sui;
+                  if (selectedGasTokenConfig.symbol === 'ETH') return gasFee / tokenPrices.ethereum;
+                }
+                return gasFee;
+              };
+              
+              const tokenAmount = getTokenAmount();
+              const gasFeeTokens = getGasFeeInTokens();
+              const tokenSymbol = tokenConfig?.symbol || 'tokens';
+              const gasSymbol = selectedGasTokenConfig?.symbol || 'tokens';
+              const isStablecoin = tokenSymbol === 'USDC' || tokenSymbol === 'USDT';
+              const isGasStablecoin = gasSymbol === 'USDC' || gasSymbol === 'USDT';
+              
+              return (
+                <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">You're Sending:</span>
+                    <span className="font-medium">
+                      {isStablecoin 
+                        ? `${tokenAmount.toFixed(2)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                        : `${tokenAmount.toFixed(6)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                      }
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gas Fee:</span>
+                    <span className="font-medium">
+                      {isGasStablecoin 
+                        ? `${gasFeeTokens.toFixed(2)} ${gasSymbol} ($${gasFee.toFixed(2)})`
+                        : `${gasFeeTokens.toFixed(6)} ${gasSymbol} ($${gasFee.toFixed(2)})`
+                      }
+                    </span>
+                  </div>
+                  <div className="h-px bg-border/50 my-1" />
+                  <div className="flex justify-between font-semibold text-base">
+                    <span>Recipient Receives:</span>
+                    <span className="text-primary">
+                      {isStablecoin 
+                        ? `${tokenAmount.toFixed(2)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                        : `${tokenAmount.toFixed(6)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                      }
+                    </span>
+                  </div>
+                  {selectedToken === selectedGasToken && (
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Total You Pay:</span>
+                        <span className="font-semibold text-accent">
+                          {isStablecoin 
+                            ? `${(tokenAmount + gasFeeTokens).toFixed(2)} ${tokenSymbol} ($${(amountUsd + gasFee).toFixed(2)})`
+                            : `${(tokenAmount + gasFeeTokens).toFixed(6)} ${tokenSymbol} ($${(amountUsd + gasFee).toFixed(2)})`
+                          }
+                        </span>
+                      </div>
                     </div>
-                  </div>}
-                {selectedGasTokenConfig?.isNative && !tokenPrices && <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>}
-              </div>}
+                  )}
+                  {selectedToken !== selectedGasToken && (
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Total You Pay:</span>
+                        <span className="font-semibold text-accent">
+                          {isStablecoin 
+                            ? `${tokenAmount.toFixed(2)} ${tokenSymbol}`
+                            : `${tokenAmount.toFixed(6)} ${tokenSymbol}`
+                          } + {isGasStablecoin 
+                            ? `${gasFeeTokens.toFixed(2)} ${gasSymbol}`
+                            : `${gasFeeTokens.toFixed(6)} ${gasSymbol}`
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {selectedGasTokenConfig?.isNative && !tokenPrices && (
+                    <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>
+                  )}
+                </div>
+              );
+            })()}
 
             {error && <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
