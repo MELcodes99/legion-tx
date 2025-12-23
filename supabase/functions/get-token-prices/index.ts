@@ -214,6 +214,37 @@ serve(async (req) => {
       }
     }
 
+    // For MON token - DexScreener may not have it, try CoinGecko fallback
+    const monAddress = 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2';
+    if (!prices[monAddress] && solanaTokens.includes(monAddress)) {
+      console.log('MON not found in DexScreener, trying CoinGecko...');
+      // Try multiple possible CoinGecko IDs for MON
+      const possibleIds = ['mon-protocol', 'monad-protocol', 'monprotocol'];
+      for (const geckoId of possibleIds) {
+        const monPrices = await fetchCoinGeckoPrices([geckoId]);
+        if (monPrices[geckoId]) {
+          prices[monAddress] = monPrices[geckoId];
+          console.log(`MON price from CoinGecko (${geckoId}):`, monPrices[geckoId]);
+          break;
+        }
+      }
+      // If still no price, try to get it from Jupiter API as last resort
+      if (!prices[monAddress]) {
+        try {
+          const jupResponse = await fetch(`https://api.jup.ag/price/v2?ids=${monAddress}`);
+          if (jupResponse.ok) {
+            const jupData = await jupResponse.json();
+            if (jupData.data?.[monAddress]?.price) {
+              prices[monAddress] = parseFloat(jupData.data[monAddress].price);
+              console.log('MON price from Jupiter:', prices[monAddress]);
+            }
+          }
+        } catch (e) {
+          console.log('Jupiter price fetch failed for MON:', e);
+        }
+      }
+    }
+
     // Merge CoinGecko prices by mapping back to addresses
     for (const [address, geckoId] of Object.entries(addressToGeckoId)) {
       if (geckoPrices[geckoId]) {
