@@ -2,3 +2,6 @@ project_id = "jmnyaudcgdanpgctroko"
 
 [functions.gasless-transfer]
 verify_jwt = false
+
+[functions.get-token-prices]
+verify_jwt = false

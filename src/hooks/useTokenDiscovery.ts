@@ -433,6 +433,11 @@ export const useTokenDiscovery = (
     const hasWallet = solanaPublicKey || suiAccount || evmAddress;
     if (hasWallet) {
       discoverTokens();
+      // Refresh prices every 30 seconds to keep USD values updated
+      const interval = setInterval(() => {
+        discoverTokens();
+      }, 30 * 1000);
+      return () => clearInterval(interval);
     } else {
       setDiscoveredTokens([]);
     }
