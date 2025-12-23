@@ -106,7 +106,22 @@ export const UnifiedWalletButton = () => {
       }
     }
   };
-  const handleWalletConnect = (walletType: string, wallet?: any) => {
+  const handleWalletConnect = async (walletType: string, wallet?: any) => {
+    // Disconnect all existing wallets first to ensure only one network is connected
+    if (solanaPublicKey) {
+      await disconnectSolana();
+    }
+    if (suiAccount) {
+      disconnectSui();
+    }
+    if (evmAddress) {
+      disconnectEvm();
+    }
+
+    // Small delay to ensure disconnections complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Now connect to the selected network
     if (selectedNetwork === 'solana' && wallet) {
       selectSolanaWallet(wallet.adapter.name);
     } else if (selectedNetwork === 'sui' && wallet) {
