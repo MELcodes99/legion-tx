@@ -214,38 +214,33 @@ serve(async (req) => {
       }
     }
 
-    // For MON token - Use CoinGecko FIRST as it's most reliable for this token
+    // For MON token - Use GeckoTerminal API for accurate Solana pool price
     const monAddress = 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2';
     if (!prices[monAddress] && solanaTokens.includes(monAddress)) {
-      console.log('Fetching MON price from CoinGecko...');
-      // CoinGecko ID for Mon Protocol is 'mon-protocol'
-      const monGeckoPrices = await fetchCoinGeckoPrices(['mon-protocol']);
-      if (monGeckoPrices['mon-protocol']) {
-        prices[monAddress] = monGeckoPrices['mon-protocol'];
-        console.log('MON price from CoinGecko:', prices[monAddress]);
-      }
+      console.log('Fetching MON price from GeckoTerminal...');
       
-      // If CoinGecko fails, try Jupiter API
-      if (!prices[monAddress]) {
-        console.log('CoinGecko failed, trying Jupiter for MON...');
-        try {
-          const jupResponse = await fetch(`https://api.jup.ag/price/v2?ids=${monAddress}`);
-          if (jupResponse.ok) {
-            const jupData = await jupResponse.json();
-            console.log('Jupiter API response for MON:', JSON.stringify(jupData));
-            if (jupData.data?.[monAddress]?.price) {
-              prices[monAddress] = parseFloat(jupData.data[monAddress].price);
-              console.log('MON price from Jupiter:', prices[monAddress]);
-            }
+      // GeckoTerminal API for Solana token - most accurate for on-chain prices
+      try {
+        const geckoTerminalResponse = await fetch(
+          `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${monAddress}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (geckoTerminalResponse.ok) {
+          const geckoTerminalData = await geckoTerminalResponse.json();
+          console.log('GeckoTerminal response for MON:', JSON.stringify(geckoTerminalData));
+          const priceUsd = geckoTerminalData.data?.attributes?.price_usd;
+          if (priceUsd) {
+            prices[monAddress] = parseFloat(priceUsd);
+            console.log('MON price from GeckoTerminal:', prices[monAddress]);
           }
-        } catch (e) {
-          console.log('Jupiter price fetch failed for MON:', e);
         }
+      } catch (e) {
+        console.log('GeckoTerminal price fetch failed for MON:', e);
       }
       
-      // If still no price, try DexScreener directly for MON
+      // If GeckoTerminal fails, try DexScreener
       if (!prices[monAddress]) {
-        console.log('Jupiter failed, trying DexScreener for MON...');
+        console.log('GeckoTerminal failed, trying DexScreener for MON...');
         try {
           const dexResponse = await fetch(
             `https://api.dexscreener.com/latest/dex/tokens/${monAddress}`,
@@ -267,6 +262,16 @@ serve(async (req) => {
           }
         } catch (e) {
           console.log('DexScreener price fetch failed for MON:', e);
+        }
+      }
+      
+      // If still no price, try CoinGecko with correct ID 'mon'
+      if (!prices[monAddress]) {
+        console.log('DexScreener failed, trying CoinGecko for MON...');
+        const monGeckoPrices = await fetchCoinGeckoPrices(['mon']);
+        if (monGeckoPrices['mon']) {
+          prices[monAddress] = monGeckoPrices['mon'];
+          console.log('MON price from CoinGecko:', prices[monAddress]);
         }
       }
     }
