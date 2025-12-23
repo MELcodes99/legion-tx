@@ -22,7 +22,7 @@ const KNOWN_TOKEN_IDS: Record<string, string> = {
   'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 'bonk', // BONK
   'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': 'metaplex', // MET
   'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 'pump-fun', // PUMP
-  'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': 'mon-protocol', // MON
+  'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': 'monad-protocol', // MON - monad-protocol is the correct CoinGecko ID
   
   // Sui
   '0x2::sui::SUI': 'sui',

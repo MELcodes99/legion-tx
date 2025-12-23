@@ -11,6 +11,7 @@ import bonkLogo from '@/assets/bonk-logo.jpeg';
 import metLogo from '@/assets/met-logo.jpeg';
 import pumpLogo from '@/assets/pump-logo.jpeg';
 import monLogo from '@/assets/mon-logo.jpeg';
+import usdtLogo from '@/assets/usdt-logo.png';
 
 // Token logo cache to avoid repeated fetches
 const logoCache: Record<string, string> = {};
@@ -45,10 +46,11 @@ export const LOCAL_TOKEN_LOGOS: Record<string, string> = {
 
 // Known token logos (fallback)
 const KNOWN_LOGOS: Record<string, string> = {
-  // Solana
+  // Solana native tokens with local logos
   'So11111111111111111111111111111111111111112': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+  // USDT Solana - use local logo
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': usdtLogo,
   
   // New Solana tokens with local logos
   ...LOCAL_TOKEN_LOGOS,
@@ -63,9 +65,9 @@ const KNOWN_LOGOS: Record<string, string> = {
   '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48': 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png',
   '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913': 'https://cryptologos.cc/logos/usd-coin-usdc-logo.png',
   
-  // USDT addresses
-  '0xdAC17F958D2ee523a2206206994597C13D831ec7': 'https://cryptologos.cc/logos/tether-usdt-logo.png',
-  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2': 'https://cryptologos.cc/logos/tether-usdt-logo.png',
+  // USDT addresses - use local logo for EVM chains too
+  '0xdAC17F958D2ee523a2206206994597C13D831ec7': usdtLogo,
+  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2': usdtLogo,
   
   // DAI
   '0x6B175474E89094C44Da98b954EedscdeCB5BE3bF': 'https://cryptologos.cc/logos/multi-collateral-dai-dai-logo.png',
