@@ -1,7 +1,47 @@
 import { ChainType } from '@/config/tokens';
 
+// Import local token logos
+import penguLogo from '@/assets/pengu-logo.jpeg';
+import wetLogo from '@/assets/wet-logo.jpeg';
+import trumpLogo from '@/assets/trump-logo.jpeg';
+import jupLogo from '@/assets/jup-logo.jpeg';
+import grassLogo from '@/assets/grass-logo.jpeg';
+import rayLogo from '@/assets/ray-logo.jpeg';
+import bonkLogo from '@/assets/bonk-logo.jpeg';
+import metLogo from '@/assets/met-logo.jpeg';
+import pumpLogo from '@/assets/pump-logo.jpeg';
+import monLogo from '@/assets/mon-logo.jpeg';
+
 // Token logo cache to avoid repeated fetches
 const logoCache: Record<string, string> = {};
+
+// New Solana token mint addresses
+export const SOLANA_TOKEN_MINTS = {
+  PENGU: '2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv',
+  WET: 'WETZjtprkDMCcUxPi9PfWnowMRZkiGGHDb9rABuRZ2U',
+  TRUMP: '6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN',
+  JUP: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+  GRASS: 'Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs',
+  RAY: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+  BONK: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  MET: 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL',
+  PUMP: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn',
+  MON: 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2',
+};
+
+// Local logos for new Solana tokens
+export const LOCAL_TOKEN_LOGOS: Record<string, string> = {
+  [SOLANA_TOKEN_MINTS.PENGU]: penguLogo,
+  [SOLANA_TOKEN_MINTS.WET]: wetLogo,
+  [SOLANA_TOKEN_MINTS.TRUMP]: trumpLogo,
+  [SOLANA_TOKEN_MINTS.JUP]: jupLogo,
+  [SOLANA_TOKEN_MINTS.GRASS]: grassLogo,
+  [SOLANA_TOKEN_MINTS.RAY]: rayLogo,
+  [SOLANA_TOKEN_MINTS.BONK]: bonkLogo,
+  [SOLANA_TOKEN_MINTS.MET]: metLogo,
+  [SOLANA_TOKEN_MINTS.PUMP]: pumpLogo,
+  [SOLANA_TOKEN_MINTS.MON]: monLogo,
+};
 
 // Known token logos (fallback)
 const KNOWN_LOGOS: Record<string, string> = {
@@ -9,6 +49,9 @@ const KNOWN_LOGOS: Record<string, string> = {
   'So11111111111111111111111111111111111111112': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png',
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.png',
+  
+  // New Solana tokens with local logos
+  ...LOCAL_TOKEN_LOGOS,
   
   // Sui
   '0x2::sui::SUI': 'https://cryptologos.cc/logos/sui-sui-logo.png',
