@@ -1176,56 +1176,50 @@ export const MultiChainTransferForm = () => {
           >
             <span className="font-medium flex items-center gap-2">
               <Wallet className="h-4 w-4" />
-              {isDiscoveringTokens ? 'Loading tokens...' : `View Available Balance (${discoveredTokens.length} tokens)`}
+              {isDiscoveringTokens ? 'Loading tokens...' : 'View Available Balance'}
             </span>
             <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </Button>
         )}
 
-        {/* Show selected discovered token info */}
-        {selectedDiscoveredToken && (
-          <div className="rounded-lg bg-secondary/30 p-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {selectedDiscoveredToken.logoUrl ? (
-                <img src={selectedDiscoveredToken.logoUrl} alt={selectedDiscoveredToken.symbol} className="w-8 h-8 rounded-full" />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                  <span className="text-xs font-bold text-primary">{selectedDiscoveredToken.symbol.slice(0, 2)}</span>
-                </div>
-              )}
-              <div>
-                <div className="font-medium">{selectedDiscoveredToken.symbol}</div>
-                <div className="text-xs text-muted-foreground">{selectedDiscoveredToken.name}</div>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="font-medium">{selectedDiscoveredToken.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
-              <div className="text-xs text-muted-foreground">${selectedDiscoveredToken.usdValue.toFixed(2)}</div>
-            </div>
-          </div>
-        )}
-
         <div className="space-y-2">
           <Label htmlFor="token" className="text-sm">Token to Send</Label>
-          <Select value={selectedToken} onValueChange={(value: TokenKey) => {
-          setSelectedToken(value);
-          setSelectedGasToken(value);
-        }} disabled={availableTokens.length === 0}>
-            <SelectTrigger id="token" className="bg-secondary/50 border-border/50">
-              <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select token"} />
-            </SelectTrigger>
-            <SelectContent className="bg-popover border-border z-[100] max-h-[300px]">
-              {availableTokens.map(([key, config]) => <SelectItem key={key} value={key}>
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-4 h-4 rounded-full" />
-                      {!config.isNative && <img src={getChainLogo(config.chain)} alt={config.chain} className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />}
-                    </div>
-                    <span>{getTokenDisplayName(key)}</span>
+          {selectedDiscoveredToken ? (
+            <button
+              type="button"
+              onClick={() => setTokenSelectionOpen(true)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-md bg-secondary/50 border border-border/50 hover:bg-secondary/70 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                {selectedDiscoveredToken.logoUrl ? (
+                  <img src={selectedDiscoveredToken.logoUrl} alt={selectedDiscoveredToken.symbol} className="w-6 h-6 rounded-full" />
+                ) : (
+                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                    <span className="text-xs font-bold text-primary">{selectedDiscoveredToken.symbol.slice(0, 2)}</span>
                   </div>
-                </SelectItem>)}
-            </SelectContent>
-          </Select>
+                )}
+                <div className="text-left">
+                  <div className="font-medium text-sm">{selectedDiscoveredToken.symbol}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Balance: {selectedDiscoveredToken.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} (${selectedDiscoveredToken.usdValue.toFixed(2)})
+                  </div>
+                </div>
+              </div>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setTokenSelectionOpen(true)}
+              disabled={!hasWalletConnected}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-md bg-secondary/50 border border-border/50 hover:bg-secondary/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="text-sm text-muted-foreground">
+                {hasWalletConnected ? 'Select a token from Available Balance' : 'Connect a wallet first'}
+              </span>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-2">
