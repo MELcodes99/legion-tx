@@ -67,6 +67,8 @@ async function fetchJupiterPrices(addresses: string[]): Promise<Record<string, n
   try {
     // Jupiter Price API v2
     const ids = addresses.join(',');
+    console.log('Fetching Jupiter prices for:', ids);
+    
     const response = await fetch(
       `https://api.jup.ag/price/v2?ids=${ids}`,
       {
@@ -76,21 +78,28 @@ async function fetchJupiterPrices(addresses: string[]): Promise<Record<string, n
     
     if (response.ok) {
       const data = await response.json();
+      console.log('Jupiter API response:', JSON.stringify(data));
+      
       if (data.data) {
         for (const [address, priceData] of Object.entries(data.data)) {
           const price = (priceData as any)?.price;
-          if (price && typeof price === 'number') {
-            prices[address] = price;
-          } else if (price && typeof price === 'string') {
-            prices[address] = parseFloat(price);
+          if (price !== undefined && price !== null) {
+            const numPrice = typeof price === 'number' ? price : parseFloat(price);
+            if (!isNaN(numPrice)) {
+              prices[address] = numPrice;
+              console.log(`Jupiter price for ${address}: $${numPrice}`);
+            }
           }
         }
       }
+    } else {
+      console.error('Jupiter API error:', response.status, await response.text());
     }
   } catch (error) {
     console.error('Error fetching Jupiter prices:', error);
   }
   
+  console.log('Final Jupiter prices:', JSON.stringify(prices));
   return prices;
 }
 
@@ -166,11 +175,17 @@ serve(async (req) => {
       }
     }
 
+    console.log('Fetching prices for tokens:', JSON.stringify(tokens));
+    console.log('Solana tokens to fetch:', solanaTokens);
+
     // Fetch Solana prices from Jupiter in parallel with CoinGecko
     const [jupiterPrices, geckoPrices] = await Promise.all([
       fetchJupiterPrices(solanaTokens),
       fetchCoinGeckoPrices(Array.from(geckoIdsToFetch))
     ]);
+
+    console.log('Jupiter prices received:', JSON.stringify(jupiterPrices));
+    console.log('CoinGecko prices received:', JSON.stringify(geckoPrices));
 
     // Merge Jupiter prices
     for (const [address, price] of Object.entries(jupiterPrices)) {
