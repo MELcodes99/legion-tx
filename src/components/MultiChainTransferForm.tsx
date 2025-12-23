@@ -1393,12 +1393,9 @@ export const MultiChainTransferForm = () => {
                   {selectedToken === selectedGasToken && (
                     <div className="mt-2 pt-2 border-t border-border/50">
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Total You Pay:</span>
+                        <span className="text-muted-foreground">Total Value:</span>
                         <span className="font-semibold text-accent">
-                          {isStablecoin 
-                            ? `${(tokenAmount + gasFeeTokens).toFixed(2)} ${tokenSymbol} ($${(amountUsd + gasFee).toFixed(2)})`
-                            : `${(tokenAmount + gasFeeTokens).toFixed(6)} ${tokenSymbol} ($${(amountUsd + gasFee).toFixed(2)})`
-                          }
+                          ${(amountUsd + gasFee).toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -1406,15 +1403,9 @@ export const MultiChainTransferForm = () => {
                   {selectedToken !== selectedGasToken && (
                     <div className="mt-2 pt-2 border-t border-border/50">
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Total You Pay:</span>
+                        <span className="text-muted-foreground">Total Value:</span>
                         <span className="font-semibold text-accent">
-                          {isStablecoin 
-                            ? `${tokenAmount.toFixed(2)} ${tokenSymbol}`
-                            : `${tokenAmount.toFixed(6)} ${tokenSymbol}`
-                          } + {isGasStablecoin 
-                            ? `${gasFeeTokens.toFixed(2)} ${gasSymbol}`
-                            : `${gasFeeTokens.toFixed(6)} ${gasSymbol}`
-                          }
+                          ${(amountUsd + gasFee).toFixed(2)}
                         </span>
                       </div>
                     </div>
