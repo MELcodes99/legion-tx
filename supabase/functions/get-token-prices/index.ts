@@ -5,14 +5,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// CoinGecko platform IDs
-const CHAIN_TO_PLATFORM: Record<string, string> = {
-  'solana': 'solana',
-  'sui': 'sui',
-  'ethereum': 'ethereum',
-  'base': 'base',
-};
-
 // Known token mappings to CoinGecko IDs
 const KNOWN_TOKEN_IDS: Record<string, string> = {
   // Solana
@@ -43,7 +35,7 @@ const KNOWN_TOKEN_IDS: Record<string, string> = {
 };
 
 // Stablecoin addresses (always $1)
-const STABLECOINS = [
+const STABLECOINS = new Set([
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC Solana
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT Solana
   '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC ETH
@@ -52,7 +44,73 @@ const STABLECOINS = [
   '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // USDT Base
   '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb', // DAI Base
   '0x6B175474E89094C44Da98b954EedscdeCB5BE3bF', // DAI ETH
-];
+]);
+
+// Fetch Solana token prices from Jupiter Price API
+async function fetchJupiterPrices(addresses: string[]): Promise<Record<string, number>> {
+  const prices: Record<string, number> = {};
+  
+  if (addresses.length === 0) return prices;
+  
+  try {
+    // Jupiter Price API v2
+    const ids = addresses.join(',');
+    const response = await fetch(
+      `https://api.jup.ag/price/v2?ids=${ids}`,
+      {
+        headers: { 'Accept': 'application/json' }
+      }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.data) {
+        for (const [address, priceData] of Object.entries(data.data)) {
+          const price = (priceData as any)?.price;
+          if (price && typeof price === 'number') {
+            prices[address] = price;
+          } else if (price && typeof price === 'string') {
+            prices[address] = parseFloat(price);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching Jupiter prices:', error);
+  }
+  
+  return prices;
+}
+
+// Fetch EVM token prices from CoinGecko
+async function fetchCoinGeckoPrices(geckoIds: string[]): Promise<Record<string, number>> {
+  const prices: Record<string, number> = {};
+  
+  if (geckoIds.length === 0) return prices;
+  
+  try {
+    const ids = geckoIds.join(',');
+    const response = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
+      {
+        headers: { 'Accept': 'application/json' }
+      }
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      for (const [id, priceData] of Object.entries(data)) {
+        if ((priceData as any)?.usd) {
+          prices[id] = (priceData as any).usd;
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching from CoinGecko:', error);
+  }
+  
+  return prices;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -71,105 +129,64 @@ serve(async (req) => {
 
     const prices: Record<string, number> = {};
 
-    // Set stablecoin prices to 1
+    // Separate tokens by chain
+    const solanaTokens: string[] = [];
+    const geckoIdsToFetch = new Set<string>();
+    const addressToGeckoId: Record<string, string> = {};
+
     for (const token of tokens) {
-      if (STABLECOINS.includes(token.address)) {
+      // Set stablecoin prices to 1
+      if (STABLECOINS.has(token.address)) {
         prices[token.address] = 1;
+        continue;
       }
-    }
 
-    // Get unique CoinGecko IDs to fetch
-    const idsToFetch = new Set<string>();
-    const addressToId: Record<string, string> = {};
-
-    for (const token of tokens) {
-      const geckoId = KNOWN_TOKEN_IDS[token.address];
-      if (geckoId && !STABLECOINS.includes(token.address)) {
-        idsToFetch.add(geckoId);
-        addressToId[token.address] = geckoId;
-      }
-    }
-
-    // Fetch prices from CoinGecko
-    if (idsToFetch.size > 0) {
-      try {
-        const ids = Array.from(idsToFetch).join(',');
-        const response = await fetch(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
-          {
-            headers: {
-              'Accept': 'application/json',
-            }
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          
-          for (const [address, geckoId] of Object.entries(addressToId)) {
-            if (data[geckoId]?.usd) {
-              prices[address] = data[geckoId].usd;
-            }
-          }
+      if (token.chain === 'solana') {
+        // All Solana tokens go to Jupiter
+        solanaTokens.push(token.address);
+      } else {
+        // EVM/Sui tokens - check for known CoinGecko ID
+        const geckoId = KNOWN_TOKEN_IDS[token.address];
+        if (geckoId) {
+          geckoIdsToFetch.add(geckoId);
+          addressToGeckoId[token.address] = geckoId;
         }
-      } catch (error) {
-        console.error('Error fetching from CoinGecko:', error);
       }
     }
 
-    // For native ETH on Base, use the same price as ETH
+    // Fetch Solana prices from Jupiter in parallel with CoinGecko
+    const [jupiterPrices, geckoPrices] = await Promise.all([
+      fetchJupiterPrices(solanaTokens),
+      fetchCoinGeckoPrices(Array.from(geckoIdsToFetch))
+    ]);
+
+    // Merge Jupiter prices
+    for (const [address, price] of Object.entries(jupiterPrices)) {
+      prices[address] = price;
+    }
+
+    // Merge CoinGecko prices by mapping back to addresses
+    for (const [address, geckoId] of Object.entries(addressToGeckoId)) {
+      if (geckoPrices[geckoId]) {
+        prices[address] = geckoPrices[geckoId];
+      }
+    }
+
+    // For native ETH (used on both Ethereum and Base), ensure we have a price
     const ethAddress = '0x0000000000000000000000000000000000000000';
-    if (prices[ethAddress]) {
-      // Already have ETH price
-    } else {
-      // Try to fetch ETH price
-      try {
-        const response = await fetch(
-          'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd'
-        );
-        if (response.ok) {
-          const data = await response.json();
-          if (data.ethereum?.usd) {
-            prices[ethAddress] = data.ethereum.usd;
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching ETH price:', error);
+    if (!prices[ethAddress] && tokens.some((t: any) => t.address === ethAddress)) {
+      const ethPrices = await fetchCoinGeckoPrices(['ethereum']);
+      if (ethPrices['ethereum']) {
+        prices[ethAddress] = ethPrices['ethereum'];
       }
     }
 
-    // Fetch SOL and SUI prices if needed
-    for (const token of tokens) {
-      if (token.chain === 'solana' && token.address === 'So11111111111111111111111111111111111111112' && !prices[token.address]) {
-        try {
-          const response = await fetch(
-            'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd'
-          );
-          if (response.ok) {
-            const data = await response.json();
-            if (data.solana?.usd) {
-              prices[token.address] = data.solana.usd;
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching SOL price:', error);
-        }
-      }
-      
-      if (token.chain === 'sui' && token.address === '0x2::sui::SUI' && !prices[token.address]) {
-        try {
-          const response = await fetch(
-            'https://api.coingecko.com/api/v3/simple/price?ids=sui&vs_currencies=usd'
-          );
-          if (response.ok) {
-            const data = await response.json();
-            if (data.sui?.usd) {
-              prices[token.address] = data.sui.usd;
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching SUI price:', error);
-        }
+    // For SUI native token
+    const suiAddress = '0x2::sui::SUI';
+    if (!prices[suiAddress] && tokens.some((t: any) => t.address === suiAddress)) {
+      const suiPrices = await fetchCoinGeckoPrices(['sui']);
+      if (suiPrices['sui']) {
+        prices[suiAddress] = suiPrices['sui'];
       }
     }
 
