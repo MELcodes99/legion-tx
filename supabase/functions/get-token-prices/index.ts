@@ -214,45 +214,59 @@ serve(async (req) => {
       }
     }
 
-    // For MON token - Use Jupiter API FIRST as it's most reliable for Solana SPL tokens
+    // For MON token - Use CoinGecko FIRST as it's most reliable for this token
     const monAddress = 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2';
     if (!prices[monAddress] && solanaTokens.includes(monAddress)) {
-      console.log('Fetching MON price from Jupiter API...');
-      try {
-        // Jupiter Price API v2 is the most reliable for Solana tokens
-        const jupResponse = await fetch(`https://api.jup.ag/price/v2?ids=${monAddress}`);
-        if (jupResponse.ok) {
-          const jupData = await jupResponse.json();
-          console.log('Jupiter API response for MON:', JSON.stringify(jupData));
-          if (jupData.data?.[monAddress]?.price) {
-            prices[monAddress] = parseFloat(jupData.data[monAddress].price);
-            console.log('MON price from Jupiter:', prices[monAddress]);
-          }
-        } else {
-          console.log('Jupiter API status:', jupResponse.status);
-        }
-      } catch (e) {
-        console.log('Jupiter price fetch failed for MON:', e);
+      console.log('Fetching MON price from CoinGecko...');
+      // CoinGecko ID for Mon Protocol is 'mon-protocol'
+      const monGeckoPrices = await fetchCoinGeckoPrices(['mon-protocol']);
+      if (monGeckoPrices['mon-protocol']) {
+        prices[monAddress] = monGeckoPrices['mon-protocol'];
+        console.log('MON price from CoinGecko:', prices[monAddress]);
       }
       
-      // If Jupiter fails, try Birdeye API
+      // If CoinGecko fails, try Jupiter API
       if (!prices[monAddress]) {
-        console.log('Jupiter failed, trying Birdeye for MON...');
+        console.log('CoinGecko failed, trying Jupiter for MON...');
         try {
-          const birdeyeResponse = await fetch(
-            `https://public-api.birdeye.so/public/price?address=${monAddress}`,
-            { headers: { 'Accept': 'application/json' } }
-          );
-          if (birdeyeResponse.ok) {
-            const birdeyeData = await birdeyeResponse.json();
-            console.log('Birdeye response for MON:', JSON.stringify(birdeyeData));
-            if (birdeyeData.data?.value) {
-              prices[monAddress] = birdeyeData.data.value;
-              console.log('MON price from Birdeye:', prices[monAddress]);
+          const jupResponse = await fetch(`https://api.jup.ag/price/v2?ids=${monAddress}`);
+          if (jupResponse.ok) {
+            const jupData = await jupResponse.json();
+            console.log('Jupiter API response for MON:', JSON.stringify(jupData));
+            if (jupData.data?.[monAddress]?.price) {
+              prices[monAddress] = parseFloat(jupData.data[monAddress].price);
+              console.log('MON price from Jupiter:', prices[monAddress]);
             }
           }
         } catch (e) {
-          console.log('Birdeye price fetch failed for MON:', e);
+          console.log('Jupiter price fetch failed for MON:', e);
+        }
+      }
+      
+      // If still no price, try DexScreener directly for MON
+      if (!prices[monAddress]) {
+        console.log('Jupiter failed, trying DexScreener for MON...');
+        try {
+          const dexResponse = await fetch(
+            `https://api.dexscreener.com/latest/dex/tokens/${monAddress}`,
+            { headers: { 'Accept': 'application/json' } }
+          );
+          if (dexResponse.ok) {
+            const dexData = await dexResponse.json();
+            console.log('DexScreener response for MON:', JSON.stringify(dexData));
+            if (dexData.pairs && dexData.pairs.length > 0) {
+              // Get the pair with highest liquidity
+              const bestPair = dexData.pairs
+                .filter((p: any) => p.chainId === 'solana' && p.priceUsd)
+                .sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+              if (bestPair?.priceUsd) {
+                prices[monAddress] = parseFloat(bestPair.priceUsd);
+                console.log('MON price from DexScreener:', prices[monAddress]);
+              }
+            }
+          }
+        } catch (e) {
+          console.log('DexScreener price fetch failed for MON:', e);
         }
       }
     }
