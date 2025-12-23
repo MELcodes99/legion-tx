@@ -6,6 +6,7 @@ import { createPublicClient, http, parseAbi } from 'viem';
 import { mainnet, base } from 'viem/chains';
 import { ChainType, TOKENS, TokenConfig } from '@/config/tokens';
 import { supabase } from '@/integrations/supabase/client';
+import { batchFetchLogos, getSolanaTokenMetadata } from '@/services/tokenLogos';
 
 export interface DiscoveredToken {
   key: string;
@@ -154,16 +155,26 @@ export const useTokenDiscovery = (
           const usdValue = tokenAmount.uiAmount * price;
           
           if (usdValue >= MIN_USD_VALUE) {
-            // Check if it's a known token
+            // Check if it's a known token in our config
             const knownToken = Object.entries(TOKENS).find(
               ([_, config]) => config.chain === 'solana' && config.mint === mint
             );
 
+            // Try to get metadata from Jupiter
+            let symbol = knownToken ? knownToken[1].symbol : mint.slice(0, 6);
+            let name = knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`;
+            
+            const jupiterMeta = await getSolanaTokenMetadata(mint);
+            if (jupiterMeta) {
+              symbol = jupiterMeta.symbol;
+              name = jupiterMeta.name;
+            }
+
             tokens.push({
               key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
               address: mint,
-              symbol: knownToken ? knownToken[1].symbol : mint.slice(0, 6),
-              name: knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`,
+              symbol,
+              name,
               decimals: tokenAmount.decimals,
               balance: tokenAmount.uiAmount,
               usdValue,
@@ -346,7 +357,20 @@ export const useTokenDiscovery = (
         discoverEvmTokens(),
       ]);
 
-      setDiscoveredTokens([...solanaTokens, ...suiTokens, ...evmTokens]);
+      const allTokens = [...solanaTokens, ...suiTokens, ...evmTokens];
+      
+      // Fetch logos for all discovered tokens
+      if (allTokens.length > 0) {
+        const logoAddresses = allTokens.map(t => ({ address: t.address, chain: t.chain }));
+        const logos = await batchFetchLogos(logoAddresses);
+        
+        // Attach logos to tokens
+        for (const token of allTokens) {
+          token.logoUrl = logos[token.address] || undefined;
+        }
+      }
+
+      setDiscoveredTokens(allTokens);
     } catch (error) {
       console.error('Error discovering tokens:', error);
     } finally {
