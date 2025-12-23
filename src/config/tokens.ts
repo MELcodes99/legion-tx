@@ -129,7 +129,7 @@ export const TOKENS: Record<string, TokenConfig> = {
   },
 };
 
-export const MIN_TRANSFER_USD = 5;
+export const MIN_TRANSFER_USD = 2;
 
 // Chain display names
 export const CHAIN_NAMES: Record<ChainType, string> = {
