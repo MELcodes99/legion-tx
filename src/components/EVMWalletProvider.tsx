@@ -8,15 +8,20 @@ import { injected } from 'wagmi/connectors';
 const config = createConfig({
   chains: [mainnet, base],
   connectors: [
-    injected(),
+    injected({
+      // Prevent auto-connect on page load
+      shimDisconnect: true,
+    }),
   ],
   transports: {
     [mainnet.id]: http('https://cloudflare-eth.com'),
     [base.id]: http('https://mainnet.base.org'),
   },
   // Disable storage to prevent auto-reconnect on page load
-  // This ensures only one network can be connected at a time
   storage: null,
+  // Disable auto-reconnect behavior
+  syncConnectedChain: false,
+  multiInjectedProviderDiscovery: false,
 });
 
 // Use a separate query client for wagmi to avoid conflicts

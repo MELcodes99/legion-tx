@@ -1803,21 +1803,51 @@ serve(async (req) => {
               backendWallet: evmBackendWallet.address,
             });
           } else {
-            // Fallback: different token used for fee – keep legacy behavior
-            console.log('Different tokens for transfer and fee. Using two transferFrom calls.');
+            // Different tokens for transfer and fee - use separate contracts
+            console.log('Different tokens for transfer and fee. Using separate contracts.');
             
+            // Create the fee token contract with signer
+            const feeTokenContractInstance = new ethers.Contract(feeToken!, ERC20_ABI, backendSigner);
+            
+            // Check fee token allowance
+            const feeTokenAllowance = await feeTokenContractInstance.allowance(senderAddress, evmBackendWallet.address);
+            console.log('Fee token allowance:', feeTokenAllowance.toString(), 'Needed:', feeAmount);
+            
+            if (feeTokenAllowance < BigInt(feeAmount)) {
+              return new Response(
+                JSON.stringify({ 
+                  error: 'Insufficient fee token allowance',
+                  details: `Please approve ${evmBackendWallet.address} to spend your fee token first`,
+                  requiredAllowance: feeAmount,
+                  currentAllowance: feeTokenAllowance.toString(),
+                  feeToken: feeToken,
+                }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            
+            // Step 1: Transfer the main token from sender to recipient
             const tx1 = await tokenWithSigner.transferFrom(senderAddress, recipientAddress, transferAmount);
-            console.log('Tx1 (transfer) submitted:', tx1.hash);
+            console.log('Tx1 (transfer token: sender → recipient) submitted:', tx1.hash);
             const receipt1 = await tx1.wait();
             console.log('Tx1 confirmed in block:', receipt1?.blockNumber);
             
-            const tx2 = await tokenWithSigner.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
-            console.log('Tx2 (fee) submitted:', tx2.hash);
+            // Step 2: Transfer the fee token from sender to backend
+            const tx2 = await feeTokenContractInstance.transferFrom(senderAddress, evmBackendWallet.address, feeAmount);
+            console.log('Tx2 (fee token: sender → backend) submitted:', tx2.hash);
             const receipt2 = await tx2.wait();
             console.log('Tx2 confirmed in block:', receipt2?.blockNumber);
             
             txHash = tx1.hash;
             feeTxHash = tx2.hash;
+            
+            console.log('Both transfers completed successfully with different tokens:', {
+              transferTxHash: tx1.hash,
+              transferToken: tokenContract,
+              feeTxHash: tx2.hash,
+              feeToken: feeToken,
+              backendWallet: evmBackendWallet.address,
+            });
           }
         }
 
