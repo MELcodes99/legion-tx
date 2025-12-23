@@ -453,17 +453,35 @@ serve(async (req) => {
 
     // Action: Build atomic transaction (user→backend + backend→receiver in ONE tx)
     if (action === 'build_atomic_tx') {
-      const { senderPublicKey, recipientPublicKey, amount, mint, decimals, chain = 'solana', gasToken } = body as { 
+      const { 
+        senderPublicKey, 
+        recipientPublicKey, 
+        amount, // Legacy support
+        amountUSD,  // USD amount (new)
+        tokenAmount: clientTokenAmount, // Token amount from client (new)
+        mint, 
+        decimals, 
+        chain = 'solana', 
+        gasToken,
+        tokenSymbol 
+      } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
         amount?: number;
+        amountUSD?: number;
+        tokenAmount?: number;
         mint?: string;
         decimals?: number;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         gasToken?: string;
+        tokenSymbol?: string;
       };
 
-      if (!senderPublicKey || !recipientPublicKey || !amount || !mint || decimals == null) {
+      // Support both old (amount) and new (amountUSD/tokenAmount) API
+      const effectiveAmountUSD = amountUSD ?? amount ?? 0;
+      const effectiveTokenAmount = clientTokenAmount ?? amount ?? 0;
+
+      if (!senderPublicKey || !recipientPublicKey || effectiveAmountUSD <= 0 || !mint || decimals == null) {
         return new Response(
           JSON.stringify({ error: 'Missing required fields' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -517,15 +535,24 @@ serve(async (req) => {
           });
       }
 
-      // Validate minimum amount ($5)
-      if (amount < 5) {
+      // Validate minimum amount ($2 for Solana/Sui, $5 for EVM)
+      const minAmount = (chain === 'base' || chain === 'ethereum') ? 5 : 2;
+      if (effectiveAmountUSD < minAmount) {
         return new Response(
-          JSON.stringify({ error: 'Minimum transfer amount is $5' }),
+          JSON.stringify({ error: `Minimum transfer amount is $${minAmount}` }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log('Building atomic transaction:', { senderPublicKey, recipientPublicKey, amount, mint, chain });
+      console.log('Building atomic transaction:', { 
+        senderPublicKey, 
+        recipientPublicKey, 
+        amountUSD: effectiveAmountUSD,
+        tokenAmount: effectiveTokenAmount,
+        tokenSymbol,
+        mint, 
+        chain 
+      });
 
       // EVM chain handling - skip here, handled later in the function
       // This first check is for early validation only
@@ -652,7 +679,7 @@ serve(async (req) => {
         // 2. Sender → Backend (fee amount in gas token)
         // Backend pays network gas fees from its SOL balance
         
-        const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
+        const transferAmountSmallest = BigInt(Math.round(effectiveTokenAmount * Math.pow(10, decimals)));
         
         // Determine gas token info
         const buildGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
@@ -666,7 +693,9 @@ serve(async (req) => {
           chain: 'solana',
           transferToken: mint,
           gasToken: gasTokenMint,
-          userSendsToRecipient: `${amount} (${transferAmountSmallest.toString()} smallest units)`,
+          amountUSD: effectiveAmountUSD,
+          tokenAmount: effectiveTokenAmount,
+          userSendsToRecipient: `${effectiveTokenAmount} (${transferAmountSmallest.toString()} smallest units)`,
           userSendsToBackend: `$${feeAmountUSD} fee (${feeSmallest.toString()} smallest units in ${buildGasTokenConfig?.symbol || 'transfer token'})`,
           networkGasPaidBy: 'backend SOL balance',
         });
@@ -839,11 +868,13 @@ serve(async (req) => {
           JSON.stringify({
             transaction: base64Tx,
             backendWallet: backendWallet.publicKey.toBase58(),
-            message: `Atomic transaction: Send ${amount} ${transferTokenInfo.name} to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
+            message: `Atomic transaction: Send ${effectiveTokenAmount} ${transferTokenInfo?.name || tokenSymbol} ($${effectiveAmountUSD}) to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
             amounts: {
               transferToRecipient: transferAmountSmallest.toString(),
+              tokenAmount: transferAmountSmallest.toString(),
               feeToBackend: feeSmallest.toString(),
               feeUSD: feeAmountUSD,
+              amountUSD: effectiveAmountUSD,
               networkGasPayer: 'backend',
             }
           }),
@@ -923,7 +954,7 @@ serve(async (req) => {
           });
           
           // Calculate transfer amount
-          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
+          const transferAmountSmallest = BigInt(Math.round(effectiveTokenAmount * Math.pow(10, decimals)));
           
           // Get coin type from mint address
           const coinType = mint;
@@ -1205,7 +1236,7 @@ serve(async (req) => {
           const feeAmountSmallest = BigInt(Math.round(feeInTokens * Math.pow(10, feeTokenDecimals)));
           
           // Calculate transfer amount in smallest units
-          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, decimals)));
+          const transferAmountSmallest = BigInt(Math.round(effectiveTokenAmount * Math.pow(10, decimals)));
           
           console.log('EVM build_atomic_tx:', {
             chain,
