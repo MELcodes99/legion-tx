@@ -7,10 +7,22 @@ const corsHeaders = {
 
 // Known token mappings to CoinGecko IDs
 const KNOWN_TOKEN_IDS: Record<string, string> = {
-  // Solana
+  // Solana native
   'So11111111111111111111111111111111111111112': 'solana',
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': 'usd-coin',
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': 'tether',
+  
+  // New Solana tokens - these will be fetched from Jupiter primarily
+  '2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv': 'pudgy-penguins', // PENGU
+  'WETZjtprkDMCcUxPi9PfWnowMRZkiGGHDb9rABuRZ2U': 'wet-weth', // WET
+  '6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN': 'official-trump', // TRUMP
+  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': 'jupiter-exchange-solana', // JUP
+  'Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs': 'grass', // GRASS
+  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': 'raydium', // RAY
+  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 'bonk', // BONK
+  'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': 'metaplex', // MET
+  'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 'pump-fun', // PUMP
+  'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': 'mon-protocol', // MON
   
   // Sui
   '0x2::sui::SUI': 'sui',
