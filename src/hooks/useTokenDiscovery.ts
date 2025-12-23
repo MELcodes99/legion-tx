@@ -6,7 +6,21 @@ import { createPublicClient, http, parseAbi } from 'viem';
 import { mainnet, base } from 'viem/chains';
 import { ChainType, TOKENS, TokenConfig } from '@/config/tokens';
 import { supabase } from '@/integrations/supabase/client';
-import { batchFetchLogos, getSolanaTokenMetadata } from '@/services/tokenLogos';
+import { batchFetchLogos, getSolanaTokenMetadata, SOLANA_TOKEN_MINTS, LOCAL_TOKEN_LOGOS } from '@/services/tokenLogos';
+
+// Known Solana tokens to always check for
+const KNOWN_SOLANA_TOKENS = [
+  { address: SOLANA_TOKEN_MINTS.PENGU, symbol: 'PENGU', name: 'Pudgy Penguins', decimals: 6 },
+  { address: SOLANA_TOKEN_MINTS.WET, symbol: 'WET', name: 'Wet', decimals: 9 },
+  { address: SOLANA_TOKEN_MINTS.TRUMP, symbol: 'TRUMP', name: 'Official Trump', decimals: 6 },
+  { address: SOLANA_TOKEN_MINTS.JUP, symbol: 'JUP', name: 'Jupiter', decimals: 6 },
+  { address: SOLANA_TOKEN_MINTS.GRASS, symbol: 'GRASS', name: 'Grass', decimals: 9 },
+  { address: SOLANA_TOKEN_MINTS.RAY, symbol: 'RAY', name: 'Raydium', decimals: 6 },
+  { address: SOLANA_TOKEN_MINTS.BONK, symbol: 'BONK', name: 'Bonk', decimals: 5 },
+  { address: SOLANA_TOKEN_MINTS.MET, symbol: 'MET', name: 'Metaplex', decimals: 9 },
+  { address: SOLANA_TOKEN_MINTS.PUMP, symbol: 'PUMP', name: 'Pump', decimals: 6 },
+  { address: SOLANA_TOKEN_MINTS.MON, symbol: 'MON', name: 'Mon Protocol', decimals: 9 },
+];
 
 export interface DiscoveredToken {
   key: string;
@@ -109,20 +123,29 @@ export const useTokenDiscovery = (
         { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
       );
 
-      // Collect token addresses for price fetching
-      const tokenAddresses: { address: string; chain: ChainType }[] = [
-        { address: 'So11111111111111111111111111111111111111112', chain: 'solana' }
-      ];
-
+      // Build a map of mint -> token account data for quick lookup
+      const tokenAccountMap: Record<string, { uiAmount: number; decimals: number }> = {};
       for (const account of tokenAccounts.value) {
         const parsedInfo = account.account.data.parsed.info;
         const mint = parsedInfo.mint;
         const tokenAmount = parsedInfo.tokenAmount;
-        
         if (tokenAmount.uiAmount > 0) {
-          tokenAddresses.push({ address: mint, chain: 'solana' });
+          tokenAccountMap[mint] = {
+            uiAmount: tokenAmount.uiAmount,
+            decimals: tokenAmount.decimals,
+          };
         }
       }
+
+      // Collect token addresses for price fetching - include SOL and all found tokens
+      const tokenAddresses: { address: string; chain: ChainType }[] = [
+        { address: 'So11111111111111111111111111111111111111112', chain: 'solana' }
+      ];
+
+      // Add all tokens the user has
+      Object.keys(tokenAccountMap).forEach(mint => {
+        tokenAddresses.push({ address: mint, chain: 'solana' });
+      });
 
       // Fetch prices
       const prices = await fetchTokenPrices(tokenAddresses);
@@ -144,44 +167,68 @@ export const useTokenDiscovery = (
         });
       }
 
-      // Process SPL tokens
-      for (const account of tokenAccounts.value) {
-        const parsedInfo = account.account.data.parsed.info;
-        const mint = parsedInfo.mint;
-        const tokenAmount = parsedInfo.tokenAmount;
-        
-        if (tokenAmount.uiAmount > 0) {
-          const price = prices[mint] || 0;
-          const usdValue = tokenAmount.uiAmount * price;
+      // Process SPL tokens - prioritize known tokens first
+      const processedMints = new Set<string>();
+
+      // First, process known Solana tokens that user has
+      for (const knownToken of KNOWN_SOLANA_TOKENS) {
+        const tokenData = tokenAccountMap[knownToken.address];
+        if (tokenData && tokenData.uiAmount > 0) {
+          const price = prices[knownToken.address] || 0;
+          const usdValue = tokenData.uiAmount * price;
           
           if (usdValue >= MIN_USD_VALUE) {
-            // Check if it's a known token in our config
-            const knownToken = Object.entries(TOKENS).find(
-              ([_, config]) => config.chain === 'solana' && config.mint === mint
-            );
-
-            // Try to get metadata from Jupiter
-            let symbol = knownToken ? knownToken[1].symbol : mint.slice(0, 6);
-            let name = knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`;
-            
-            const jupiterMeta = await getSolanaTokenMetadata(mint);
-            if (jupiterMeta) {
-              symbol = jupiterMeta.symbol;
-              name = jupiterMeta.name;
-            }
-
             tokens.push({
-              key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
-              address: mint,
-              symbol,
-              name,
-              decimals: tokenAmount.decimals,
-              balance: tokenAmount.uiAmount,
+              key: `SOL_${knownToken.symbol}`,
+              address: knownToken.address,
+              symbol: knownToken.symbol,
+              name: knownToken.name,
+              decimals: tokenData.decimals,
+              balance: tokenData.uiAmount,
               usdValue,
               chain: 'solana',
               isNative: false,
+              logoUrl: LOCAL_TOKEN_LOGOS[knownToken.address] || undefined,
             });
+            processedMints.add(knownToken.address);
           }
+        }
+      }
+
+      // Then process remaining tokens from user's wallet
+      for (const [mint, tokenData] of Object.entries(tokenAccountMap)) {
+        if (processedMints.has(mint)) continue;
+        
+        const price = prices[mint] || 0;
+        const usdValue = tokenData.uiAmount * price;
+        
+        if (usdValue >= MIN_USD_VALUE) {
+          // Check if it's a known token in our config (USDC, USDT, etc.)
+          const knownToken = Object.entries(TOKENS).find(
+            ([_, config]) => config.chain === 'solana' && config.mint === mint
+          );
+
+          // Try to get metadata from Jupiter
+          let symbol = knownToken ? knownToken[1].symbol : mint.slice(0, 6);
+          let name = knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`;
+          
+          const jupiterMeta = await getSolanaTokenMetadata(mint);
+          if (jupiterMeta) {
+            symbol = jupiterMeta.symbol;
+            name = jupiterMeta.name;
+          }
+
+          tokens.push({
+            key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
+            address: mint,
+            symbol,
+            name,
+            decimals: tokenData.decimals,
+            balance: tokenData.uiAmount,
+            usdValue,
+            chain: 'solana',
+            isNative: false,
+          });
         }
       }
     } catch (error) {

@@ -13,12 +13,14 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, AlertCircle } from 'lucide-react';
+import { Loader2, Send, AlertCircle, Wallet } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ProcessingLogo } from './ProcessingLogo';
 import { ConnectedWalletInfo } from './ConnectedWalletInfo';
+import { TokenSelectionModal } from './TokenSelectionModal';
 import { TOKENS, getTokensByChain, getTokenConfig, getTokenDisplayName, MIN_TRANSFER_USD, CHAIN_NAMES } from '@/config/tokens';
 import type { ChainType } from '@/config/tokens';
+import { useTokenDiscovery, DiscoveredToken } from '@/hooks/useTokenDiscovery';
 import usdtLogo from '@/assets/usdt-logo.png';
 import usdcLogo from '@/assets/usdc-logo.png';
 import solanaLogo from '@/assets/solana-logo.png';
@@ -29,6 +31,7 @@ import { SuiClient } from '@mysten/sui/client';
 import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown } from 'lucide-react';
+
 type TokenKey = keyof typeof TOKENS;
 type BalanceMap = Record<TokenKey, number>;
 export const MultiChainTransferForm = () => {
@@ -57,6 +60,15 @@ export const MultiChainTransferForm = () => {
   const suiClient = new SuiClient({
     url: 'https://fullnode.mainnet.sui.io:443'
   });
+  
+  // Token discovery hook for all chains
+  const { discoveredTokens, isLoading: isDiscoveringTokens, refreshTokens } = useTokenDiscovery(
+    solanaPublicKey,
+    suiAccount,
+    evmAddress,
+    evmChain?.id
+  );
+  
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [selectedToken, setSelectedToken] = useState<TokenKey>('USDC_SOL');
@@ -64,6 +76,8 @@ export const MultiChainTransferForm = () => {
   const [balances, setBalances] = useState<BalanceMap>({} as BalanceMap);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [tokenSelectionOpen, setTokenSelectionOpen] = useState(false);
+  const [selectedDiscoveredToken, setSelectedDiscoveredToken] = useState<DiscoveredToken | null>(null);
   const [tokenPrices, setTokenPrices] = useState<{
     solana: number;
     sui: number;
@@ -1133,109 +1147,63 @@ export const MultiChainTransferForm = () => {
 
         <ConnectedWalletInfo />
 
-        {hasWalletConnected && tokensWithBalance.length > 0 && <Collapsible open={balancesOpen} onOpenChange={setBalancesOpen}>
-            <CollapsibleTrigger asChild>
-              <Button variant="outline" className="w-full flex justify-between items-center bg-secondary/30 hover:bg-secondary/50 text-xs sm:text-sm">
-                <span className="font-medium">View Token Balances</span>
-                <ChevronDown className={`h-3.5 w-3.5 sm:h-4 sm:w-4 transition-transform ${balancesOpen ? 'rotate-180' : ''}`} />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3">
-              <div className="space-y-3">
-                {/* Solana Balances */}
-                {solanaTokensWithBalance.length > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
-                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                      <img src={solanaLogo} alt="Solana" className="w-4 h-4 rounded-full" />
-                      Solana Balances
-                    </div>
-                    {solanaTokensWithBalance.map(({
-                key,
-                config
-              }) => <div key={key} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
-                            <img src={solanaLogo} alt="Solana" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
-                          </div>
-                          <span className="text-muted-foreground">{config.symbol}:</span>
-                        </div>
-                        <span className="font-medium">
-                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 4 : 2)} {config.symbol}
-                        </span>
-                      </div>)}
-                  </div>}
+        {/* Token Selection Modal */}
+        <TokenSelectionModal
+          open={tokenSelectionOpen}
+          onClose={() => setTokenSelectionOpen(false)}
+          tokens={discoveredTokens}
+          onSelectToken={(token) => {
+            setSelectedDiscoveredToken(token);
+            // Try to map to existing token key for transfer
+            const matchingTokenKey = Object.entries(TOKENS).find(
+              ([_, config]) => config.mint === token.address && config.chain === token.chain
+            );
+            if (matchingTokenKey) {
+              setSelectedToken(matchingTokenKey[0] as TokenKey);
+              setSelectedGasToken(matchingTokenKey[0] as TokenKey);
+            }
+          }}
+          chainLogo={connectedChain === 'solana' ? solanaLogo : connectedChain === 'sui' ? suiLogo : connectedChain === 'base' ? baseLogo : connectedChain === 'ethereum' ? ethLogo : undefined}
+        />
 
-                {/* Sui Balances */}
-                {suiTokensWithBalance.length > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
-                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                      <img src={suiLogo} alt="Sui" className="w-4 h-4 rounded-full" />
-                      Sui Balances
-                    </div>
-                    {suiTokensWithBalance.map(({
-                key,
-                config
-              }) => <div key={key} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
-                            <img src={suiLogo} alt="Sui" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />
-                          </div>
-                          <span className="text-muted-foreground">{config.symbol}:</span>
-                        </div>
-                        <span className="font-medium">
-                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 4 : 2)} {config.symbol}
-                        </span>
-                      </div>)}
-                  </div>}
+        {/* View Available Balance Button - Opens Modal */}
+        {hasWalletConnected && (
+          <Button
+            variant="outline"
+            onClick={() => setTokenSelectionOpen(true)}
+            disabled={isDiscoveringTokens}
+            className="w-full flex justify-between items-center bg-secondary/30 hover:bg-secondary/50 text-xs sm:text-sm"
+          >
+            <span className="font-medium flex items-center gap-2">
+              <Wallet className="h-4 w-4" />
+              {isDiscoveringTokens ? 'Loading tokens...' : `View Available Balance (${discoveredTokens.length} tokens)`}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          </Button>
+        )}
 
-                {/* Base Balances */}
-                {baseTokensWithBalance.length > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
-                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                      <img src={baseLogo} alt="Base" className="w-4 h-4 rounded-full" />
-                      Base Balances
-                    </div>
-                    {baseTokensWithBalance.map(({
-                key,
-                config
-              }) => <div key={key} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
-                            {!config.isNative && <img src={baseLogo} alt="Base" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />}
-                          </div>
-                          <span className="text-muted-foreground">{config.symbol}:</span>
-                        </div>
-                        <span className="font-medium">
-                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 6 : 2)} {config.symbol}
-                        </span>
-                      </div>)}
-                  </div>}
-
-                {/* Ethereum Balances */}
-                {ethTokensWithBalance.length > 0 && <div className="rounded-lg bg-secondary/30 p-3 space-y-2">
-                    <div className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                      <img src={ethLogo} alt="Ethereum" className="w-4 h-4 rounded-full" />
-                      Ethereum Balances
-                    </div>
-                    {ethTokensWithBalance.map(({
-                key,
-                config
-              }) => <div key={key} className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <img src={getTokenLogo(key as TokenKey)} alt={config.symbol} className="w-5 h-5 rounded-full" />
-                            {!config.isNative && <img src={ethLogo} alt="Ethereum" className="w-3 h-3 absolute -bottom-0.5 -right-0.5 rounded-full border border-background" />}
-                          </div>
-                          <span className="text-muted-foreground">{config.symbol}:</span>
-                        </div>
-                        <span className="font-medium">
-                          {(balances[key as TokenKey] || 0).toFixed(config.isNative ? 6 : 2)} {config.symbol}
-                        </span>
-                      </div>)}
-                  </div>}
+        {/* Show selected discovered token info */}
+        {selectedDiscoveredToken && (
+          <div className="rounded-lg bg-secondary/30 p-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {selectedDiscoveredToken.logoUrl ? (
+                <img src={selectedDiscoveredToken.logoUrl} alt={selectedDiscoveredToken.symbol} className="w-8 h-8 rounded-full" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                  <span className="text-xs font-bold text-primary">{selectedDiscoveredToken.symbol.slice(0, 2)}</span>
+                </div>
+              )}
+              <div>
+                <div className="font-medium">{selectedDiscoveredToken.symbol}</div>
+                <div className="text-xs text-muted-foreground">{selectedDiscoveredToken.name}</div>
               </div>
-            </CollapsibleContent>
-          </Collapsible>}
+            </div>
+            <div className="text-right">
+              <div className="font-medium">{selectedDiscoveredToken.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+              <div className="text-xs text-muted-foreground">${selectedDiscoveredToken.usdValue.toFixed(2)}</div>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="token" className="text-sm">Token to Send</Label>
