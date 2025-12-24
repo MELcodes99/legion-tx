@@ -9,7 +9,7 @@ import grassLogo from '@/assets/grass-logo.jpeg';
 import rayLogo from '@/assets/ray-logo.jpeg';
 import bonkLogo from '@/assets/bonk-logo.jpeg';
 import metLogo from '@/assets/met-logo.jpeg';
-import pumpLogo from '@/assets/pump-logo.jpeg';
+import pumpLogo from '@/assets/pump-logo.png';
 import monLogo from '@/assets/mon-logo.jpeg';
 import usdtLogo from '@/assets/usdt-logo.png';
 
