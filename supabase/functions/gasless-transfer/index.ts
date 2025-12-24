@@ -2115,18 +2115,32 @@ serve(async (req) => {
           const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenDecimals;
           const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
 
-          // Get expected ATAs for transfer token
+          // Get expected ATAs for transfer token (use correct program for Token-2022 tokens)
           const mintPk = new PublicKey(mint);
           const senderPk = new PublicKey(senderPublicKey);
           const recipientPk = new PublicKey(recipientPublicKey);
           
-          const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
-          const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+          // Determine if transfer token uses Token-2022 program
+          const transferTokenProgram = getTokenProgramId(mint);
+          const isToken2022Transfer = TOKEN_2022_MINTS.has(mint);
+          console.log(`Transfer token ${mint} uses ${isToken2022Transfer ? 'Token-2022' : 'SPL Token'} program`);
+          
+          const senderTransferAta = await getAssociatedTokenAddress(
+            mintPk, senderPk, false, transferTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+          );
+          const recipientTransferAta = await getAssociatedTokenAddress(
+            mintPk, recipientPk, false, transferTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+          );
 
-          // Get expected ATAs for gas token (fee payment)
+          // Get expected ATAs for gas token (fee payment) - gas tokens use standard SPL Token program
           const gasTokenMintPk = new PublicKey(gasTokenMintVal);
-          const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
-          const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+          const gasTokenProgram = getTokenProgramId(gasTokenMintVal);
+          const senderGasAta = await getAssociatedTokenAddress(
+            gasTokenMintPk, senderPk, false, gasTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+          );
+          const backendGasAta = await getAssociatedTokenAddress(
+            gasTokenMintPk, backendWallet.publicKey, false, gasTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+          );
 
           // SECURITY: Validate transaction structure for NEW FEE MODEL
           const instructions = transaction.instructions;
@@ -2150,11 +2164,16 @@ serve(async (req) => {
           for (let i = 0; i < instructions.length; i++) {
             const instruction = instructions[i];
             
-            // Skip ATA creation instructions (they use a different program)
-            if (!instruction.programId.equals(TOKEN_PROGRAM_ID)) {
-              console.log(`Skipping instruction ${i + 1}: Not a token transfer (different program)`);
+            // Check if this is a token program instruction (either SPL Token or Token-2022)
+            const isTokenProgram = instruction.programId.equals(TOKEN_PROGRAM_ID);
+            const isToken2022Program = instruction.programId.equals(TOKEN_2022_PROGRAM_ID);
+            
+            if (!isTokenProgram && !isToken2022Program) {
+              console.log(`Skipping instruction ${i + 1}: Not a token transfer (different program: ${instruction.programId.toBase58()})`);
               continue;
             }
+            
+            console.log(`Instruction ${i + 1} uses ${isToken2022Program ? 'Token-2022' : 'SPL Token'} program`);
 
             // Check if it's a transfer instruction (instruction discriminator: 3 for Transfer)
             if (instruction.data.length === 9 && instruction.data[0] === 3) {
