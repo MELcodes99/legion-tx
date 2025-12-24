@@ -561,28 +561,38 @@ serve(async (req) => {
         // Fall through to the later EVM block which has proper balance/allowance checking
       }
 
-      // SECURITY: Validate token mint against whitelist (Solana/Sui only)
+      // SECURITY: Validate gas token (must be USDC, USDT, or native) for Solana/Sui
+      // Transfer token can be ANY SPL/SUI token - users can send any token they own
       if (chain === 'solana' || chain === 'sui') {
-        if (!(mint in ALLOWED_TOKENS)) {
+        // Get the gas token config - this determines what token pays the fee
+        const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
+        const actualGasTokenMint = gasTokenConfig ? gasTokenConfig.mint : mint;
+        
+        // Only validate gas token is in allowed list (USDC, USDT, or native)
+        // Transfer token can be any valid SPL/SUI token
+        if (gasTokenConfig && !(actualGasTokenMint in ALLOWED_TOKENS) && !gasTokenConfig.isNative) {
           return new Response(
             JSON.stringify({ 
-              error: 'Invalid token mint',
-              details: 'Only USDC and USDT are supported'
+              error: 'Invalid gas token',
+              details: 'Gas fees can only be paid with USDC, USDT, SOL, or SUI'
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
-
-        // SECURITY: Validate decimals match expected value
-        const allowedToken = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
-        if (decimals !== allowedToken.decimals) {
-          return new Response(
-            JSON.stringify({ 
-              error: 'Invalid token decimals',
-              details: `${allowedToken.name} requires ${allowedToken.decimals} decimals`
-            }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+        
+        // For the transfer token, just validate it's a valid public key format (Solana)
+        if (chain === 'solana') {
+          try {
+            new PublicKey(mint);
+          } catch {
+            return new Response(
+              JSON.stringify({ 
+                error: 'Invalid token mint address',
+                details: 'The provided mint address is not a valid Solana public key'
+              }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
         }
       }
 
@@ -722,7 +732,8 @@ serve(async (req) => {
 
         // CRITICAL: Validate sender has sufficient balance for both transfer and fee
         const usesSameTokenForGas = gasTokenMint === mint;
-        const transferTokenInfo = ALLOWED_TOKENS[mint];
+        // Use passed tokenSymbol for display, fallback to ALLOWED_TOKENS or 'Token'
+        const transferTokenName = tokenSymbol || ALLOWED_TOKENS[mint]?.name || 'Token';
         
         if (usesSameTokenForGas) {
           // Check if sender has enough of the transfer token for BOTH transfer and fee
@@ -745,7 +756,7 @@ serve(async (req) => {
             return new Response(
               JSON.stringify({
                 error: 'Insufficient balance',
-                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenInfo.name} but need ${totalNeededReadable.toFixed(4)} (${amount} transfer + $${feeAmountUSD} fee)`,
+                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenName} but need ${totalNeededReadable.toFixed(4)} (${amount} transfer + $${feeAmountUSD} fee)`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
@@ -775,7 +786,7 @@ serve(async (req) => {
             return new Response(
               JSON.stringify({
                 error: 'Insufficient transfer token balance',
-                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenInfo.name} but need ${amount}`,
+                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenName} but need ${amount}`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
@@ -868,7 +879,7 @@ serve(async (req) => {
           JSON.stringify({
             transaction: base64Tx,
             backendWallet: backendWallet.publicKey.toBase58(),
-            message: `Atomic transaction: Send ${effectiveTokenAmount} ${transferTokenInfo?.name || tokenSymbol} ($${effectiveAmountUSD}) to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
+            message: `Atomic transaction: Send ${effectiveTokenAmount} ${transferTokenName} ($${effectiveAmountUSD}) to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
             amounts: {
               transferToRecipient: transferAmountSmallest.toString(),
               tokenAmount: transferAmountSmallest.toString(),
