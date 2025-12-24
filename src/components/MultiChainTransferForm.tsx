@@ -525,32 +525,39 @@ export const MultiChainTransferForm = () => {
   const handleTransfer = async () => {
     const tokenConfig = selectedTokenConfig;
     if (!tokenConfig) return;
-    if (tokenConfig.chain === 'solana' && (!solanaPublicKey || !solanaSignTransaction)) {
+    
+    // Determine the actual transfer token details (from discovered token or config)
+    const actualMint = selectedDiscoveredToken?.address || tokenConfig.mint;
+    const actualDecimals = selectedDiscoveredToken?.decimals || tokenConfig.decimals;
+    const actualSymbol = selectedDiscoveredToken?.symbol || tokenConfig.symbol;
+    const actualChain = selectedDiscoveredToken?.chain || tokenConfig.chain;
+    
+    if (actualChain === 'solana' && (!solanaPublicKey || !solanaSignTransaction)) {
       return;
     }
-    if (tokenConfig.chain === 'sui' && !suiAccount) {
+    if (actualChain === 'sui' && !suiAccount) {
       return;
     }
-    if ((tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') && !evmAddress) {
+    if ((actualChain === 'base' || actualChain === 'ethereum') && !evmAddress) {
       return;
     }
     setError('');
     setIsLoading(true);
     try {
-      if (!tokenConfig) throw new Error('Invalid token selected');
+      if (!tokenConfig && !selectedDiscoveredToken) throw new Error('Invalid token selected');
       const amountUSD = parseFloat(amount);
       
       // Calculate token amount from USD
       const getTokenAmountFromUSD = (usdValue: number) => {
         // For stablecoins, 1:1 with USD
-        if (tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT') {
+        if (actualSymbol === 'USDC' || actualSymbol === 'USDT') {
           return usdValue;
         }
         // For native tokens, convert using real-time prices
         if (tokenPrices) {
-          if (tokenConfig.symbol === 'SOL') return usdValue / tokenPrices.solana;
-          if (tokenConfig.symbol === 'SUI') return usdValue / tokenPrices.sui;
-          if (tokenConfig.symbol === 'ETH') return usdValue / tokenPrices.ethereum;
+          if (actualSymbol === 'SOL') return usdValue / tokenPrices.solana;
+          if (actualSymbol === 'SUI') return usdValue / tokenPrices.sui;
+          if (actualSymbol === 'ETH') return usdValue / tokenPrices.ethereum;
         }
         // For discovered tokens with USD value
         if (selectedDiscoveredToken && selectedDiscoveredToken.usdValue > 0 && selectedDiscoveredToken.balance > 0) {
@@ -561,19 +568,22 @@ export const MultiChainTransferForm = () => {
       };
       
       const tokenAmount = getTokenAmountFromUSD(amountUSD);
-      const isStablecoin = tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT';
+      const isStablecoin = actualSymbol === 'USDC' || actualSymbol === 'USDT';
       
       console.log('=== MULTI-CHAIN GASLESS TRANSFER START ===');
-      console.log('Chain:', tokenConfig.chain);
+      console.log('Chain:', actualChain);
       console.log('Token:', selectedToken);
+      console.log('Transfer Token Mint:', actualMint);
+      console.log('Transfer Token Symbol:', actualSymbol);
       console.log('Amount USD:', amountUSD);
       console.log('Token Amount:', tokenAmount);
       console.log('Gas token:', selectedGasToken);
+      console.log('Selected Discovered Token:', selectedDiscoveredToken);
       
-      if (tokenConfig.chain === 'solana') {
+      if (actualChain === 'solana') {
         toast({
           title: 'Building transaction...',
-          description: 'Creating gasless transfer on Solana'
+          description: `Creating gasless transfer of ${actualSymbol} on Solana`
         });
         const buildResponse = await supabase.functions.invoke('gasless-transfer', {
           body: {
@@ -583,10 +593,10 @@ export const MultiChainTransferForm = () => {
             recipientPublicKey: recipient,
             amountUSD: amountUSD,
             tokenAmount: tokenAmount,
-            mint: tokenConfig.mint,
-            decimals: tokenConfig.decimals,
+            mint: actualMint,
+            decimals: actualDecimals,
             gasToken: selectedGasToken,
-            tokenSymbol: tokenConfig.symbol
+            tokenSymbol: actualSymbol
           }
         });
         if (buildResponse.error) {
@@ -597,7 +607,7 @@ export const MultiChainTransferForm = () => {
           amounts
         } = buildResponse.data;
         const fee = amounts?.feeUSD || gasFee;
-        const actualTokenAmount = amounts?.tokenAmount ? parseFloat(amounts.tokenAmount) / Math.pow(10, tokenConfig.decimals) : tokenAmount;
+        const actualTokenAmountFromBackend = amounts?.tokenAmount ? parseFloat(amounts.tokenAmount) / Math.pow(10, actualDecimals) : tokenAmount;
         const binaryString = atob(base64Tx);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
@@ -607,7 +617,7 @@ export const MultiChainTransferForm = () => {
         const transaction = Transaction.from(bytes);
         toast({
           title: 'Sign the transaction',
-          description: `Approve sending ${isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6)} ${tokenConfig.symbol}`
+          description: `Approve sending ${isStablecoin ? actualTokenAmountFromBackend.toFixed(2) : actualTokenAmountFromBackend.toFixed(6)} ${actualSymbol}`
         });
         const signedTx = await solanaSignTransaction!(transaction);
         const serialized = signedTx.serialize({
@@ -628,7 +638,7 @@ export const MultiChainTransferForm = () => {
             recipientPublicKey: recipient,
             amountUSD: amountUSD,
             tokenAmount: tokenAmount,
-            mint: tokenConfig.mint,
+            mint: actualMint,
             gasToken: selectedGasToken
           }
         });
@@ -639,21 +649,21 @@ export const MultiChainTransferForm = () => {
           signature
         } = submitResponse.data;
         const gasTokenConfig = getTokenConfig(selectedGasToken);
-        const displayAmount = isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6);
-        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint 
+        const displayAmount = isStablecoin ? actualTokenAmountFromBackend.toFixed(2) : actualTokenAmountFromBackend.toFixed(6);
+        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== actualMint 
           ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}` 
           : `Fee: $${fee.toFixed(2)}`;
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${displayAmount} ${tokenConfig.symbol} ($${amountUSD.toFixed(2)}). ${feeMessage}`
+          description: `Sent ${displayAmount} ${actualSymbol} ($${amountUSD.toFixed(2)}). ${feeMessage}`
         });
         setRecipient('');
         setAmount('');
-      } else if (tokenConfig.chain === 'sui') {
+      } else if (actualChain === 'sui') {
         if (!suiAccount) throw new Error('Sui wallet not connected');
         toast({
           title: 'Building transaction...',
-          description: 'Creating gasless transfer on Sui'
+          description: `Creating gasless transfer of ${actualSymbol} on Sui`
         });
         const buildResponse = await supabase.functions.invoke('gasless-transfer', {
           body: {
@@ -663,10 +673,10 @@ export const MultiChainTransferForm = () => {
             recipientPublicKey: recipient,
             amountUSD: amountUSD,
             tokenAmount: tokenAmount,
-            mint: tokenConfig.mint,
-            decimals: tokenConfig.decimals,
+            mint: actualMint,
+            decimals: actualDecimals,
             gasToken: selectedGasToken,
-            tokenSymbol: tokenConfig.symbol
+            tokenSymbol: actualSymbol
           }
         });
         if (buildResponse.error) {
@@ -677,10 +687,10 @@ export const MultiChainTransferForm = () => {
           amounts: suiAmounts
         } = buildResponse.data;
         const fee = suiAmounts?.feeUSD || gasFee;
-        const actualTokenAmount = suiAmounts?.tokenAmount ? parseFloat(suiAmounts.tokenAmount) / Math.pow(10, tokenConfig.decimals) : tokenAmount;
+        const suiActualTokenAmount = suiAmounts?.tokenAmount ? parseFloat(suiAmounts.tokenAmount) / Math.pow(10, actualDecimals) : tokenAmount;
         toast({
           title: 'Sign the transaction',
-          description: `Approve sending ${isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6)} ${tokenConfig.symbol}`
+          description: `Approve sending ${isStablecoin ? suiActualTokenAmount.toFixed(2) : suiActualTokenAmount.toFixed(6)} ${actualSymbol}`
         });
         const binaryString = atob(base64Tx);
         const txBytes = new Uint8Array(binaryString.length);
@@ -705,7 +715,7 @@ export const MultiChainTransferForm = () => {
             recipientPublicKey: recipient,
             amountUSD: amountUSD,
             tokenAmount: tokenAmount,
-            mint: tokenConfig.mint,
+            mint: actualMint,
             gasToken: selectedGasToken
           }
         });
@@ -716,36 +726,36 @@ export const MultiChainTransferForm = () => {
           digest
         } = submitResponse.data;
         const gasTokenConfig = getTokenConfig(selectedGasToken);
-        const displayAmount = isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6);
-        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== tokenConfig.mint 
+        const displayAmount = isStablecoin ? suiActualTokenAmount.toFixed(2) : suiActualTokenAmount.toFixed(6);
+        const feeMessage = gasTokenConfig && gasTokenConfig.mint !== actualMint 
           ? `Gas fee of $${fee.toFixed(2)} paid with ${gasTokenConfig.symbol}` 
           : `Fee: $${fee.toFixed(2)}`;
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${displayAmount} ${tokenConfig.symbol} ($${amountUSD.toFixed(2)}). ${feeMessage}`
+          description: `Sent ${displayAmount} ${actualSymbol} ($${amountUSD.toFixed(2)}). ${feeMessage}`
         });
         setRecipient('');
         setAmount('');
-      } else if (tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum') {
+      } else if (actualChain === 'base' || actualChain === 'ethereum') {
         if (!evmAddress) throw new Error('EVM wallet not connected');
         toast({
           title: 'Building transaction...',
-          description: `Creating gasless transfer on ${CHAIN_NAMES[tokenConfig.chain]}`
+          description: `Creating gasless transfer of ${actualSymbol} on ${CHAIN_NAMES[actualChain]}`
         });
 
         // Get transaction parameters from backend
         const buildResponse = await supabase.functions.invoke('gasless-transfer', {
           body: {
             action: 'build_atomic_tx',
-            chain: tokenConfig.chain,
+            chain: actualChain,
             senderPublicKey: evmAddress,
             recipientPublicKey: recipient,
             amountUSD: amountUSD,
             tokenAmount: tokenAmount,
-            mint: tokenConfig.isNative ? 'native' : tokenConfig.mint,
-            decimals: tokenConfig.decimals,
+            mint: tokenConfig?.isNative ? 'native' : actualMint,
+            decimals: actualDecimals,
             gasToken: selectedGasToken,
-            tokenSymbol: tokenConfig.symbol
+            tokenSymbol: actualSymbol
           }
         });
         if (buildResponse.error) {
@@ -769,12 +779,12 @@ export const MultiChainTransferForm = () => {
           
           const permit2Address = buildData.permit2Address as `0x${string}`;
           const maxApproval = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
-          const targetChain = tokenConfig.chain === 'base' ? base : mainnet;
+          const targetChain = actualChain === 'base' ? base : mainnet;
           
           try {
             // Send approval transaction to Permit2 contract
             const approvalHash = await walletClient!.writeContract({
-              address: tokenConfig.mint as `0x${string}`,
+              address: actualMint as `0x${string}`,
               abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
               functionName: 'approve',
               args: [permit2Address, maxApproval],
@@ -856,8 +866,8 @@ export const MultiChainTransferForm = () => {
         console.log('Using EVM sender address:', senderAddress);
 
         // Calculate display amounts
-        const transferAmountDisplay = Number(transferAmount) / Math.pow(10, tokenConfig.decimals);
-        const feeAmountDisplay = Number(feeAmount) / Math.pow(10, tokenConfig.decimals);
+        const transferAmountDisplay = Number(transferAmount) / Math.pow(10, actualDecimals);
+        const feeAmountDisplay = Number(feeAmount) / Math.pow(10, actualDecimals);
         const totalAmountDisplay = transferAmountDisplay + feeAmountDisplay;
 
         // Variables for permit signatures
@@ -875,8 +885,8 @@ export const MultiChainTransferForm = () => {
         if (supportsNativePermit && permitDomain) {
           // Sign EIP-2612 Permit (gasless approval - no ETH needed!)
           toast({
-            title: `Sign Permit for ${tokenConfig.symbol}`,
-            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol} (no gas required)`,
+            title: `Sign Permit for ${actualSymbol}`,
+            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${actualSymbol} (no gas required)`,
             duration: 10000,
           });
 
@@ -931,8 +941,8 @@ export const MultiChainTransferForm = () => {
         } else if (usePermit2 && permitDomain) {
           // Sign Permit2 (universal gasless permit - for USDT and other tokens)
           toast({
-            title: `Sign Permit2 for ${tokenConfig.symbol}`,
-            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${tokenConfig.symbol} via Permit2`,
+            title: `Sign Permit2 for ${actualSymbol}`,
+            description: `Authorizing gasless transfer of ${totalAmountDisplay.toFixed(2)} ${actualSymbol} via Permit2`,
             duration: 10000,
           });
 
@@ -991,15 +1001,15 @@ export const MultiChainTransferForm = () => {
         } else if (needsApproval || feeTokenNeedsApproval) {
           // Token doesn't support any permit - user needs ETH for on-chain approval
           throw new Error(
-            `${tokenConfig.symbol} requires a one-time approval of the Permit2 contract. ` +
-            `Please approve Permit2 (${permit2Address}) for ${tokenConfig.symbol} first, then retry.`
+            `${actualSymbol} requires a one-time approval of the Permit2 contract. ` +
+            `Please approve Permit2 (${permit2Address}) for ${actualSymbol} first, then retry.`
           );
         }
 
         // Step 2: Sign EIP-712 typed data for authorization
         toast({
-          title: `Sign Transfer: ${transferAmountDisplay} ${tokenConfig.symbol}`,
-          description: `To: ${recipient.slice(0, 6)}...${recipient.slice(-4)} | Fee: ${feeAmountDisplay} ${tokenConfig.symbol} ($${feeAmountUSD.toFixed(2)})`,
+          title: `Sign Transfer: ${transferAmountDisplay} ${actualSymbol}`,
+          description: `To: ${recipient.slice(0, 6)}...${recipient.slice(-4)} | Fee: ${feeAmountDisplay} ${actualSymbol} ($${feeAmountUSD.toFixed(2)})`,
           duration: 10000,
         });
 
@@ -1051,7 +1061,7 @@ export const MultiChainTransferForm = () => {
         const executeResponse = await supabase.functions.invoke('gasless-transfer', {
           body: {
             action: 'execute_evm_transfer',
-            chain: tokenConfig.chain,
+            chain: actualChain,
             senderAddress: senderAddress,
             recipientAddress: recipient,
             transferAmount,
@@ -1090,7 +1100,7 @@ export const MultiChainTransferForm = () => {
         const displayAmount = isStablecoin ? tokenAmount.toFixed(2) : tokenAmount.toFixed(6);
         toast({
           title: 'Transfer Successful!',
-          description: `Sent ${displayAmount} ${tokenConfig.symbol} ($${amountUSD.toFixed(2)}) to recipient. Fee: $${feeAmountUSD.toFixed(2)}. Gas paid by backend.`
+          description: `Sent ${displayAmount} ${actualSymbol} ($${amountUSD.toFixed(2)}) to recipient. Fee: $${feeAmountUSD.toFixed(2)}. Gas paid by backend.`
         });
         console.log('Gasless transfer complete:', explorerUrl);
         setRecipient('');
@@ -1201,7 +1211,30 @@ export const MultiChainTransferForm = () => {
             );
             if (matchingTokenKey) {
               setSelectedToken(matchingTokenKey[0] as TokenKey);
-              setSelectedGasToken(matchingTokenKey[0] as TokenKey);
+              // Only set gas token to a stablecoin on the same chain (USDC preferred)
+              // Don't override if user already selected a valid gas token for this chain
+              const currentGasConfig = getTokenConfig(selectedGasToken);
+              if (!currentGasConfig || currentGasConfig.chain !== token.chain) {
+                // Find USDC on the same chain as default gas token
+                const usdcOnChain = Object.entries(TOKENS).find(
+                  ([_, config]) => config.symbol === 'USDC' && config.chain === token.chain
+                );
+                if (usdcOnChain) {
+                  setSelectedGasToken(usdcOnChain[0] as TokenKey);
+                } else {
+                  // Fallback to the token itself if no USDC on chain
+                  setSelectedGasToken(matchingTokenKey[0] as TokenKey);
+                }
+              }
+            } else {
+              // For discovered tokens not in TOKENS config, find appropriate gas token
+              const usdcOnChain = Object.entries(TOKENS).find(
+                ([_, config]) => config.symbol === 'USDC' && config.chain === token.chain
+              );
+              if (usdcOnChain) {
+                setSelectedToken(usdcOnChain[0] as TokenKey); // Temporary - will use discovered token data
+                setSelectedGasToken(usdcOnChain[0] as TokenKey);
+              }
             }
           }}
           chainLogo={connectedChain === 'solana' ? solanaLogo : connectedChain === 'sui' ? suiLogo : connectedChain === 'base' ? baseLogo : connectedChain === 'ethereum' ? ethLogo : undefined}
