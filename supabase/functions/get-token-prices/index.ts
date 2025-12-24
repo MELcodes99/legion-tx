@@ -276,6 +276,40 @@ serve(async (req) => {
       }
     }
 
+    // For PUMP token - Use GeckoTerminal API for accurate price
+    const pumpAddress = 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn';
+    if (!prices[pumpAddress] && solanaTokens.includes(pumpAddress)) {
+      console.log('Fetching PUMP price from GeckoTerminal...');
+      
+      try {
+        const geckoTerminalResponse = await fetch(
+          `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${pumpAddress}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (geckoTerminalResponse.ok) {
+          const geckoTerminalData = await geckoTerminalResponse.json();
+          console.log('GeckoTerminal response for PUMP:', JSON.stringify(geckoTerminalData));
+          const priceUsd = geckoTerminalData.data?.attributes?.price_usd;
+          if (priceUsd) {
+            prices[pumpAddress] = parseFloat(priceUsd);
+            console.log('PUMP price from GeckoTerminal:', prices[pumpAddress]);
+          }
+        }
+      } catch (e) {
+        console.log('GeckoTerminal price fetch failed for PUMP:', e);
+      }
+      
+      // If GeckoTerminal fails, try CoinGecko with pump-fun ID
+      if (!prices[pumpAddress]) {
+        console.log('GeckoTerminal failed, trying CoinGecko for PUMP...');
+        const pumpGeckoPrices = await fetchCoinGeckoPrices(['pump-fun']);
+        if (pumpGeckoPrices['pump-fun']) {
+          prices[pumpAddress] = pumpGeckoPrices['pump-fun'];
+          console.log('PUMP price from CoinGecko:', prices[pumpAddress]);
+        }
+      }
+    }
+
     // Merge CoinGecko prices by mapping back to addresses
     for (const [address, geckoId] of Object.entries(addressToGeckoId)) {
       if (geckoPrices[geckoId]) {
