@@ -1963,7 +1963,7 @@ serve(async (req) => {
 
     // Action: Submit atomic tx (User signed + backend co-signs)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, senderPublicKey, recipientPublicKey, userSignature } = body as {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature } = body as {
         signedTransaction: string;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         mint?: string;
@@ -1972,6 +1972,7 @@ serve(async (req) => {
         amountUSD?: number;
         tokenAmount?: number;
         decimals?: number;
+        transferAmountSmallest?: string | number;
         senderPublicKey?: string;
         recipientPublicKey?: string;
         userSignature?: string;
@@ -2058,9 +2059,19 @@ serve(async (req) => {
           const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
           const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
           
-          // Use effectiveAmount (already validated above) and decimals from request
+          // Use the exact amount passed from build_atomic_tx if available (avoids rounding mismatches)
+          // Otherwise calculate from effectiveAmount and decimals
           const tokenDecimals = decimals || 6; // Default to 6 decimals if not provided
-          const transferAmountSmallest = BigInt(Math.round(effectiveAmount * Math.pow(10, tokenDecimals)));
+          const transferAmountSmallest = passedTransferAmount 
+            ? BigInt(passedTransferAmount.toString()) 
+            : BigInt(Math.round(effectiveAmount * Math.pow(10, tokenDecimals)));
+          
+          console.log('Transfer amount calculation:', {
+            passedTransferAmount,
+            effectiveAmount,
+            tokenDecimals,
+            calculatedTransferAmountSmallest: transferAmountSmallest.toString()
+          });
           
           // Determine gas token info for fee validation
           const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
