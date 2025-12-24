@@ -22,12 +22,22 @@ export const TokenSelectionModal = ({
 }: TokenSelectionModalProps) => {
   const [searchQuery, setSearchQuery] = useState('');
 
+  // PUMP token mint address - disabled for now
+  const DISABLED_TOKENS = new Set([
+    'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', // PUMP
+  ]);
+
+  const isTokenDisabled = (token: DiscoveredToken) => {
+    return DISABLED_TOKENS.has(token.address);
+  };
+
   const filteredTokens = tokens.filter(token =>
     token.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
     token.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleSelect = (token: DiscoveredToken) => {
+    if (isTokenDisabled(token)) return;
     onSelectToken(token);
     onClose();
     setSearchQuery('');
@@ -64,55 +74,77 @@ export const TokenSelectionModal = ({
                   : 'No tokens match your search'}
               </div>
             ) : (
-              filteredTokens.map((token) => (
-                <button
-                  key={token.key}
-                  onClick={() => handleSelect(token)}
-                  className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-secondary/50 transition-colors group"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      {token.logoUrl ? (
-                        <img
-                          src={token.logoUrl}
-                          alt={token.symbol}
-                          className="w-9 h-9 rounded-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center">
-                          <span className="text-xs font-bold text-primary">
-                            {token.symbol.slice(0, 2)}
-                          </span>
+              filteredTokens.map((token) => {
+                const disabled = isTokenDisabled(token);
+                return (
+                  <button
+                    key={token.key}
+                    onClick={() => handleSelect(token)}
+                    disabled={disabled}
+                    className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors group ${
+                      disabled 
+                        ? 'opacity-50 cursor-not-allowed' 
+                        : 'hover:bg-secondary/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        {token.logoUrl ? (
+                          <img
+                            src={token.logoUrl}
+                            alt={token.symbol}
+                            className={`w-9 h-9 rounded-full object-cover ${disabled ? 'grayscale' : ''}`}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                            disabled ? 'bg-muted' : 'bg-primary/20'
+                          }`}>
+                            <span className={`text-xs font-bold ${disabled ? 'text-muted-foreground' : 'text-primary'}`}>
+                              {token.symbol.slice(0, 2)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-left">
+                        <div className={`font-medium transition-colors ${
+                          disabled 
+                            ? 'text-muted-foreground' 
+                            : 'text-foreground group-hover:text-primary'
+                        }`}>
+                          {token.symbol}
                         </div>
+                        <div className="text-xs text-muted-foreground">
+                          {token.name}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      {disabled ? (
+                        <div className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
+                          Coming Soon
+                        </div>
+                      ) : (
+                        <>
+                          <div className="font-medium text-foreground">
+                            {token.balance.toLocaleString(undefined, { 
+                              maximumFractionDigits: token.isNative ? 6 : 2 
+                            })}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            ${token.usdValue.toLocaleString(undefined, { 
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2 
+                            })}
+                          </div>
+                        </>
                       )}
                     </div>
-                    <div className="text-left">
-                      <div className="font-medium text-foreground group-hover:text-primary transition-colors">
-                        {token.symbol}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {token.name}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium text-foreground">
-                      {token.balance.toLocaleString(undefined, { 
-                        maximumFractionDigits: token.isNative ? 6 : 2 
-                      })}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      ${token.usdValue.toLocaleString(undefined, { 
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2 
-                      })}
-                    </div>
-                  </div>
-                </button>
-              ))
+                  </button>
+                );
+              })
             )}
           </div>
         </ScrollArea>
