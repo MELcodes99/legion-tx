@@ -607,7 +607,9 @@ export const MultiChainTransferForm = () => {
           amounts
         } = buildResponse.data;
         const fee = amounts?.feeUSD || gasFee;
-        const actualTokenAmountFromBackend = amounts?.tokenAmount ? parseFloat(amounts.tokenAmount) / Math.pow(10, actualDecimals) : tokenAmount;
+        // Use the exact token amount from backend (in smallest units) for validation consistency
+        const transferAmountSmallest = amounts?.transferToRecipient || amounts?.tokenAmount;
+        const actualTokenAmountFromBackend = transferAmountSmallest ? parseFloat(transferAmountSmallest) / Math.pow(10, actualDecimals) : tokenAmount;
         const binaryString = atob(base64Tx);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
@@ -629,6 +631,7 @@ export const MultiChainTransferForm = () => {
           title: 'Submitting transaction...',
           description: 'Processing your transfer'
         });
+        // Pass the exact smallest units amount from the build response for perfect validation match
         const submitResponse = await supabase.functions.invoke('gasless-transfer', {
           body: {
             action: 'submit_atomic_tx',
@@ -637,9 +640,12 @@ export const MultiChainTransferForm = () => {
             senderPublicKey: solanaPublicKey!.toBase58(),
             recipientPublicKey: recipient,
             amountUSD: amountUSD,
-            tokenAmount: tokenAmount,
+            tokenAmount: actualTokenAmountFromBackend,
+            transferAmountSmallest: transferAmountSmallest,
             mint: actualMint,
-            gasToken: selectedGasToken
+            decimals: actualDecimals,
+            gasToken: selectedGasToken,
+            tokenSymbol: actualSymbol
           }
         });
         if (submitResponse.error) {
