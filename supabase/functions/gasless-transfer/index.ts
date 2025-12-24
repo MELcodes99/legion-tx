@@ -14,7 +14,20 @@ import {
   getAssociatedTokenAddress,
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from 'https://esm.sh/@solana/spl-token@0.4.14';
+
+// Known Token-2022 tokens (these use the Token-2022 program instead of standard SPL Token)
+const TOKEN_2022_MINTS = new Set([
+  'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', // PUMP
+]);
+
+// Helper function to get the correct token program for a mint
+function getTokenProgramId(mint: string): PublicKey {
+  return TOKEN_2022_MINTS.has(mint) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+}
 import { SuiClient } from 'https://esm.sh/@mysten/sui@1.44.0/client';
 import { Transaction as SuiTransaction } from 'https://esm.sh/@mysten/sui@1.44.0/transactions';
 import { Ed25519Keypair } from 'https://esm.sh/@mysten/sui@1.44.0/keypairs/ed25519';
@@ -710,14 +723,28 @@ serve(async (req) => {
           networkGasPaidBy: 'backend SOL balance',
         });
 
-        // Get transfer token ATAs
-        const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
-        const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+        // Determine the correct token program for the transfer token (SPL or Token-2022)
+        const transferTokenProgram = getTokenProgramId(mint);
+        const isToken2022 = TOKEN_2022_MINTS.has(mint);
+        console.log(`Transfer token ${mint} uses ${isToken2022 ? 'Token-2022' : 'SPL Token'} program`);
 
-        // Get gas token ATAs (for fee payment)
+        // Get transfer token ATAs with correct program ID
+        const senderTransferAta = await getAssociatedTokenAddress(
+          mintPk, senderPk, false, transferTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+        const recipientTransferAta = await getAssociatedTokenAddress(
+          mintPk, recipientPk, false, transferTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+
+        // Get gas token ATAs (for fee payment) - gas tokens are always standard SPL
         const gasTokenMintPk = new PublicKey(gasTokenMint);
-        const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
-        const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+        const gasTokenProgram = getTokenProgramId(gasTokenMint);
+        const senderGasAta = await getAssociatedTokenAddress(
+          gasTokenMintPk, senderPk, false, gasTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+        const backendGasAta = await getAssociatedTokenAddress(
+          gasTokenMintPk, backendWallet.publicKey, false, gasTokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID
+        );
 
         console.log('Token accounts:', {
           transfer: {
@@ -815,12 +842,16 @@ serve(async (req) => {
           console.log('Recipient ATA does not exist, will create...');
         }
 
-        // Ensure backend's gas token ATA exists
+        // Ensure backend's gas token ATA exists (use correct program ID)
         await getOrCreateAssociatedTokenAccount(
           connection,
           backendWallet,
           gasTokenMintPk,
-          backendWallet.publicKey
+          backendWallet.publicKey,
+          false, // allowOwnerOffCurve
+          undefined, // commitment
+          undefined, // confirmOptions
+          gasTokenProgram // programId
         );
 
         // Build atomic transaction with ALL instructions
@@ -834,37 +865,42 @@ serve(async (req) => {
         // CRITICAL: Backend wallet pays all network fees
         transaction.feePayer = backendWallet.publicKey;
         
-        // If recipient ATA doesn't exist, add instruction to create it
+        // If recipient ATA doesn't exist, add instruction to create it (with correct program ID)
         if (!recipientAtaExists) {
-          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
           transaction.add(
             createAssociatedTokenAccountInstruction(
               backendWallet.publicKey, // payer
               recipientTransferAta,    // ata
               recipientPk,             // owner
-              mintPk                   // mint
+              mintPk,                  // mint
+              transferTokenProgram,    // programId (SPL or Token-2022)
+              ASSOCIATED_TOKEN_PROGRAM_ID
             )
           );
-          console.log('Added instruction to create recipient ATA');
+          console.log(`Added instruction to create recipient ATA (${isToken2022 ? 'Token-2022' : 'SPL Token'})`);
         }
 
-        // INSTRUCTION 1: Sender → Recipient (FULL transfer amount)
+        // INSTRUCTION 1: Sender → Recipient (FULL transfer amount) - use correct program ID
         transaction.add(
           createTransferInstruction(
             senderTransferAta,         // source
             recipientTransferAta,       // destination
             senderPk,                   // authority (sender signs)
-            transferAmountSmallest     // amount
+            transferAmountSmallest,    // amount
+            [],                        // multiSigners
+            transferTokenProgram       // programId (SPL or Token-2022)
           )
         );
 
-        // INSTRUCTION 2: Sender → Backend (fee in gas token)
+        // INSTRUCTION 2: Sender → Backend (fee in gas token) - use correct program ID
         transaction.add(
           createTransferInstruction(
             senderGasAta,              // source
             backendGasAta,             // destination
             senderPk,                  // authority (sender signs)
-            feeSmallest               // fee amount
+            feeSmallest,              // fee amount
+            [],                        // multiSigners
+            gasTokenProgram           // programId
           )
         );
 
