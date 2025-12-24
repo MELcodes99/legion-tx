@@ -1963,12 +1963,15 @@ serve(async (req) => {
 
     // Action: Submit atomic tx (User signed + backend co-signs)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, chain = 'solana', mint, gasToken, amount, senderPublicKey, recipientPublicKey, userSignature } = body as {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, senderPublicKey, recipientPublicKey, userSignature } = body as {
         signedTransaction: string;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         mint?: string;
         gasToken?: string;
         amount?: number;
+        amountUSD?: number;
+        tokenAmount?: number;
+        decimals?: number;
         senderPublicKey?: string;
         recipientPublicKey?: string;
         userSignature?: string;
@@ -2007,21 +2010,18 @@ serve(async (req) => {
           console.log('Transaction has', transaction.signatures.length, 'signature slots');
           console.log('Fee payer:', transaction.feePayer?.toBase58());
           
-          // Verify the transaction structure
-          if (!mint || !amount || !senderPublicKey || !recipientPublicKey) {
+          // Verify the transaction structure - accept amount, amountUSD, or tokenAmount
+          const effectiveAmount = amount || amountUSD || tokenAmount;
+          if (!mint || !effectiveAmount || !senderPublicKey || !recipientPublicKey) {
             return new Response(
               JSON.stringify({ error: 'Missing transaction details for validation' }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
           }
 
-          const tokenInfo = ALLOWED_TOKENS[mint];
-          if (!tokenInfo) {
-            return new Response(
-              JSON.stringify({ error: 'Invalid token mint' }),
-              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
+          // For any SPL token - just verify the mint is valid, don't require it's in ALLOWED_TOKENS
+          // The gas token must be in allowed list, but transfer token can be any SPL token
+          // Skip strict validation for non-whitelisted tokens
 
           // Calculate expected amounts
           const feeAmountUSD = CHAIN_CONFIG.solana.gasFee;
@@ -2058,13 +2058,14 @@ serve(async (req) => {
           const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
           const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
           
-          // Calculate expected values for NEW FEE MODEL
-          const transferAmountSmallest = BigInt(Math.round(amount * Math.pow(10, tokenInfo.decimals)));
+          // Use effectiveAmount (already validated above) and decimals from request
+          const tokenDecimals = decimals || 6; // Default to 6 decimals if not provided
+          const transferAmountSmallest = BigInt(Math.round(effectiveAmount * Math.pow(10, tokenDecimals)));
           
           // Determine gas token info for fee validation
           const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
           const gasTokenMintVal = gasTokenConfig ? gasTokenConfig.mint : mint;
-          const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenInfo.decimals;
+          const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenDecimals;
           const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
 
           // Get expected ATAs for transfer token
