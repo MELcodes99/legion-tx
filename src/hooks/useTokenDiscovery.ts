@@ -117,15 +117,22 @@ export const useTokenDiscovery = (
       const solBalance = await connection.getBalance(solanaPublicKey);
       const solAmount = solBalance / 1e9;
       
-      // Get all token accounts
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-        solanaPublicKey,
-        { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
-      );
+      // Get all token accounts from both SPL Token and Token-2022 programs
+      const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+      const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+      
+      const [tokenAccounts, token2022Accounts] = await Promise.all([
+        connection.getParsedTokenAccountsByOwner(solanaPublicKey, { programId: TOKEN_PROGRAM_ID }),
+        connection.getParsedTokenAccountsByOwner(solanaPublicKey, { programId: TOKEN_2022_PROGRAM_ID })
+      ]);
+
+      // Combine all token accounts
+      const allTokenAccounts = [...tokenAccounts.value, ...token2022Accounts.value];
+      console.log('Token discovery: Found', tokenAccounts.value.length, 'SPL tokens and', token2022Accounts.value.length, 'Token-2022 tokens');
 
       // Build a map of mint -> token account data for quick lookup
       const tokenAccountMap: Record<string, { uiAmount: number; decimals: number }> = {};
-      for (const account of tokenAccounts.value) {
+      for (const account of allTokenAccounts) {
         const parsedInfo = account.account.data.parsed.info;
         const mint = parsedInfo.mint;
         const tokenAmount = parsedInfo.tokenAmount;
@@ -134,6 +141,7 @@ export const useTokenDiscovery = (
             uiAmount: tokenAmount.uiAmount,
             decimals: tokenAmount.decimals,
           };
+          console.log('Token discovery: Found token', mint, 'with balance', tokenAmount.uiAmount);
         }
       }
 
