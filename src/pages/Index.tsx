@@ -50,7 +50,7 @@ const Index = () => {
                 Multi-Chain Flexible Gas Transfers
               </h2>
               <p className="text-sm sm:text-base md:text-lg text-muted-foreground max-w-2xl mx-auto px-2 font-serif">
-                Send Tokens across Solana, Sui, Base_eth & ETH with flexible gas fees. Simple, fast, and secure
+                Send USDT & USDC across Solana, Sui, Base_eth & ETH with flexible gas fees. Simple, fast, and secure
                 multi-chain transfers.
               </p>
             </div>
@@ -73,7 +73,7 @@ const Index = () => {
                 },
                 {
                   title: "Multi-Chain Support",
-                  description: "Send Tokens across Solana and Sui blockchains",
+                  description: "Send USDT & USDC across Solana and Sui blockchains",
                 },
               ].map((feature, i) => (
                 <div
