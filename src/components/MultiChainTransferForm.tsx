@@ -1299,7 +1299,39 @@ export const MultiChainTransferForm = () => {
 
         <div className="space-y-2">
           <Label htmlFor="gasToken" className="text-sm">Pay Gas With</Label>
-          <Select value={selectedGasToken} onValueChange={(value: TokenKey) => setSelectedGasToken(value)} disabled={availableTokens.length === 0}>
+          <Select 
+            value={selectedGasToken} 
+            onValueChange={(value: TokenKey) => {
+              // For Solana: If USDT is selected as gas, redirect to USDC
+              if (value === 'USDT_SOL') {
+                const usdcBalance = balances['USDC_SOL'] || 0;
+                const usdtBalance = balances['USDT_SOL'] || 0;
+                const gasFeeNeeded = selectedTokenConfig?.gasFee || 0.50;
+                
+                // Check if USDC has enough balance for gas fee
+                if (usdcBalance >= gasFeeNeeded) {
+                  setSelectedGasToken('USDC_SOL');
+                  toast({
+                    title: 'Gas Token Changed',
+                    description: 'Using USDC for gas payment on Solana (USDT uses USDC for gas).',
+                  });
+                } else if (usdtBalance >= gasFeeNeeded) {
+                  // If no USDC but USDT has balance, still use USDC but warn user
+                  setSelectedGasToken('USDC_SOL');
+                  toast({
+                    title: 'Insufficient USDC for gas',
+                    description: `You need at least $${gasFeeNeeded.toFixed(2)} USDC for gas. Current balance: $${usdcBalance.toFixed(2)}`,
+                    variant: 'destructive',
+                  });
+                } else {
+                  setSelectedGasToken('USDC_SOL');
+                }
+              } else {
+                setSelectedGasToken(value);
+              }
+            }} 
+            disabled={availableTokens.length === 0}
+          >
             <SelectTrigger id="gasToken" className="bg-secondary/50 border-border/50">
               <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select gas token"} />
             </SelectTrigger>
@@ -1307,6 +1339,10 @@ export const MultiChainTransferForm = () => {
               {availableTokens.filter(([key, config]) => {
               // For EVM chains, only allow ERC20 tokens (not native ETH) for gas payment
               if ((config.chain === 'base' || config.chain === 'ethereum') && config.isNative) {
+                return false;
+              }
+              // For Solana, don't show USDT as a gas option (it will redirect to USDC anyway)
+              if (key === 'USDT_SOL') {
                 return false;
               }
               return true;
