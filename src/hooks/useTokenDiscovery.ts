@@ -249,8 +249,6 @@ export const useTokenDiscovery = (
         owner: suiAccount.address
       });
 
-      console.log('Sui balances found:', allBalances);
-
       const tokenAddresses: { address: string; chain: ChainType }[] = [];
 
       for (const balance of allBalances) {
@@ -261,68 +259,36 @@ export const useTokenDiscovery = (
 
       const prices = await fetchTokenPrices(tokenAddresses);
 
-      // Known Sui tokens with their coin types for matching
-      const KNOWN_SUI_TOKENS: Record<string, { symbol: string; name: string; decimals: number }> = {
-        '0x2::sui::SUI': { symbol: 'SUI', name: 'Sui', decimals: 9 },
-        // Native USDC on Sui
-        '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC': { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
-        // Native USDT on Sui
-        '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT': { symbol: 'USDT', name: 'Tether USD', decimals: 6 },
-        // Wormhole USDC (legacy)
-        '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN': { symbol: 'USDC', name: 'USD Coin (Wormhole)', decimals: 6 },
-        // Wormhole USDT (legacy)
-        '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN': { symbol: 'USDT', name: 'Tether USD (Wormhole)', decimals: 6 },
-      };
-
       for (const balance of allBalances) {
         const balanceAmount = Number(balance.totalBalance);
         if (balanceAmount <= 0) continue;
 
         const coinType = balance.coinType;
         const isSui = coinType === '0x2::sui::SUI';
-        
-        // Check if it's a known token first
-        const knownSuiToken = KNOWN_SUI_TOKENS[coinType];
-        const decimals = knownSuiToken?.decimals || (isSui ? 9 : 6);
+        const decimals = isSui ? 9 : 6; // SUI has 9 decimals, most tokens have 6
         const amount = balanceAmount / Math.pow(10, decimals);
-        
-        // For stablecoins, use $1 as price if not found
-        let price = prices[coinType] || 0;
-        if (price === 0 && knownSuiToken) {
-          if (knownSuiToken.symbol === 'USDC' || knownSuiToken.symbol === 'USDT') {
-            price = 1; // Stablecoins are ~$1
-          }
-        }
-        
+        const price = prices[coinType] || 0;
         const usdValue = amount * price;
 
-        // Show tokens that meet minimum USD value OR are known tokens with any balance
-        if (usdValue >= MIN_USD_VALUE || (knownSuiToken && amount > 0)) {
-          // Extract symbol from coin type for unknown tokens
+        if (usdValue >= MIN_USD_VALUE) {
+          // Extract symbol from coin type
           const parts = coinType.split('::');
-          const extractedSymbol = parts[parts.length - 1] || coinType.slice(0, 6);
+          const symbol = parts[parts.length - 1] || coinType.slice(0, 6);
 
-          const knownConfigToken = Object.entries(TOKENS).find(
+          const knownToken = Object.entries(TOKENS).find(
             ([_, config]) => config.chain === 'sui' && config.mint === coinType
           );
 
           tokens.push({
-            key: knownConfigToken ? knownConfigToken[0] : `SUI_${extractedSymbol}`,
+            key: knownToken ? knownToken[0] : `SUI_${symbol}`,
             address: coinType,
-            symbol: knownSuiToken?.symbol || (knownConfigToken ? knownConfigToken[1].symbol : extractedSymbol),
-            name: knownSuiToken?.name || (knownConfigToken ? knownConfigToken[1].name : extractedSymbol),
+            symbol: knownToken ? knownToken[1].symbol : symbol,
+            name: knownToken ? knownToken[1].name : symbol,
             decimals,
             balance: amount,
-            usdValue: usdValue > 0 ? usdValue : amount, // Use amount if no price
+            usdValue,
             chain: 'sui',
             isNative: isSui,
-          });
-          
-          console.log('Added Sui token:', {
-            coinType,
-            symbol: knownSuiToken?.symbol || extractedSymbol,
-            balance: amount,
-            usdValue,
           });
         }
       }

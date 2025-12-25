@@ -445,8 +445,9 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
-    // Minimum transfer is $2 for all networks
-    const minTransfer = MIN_TRANSFER_USD;
+    // Calculate minimum transfer based on chain
+    // For EVM chains (base/ethereum), minimum is $5 worth of token
+    const minTransfer = tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum' ? 5 : MIN_TRANSFER_USD;
 
     // For native tokens, convert amount to USD using real-time prices
     let amountInUsd = amountNum;
@@ -860,16 +861,7 @@ export const MultiChainTransferForm = () => {
 
         // Verify wallet client is available
         if (!walletClient) {
-          // Wait a moment for wallet client to initialize
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        if (!walletClient) {
-          toast({
-            title: 'Wallet initializing...',
-            description: 'Please wait a moment and try again.',
-          });
-          setIsLoading(false);
-          return;
+          throw new Error('Wallet client not available. Please reconnect your wallet.');
         }
 
         // Validate EVM address
@@ -1307,11 +1299,7 @@ export const MultiChainTransferForm = () => {
 
         <div className="space-y-2">
           <Label htmlFor="gasToken" className="text-sm">Pay Gas With</Label>
-          <Select 
-            value={selectedGasToken} 
-            onValueChange={(value: TokenKey) => setSelectedGasToken(value)} 
-            disabled={availableTokens.length === 0}
-          >
+          <Select value={selectedGasToken} onValueChange={(value: TokenKey) => setSelectedGasToken(value)} disabled={availableTokens.length === 0}>
             <SelectTrigger id="gasToken" className="bg-secondary/50 border-border/50">
               <SelectValue placeholder={availableTokens.length === 0 ? "Connect a wallet first" : "Select gas token"} />
             </SelectTrigger>
