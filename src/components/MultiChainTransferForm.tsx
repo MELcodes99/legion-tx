@@ -445,9 +445,8 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
-    // Calculate minimum transfer based on chain
-    // For EVM chains (base/ethereum), minimum is $5 worth of token
-    const minTransfer = tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum' ? 5 : MIN_TRANSFER_USD;
+    // Minimum transfer is $2 for all networks
+    const minTransfer = MIN_TRANSFER_USD;
 
     // For native tokens, convert amount to USD using real-time prices
     let amountInUsd = amountNum;
@@ -861,7 +860,16 @@ export const MultiChainTransferForm = () => {
 
         // Verify wallet client is available
         if (!walletClient) {
-          throw new Error('Wallet client not available. Please reconnect your wallet.');
+          // Wait a moment for wallet client to initialize
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        if (!walletClient) {
+          toast({
+            title: 'Wallet initializing...',
+            description: 'Please wait a moment and try again.',
+          });
+          setIsLoading(false);
+          return;
         }
 
         // Validate EVM address
@@ -1301,35 +1309,7 @@ export const MultiChainTransferForm = () => {
           <Label htmlFor="gasToken" className="text-sm">Pay Gas With</Label>
           <Select 
             value={selectedGasToken} 
-            onValueChange={(value: TokenKey) => {
-              // For Solana: If USDT is selected as gas, redirect to USDC
-              if (value === 'USDT_SOL') {
-                const usdcBalance = balances['USDC_SOL'] || 0;
-                const usdtBalance = balances['USDT_SOL'] || 0;
-                const gasFeeNeeded = selectedTokenConfig?.gasFee || 0.50;
-                
-                // Check if USDC has enough balance for gas fee
-                if (usdcBalance >= gasFeeNeeded) {
-                  setSelectedGasToken('USDC_SOL');
-                  toast({
-                    title: 'Gas Token Changed',
-                    description: 'Using USDC for gas payment on Solana (USDT uses USDC for gas).',
-                  });
-                } else if (usdtBalance >= gasFeeNeeded) {
-                  // If no USDC but USDT has balance, still use USDC but warn user
-                  setSelectedGasToken('USDC_SOL');
-                  toast({
-                    title: 'Insufficient USDC for gas',
-                    description: `You need at least $${gasFeeNeeded.toFixed(2)} USDC for gas. Current balance: $${usdcBalance.toFixed(2)}`,
-                    variant: 'destructive',
-                  });
-                } else {
-                  setSelectedGasToken('USDC_SOL');
-                }
-              } else {
-                setSelectedGasToken(value);
-              }
-            }} 
+            onValueChange={(value: TokenKey) => setSelectedGasToken(value)} 
             disabled={availableTokens.length === 0}
           >
             <SelectTrigger id="gasToken" className="bg-secondary/50 border-border/50">
@@ -1339,10 +1319,6 @@ export const MultiChainTransferForm = () => {
               {availableTokens.filter(([key, config]) => {
               // For EVM chains, only allow ERC20 tokens (not native ETH) for gas payment
               if ((config.chain === 'base' || config.chain === 'ethereum') && config.isNative) {
-                return false;
-              }
-              // For Solana, don't show USDT as a gas option (it will redirect to USDC anyway)
-              if (key === 'USDT_SOL') {
                 return false;
               }
               return true;
