@@ -21,7 +21,8 @@ const config = createConfig({
   storage: null,
   // Disable auto-reconnect behavior
   syncConnectedChain: false,
-  multiInjectedProviderDiscovery: false,
+  // Enable multi-injected provider discovery to detect all installed wallets (MetaMask, Phantom, etc.)
+  multiInjectedProviderDiscovery: true,
 });
 
 // Use a separate query client for wagmi to avoid conflicts
