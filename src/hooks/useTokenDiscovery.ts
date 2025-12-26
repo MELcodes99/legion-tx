@@ -335,10 +335,34 @@ export const useTokenDiscovery = (
     const chain = evmChainId === base.id ? 'base' : 'ethereum';
     const viemChain = evmChainId === base.id ? base : mainnet;
 
-    const publicClient = createPublicClient({
-      chain: viemChain,
-      transport: http(viemChain.id === base.id ? 'https://mainnet.base.org' : 'https://cloudflare-eth.com'),
-    });
+    // Use multiple RPC endpoints with fallback for reliability
+    const rpcUrls = evmChainId === base.id 
+      ? ['https://mainnet.base.org', 'https://base.llamarpc.com', 'https://base.meowrpc.com']
+      : ['https://eth.llamarpc.com', 'https://rpc.ankr.com/eth', 'https://eth.meowrpc.com', 'https://cloudflare-eth.com'];
+    
+    // Try each RPC until one works
+    let publicClient = null;
+    for (const rpcUrl of rpcUrls) {
+      try {
+        const client = createPublicClient({
+          chain: viemChain,
+          transport: http(rpcUrl),
+        });
+        // Test the connection
+        await client.getBlockNumber();
+        publicClient = client;
+        console.log(`EVM token discovery using RPC: ${rpcUrl}`);
+        break;
+      } catch (error) {
+        console.log(`RPC ${rpcUrl} failed, trying next...`);
+        continue;
+      }
+    }
+    
+    if (!publicClient) {
+      console.error('All EVM RPC endpoints failed');
+      return tokens;
+    }
 
     try {
       // Get native ETH balance
