@@ -763,10 +763,30 @@ serve(async (req) => {
           }
         } else {
           // Check separate balances for transfer token and gas token
-          const senderTransferBalance = await connection.getTokenAccountBalance(senderTransferAta);
-          const senderGasBalance = await connection.getTokenAccountBalance(senderGasAta);
-          const senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
-          const senderGasBalanceSmallest = BigInt(senderGasBalance.value.amount);
+          // IMPORTANT: Get gas token name early so it's available for error messages
+          const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
+          const gasTokenName = buildGasTokenConfig?.symbol || gasTokenInfo?.name || 'gas token';
+          
+          let senderTransferBalanceSmallest = BigInt(0);
+          let senderGasBalanceSmallest = BigInt(0);
+          
+          // Get transfer token balance
+          try {
+            const senderTransferBalance = await connection.getTokenAccountBalance(senderTransferAta);
+            senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
+          } catch (err) {
+            console.log('Transfer token ATA does not exist, balance is 0');
+            // ATA doesn't exist means balance is 0
+          }
+          
+          // Get gas token balance - handle case where ATA doesn't exist
+          try {
+            const senderGasBalance = await connection.getTokenAccountBalance(senderGasAta);
+            senderGasBalanceSmallest = BigInt(senderGasBalance.value.amount);
+          } catch (err) {
+            console.log(`Gas token (${gasTokenName}) ATA does not exist, balance is 0`);
+            // ATA doesn't exist means balance is 0 - will trigger insufficient balance error below
+          }
           
           console.log('Balance validation (separate tokens):', {
             transferToken: {
@@ -775,6 +795,7 @@ serve(async (req) => {
               sufficient: senderTransferBalanceSmallest >= transferAmountSmallest,
             },
             gasToken: {
+              name: gasTokenName,
               balance: senderGasBalanceSmallest.toString(),
               needed: feeSmallest.toString(),
               sufficient: senderGasBalanceSmallest >= feeSmallest,
@@ -793,8 +814,6 @@ serve(async (req) => {
           }
           
           if (senderGasBalanceSmallest < feeSmallest) {
-            const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
-            const gasTokenName = buildGasTokenConfig?.symbol || gasTokenInfo?.name || 'gas token';
             const senderGasReadable = Number(senderGasBalanceSmallest) / Math.pow(10, gasTokenDecimals);
             const feeReadable = Number(feeSmallest) / Math.pow(10, gasTokenDecimals);
             return new Response(
