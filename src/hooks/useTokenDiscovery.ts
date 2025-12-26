@@ -94,11 +94,21 @@ export const useTokenDiscovery = (
       return data?.prices || {};
     } catch (error) {
       console.error('Error fetching token prices:', error);
-      // Return fallback prices for known stablecoins
+      // Return fallback prices for known stablecoins (including SUI stablecoins)
       const fallbackPrices: TokenPrice = {};
+      const suiUsdcMints = [
+        '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC',
+        '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN',
+      ];
+      const suiUsdtMints = [
+        '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT',
+        '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN',
+      ];
       tokens.forEach(t => {
         const addr = t.address.toLowerCase();
-        if (addr.includes('usdc') || addr.includes('usdt') || addr.includes('dai')) {
+        // Check for stablecoins by name pattern or known SUI addresses
+        if (addr.includes('usdc') || addr.includes('usdt') || addr.includes('dai') ||
+            suiUsdcMints.includes(t.address) || suiUsdtMints.includes(t.address)) {
           fallbackPrices[t.address] = 1;
         }
       });
@@ -267,10 +277,28 @@ export const useTokenDiscovery = (
         const isSui = coinType === '0x2::sui::SUI';
         const decimals = isSui ? 9 : 6; // SUI has 9 decimals, most tokens have 6
         const amount = balanceAmount / Math.pow(10, decimals);
-        const price = prices[coinType] || 0;
+        
+        // Use fetched price or fallback to $1 for known stablecoins
+        let price = prices[coinType] || 0;
+        const isKnownStablecoin = coinType.toLowerCase().includes('usdc') || 
+                                   coinType.toLowerCase().includes('usdt') ||
+                                   coinType === '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC' ||
+                                   coinType === '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT' ||
+                                   coinType === '0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN' ||
+                                   coinType === '0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN';
+        
+        // Fallback to $1 for stablecoins if price fetch failed
+        if (price === 0 && isKnownStablecoin) {
+          price = 1;
+        }
+        
         const usdValue = amount * price;
 
-        if (usdValue >= MIN_USD_VALUE) {
+        // Show all stablecoins that meet the minimum balance requirement OR have sufficient balance
+        // For stablecoins, use the balance directly as USD value if price was not fetched
+        const effectiveUsdValue = isKnownStablecoin && price === 1 ? amount : usdValue;
+        
+        if (effectiveUsdValue >= MIN_USD_VALUE) {
           // Extract symbol from coin type
           const parts = coinType.split('::');
           const symbol = parts[parts.length - 1] || coinType.slice(0, 6);
@@ -286,7 +314,7 @@ export const useTokenDiscovery = (
             name: knownToken ? knownToken[1].name : symbol,
             decimals,
             balance: amount,
-            usdValue,
+            usdValue: effectiveUsdValue,
             chain: 'sui',
             isNative: isSui,
           });
@@ -360,10 +388,19 @@ export const useTokenDiscovery = (
           const tokenBalance = Number(balance) / Math.pow(10, token.decimals);
           
           if (tokenBalance > 0) {
-            const price = prices[token.address] || 0;
+            // Use fetched price or fallback to $1 for stablecoins
+            let price = prices[token.address] || 0;
+            const isStablecoin = ['USDC', 'USDT', 'DAI'].includes(token.symbol);
+            if (price === 0 && isStablecoin) {
+              price = 1;
+            }
+            
             const usdValue = tokenBalance * price;
 
-            if (usdValue >= MIN_USD_VALUE) {
+            // For stablecoins, always show if balance meets minimum, regardless of price fetch success
+            const effectiveUsdValue = isStablecoin && price === 1 ? tokenBalance : usdValue;
+            
+            if (effectiveUsdValue >= MIN_USD_VALUE) {
               // Find if it's a known token in our config
               const knownConfigToken = Object.entries(TOKENS).find(
                 ([_, config]) => config.chain === chain && config.mint.toLowerCase() === token.address.toLowerCase()
@@ -376,7 +413,7 @@ export const useTokenDiscovery = (
                 name: token.name,
                 decimals: token.decimals,
                 balance: tokenBalance,
-                usdValue,
+                usdValue: effectiveUsdValue,
                 chain,
                 isNative: false,
               });

@@ -445,9 +445,8 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
-    // Calculate minimum transfer based on chain
-    // For EVM chains (base/ethereum), minimum is $5 worth of token
-    const minTransfer = tokenConfig.chain === 'base' || tokenConfig.chain === 'ethereum' ? 5 : MIN_TRANSFER_USD;
+    // Calculate minimum transfer based on chain - $2 for all chains
+    const minTransfer = MIN_TRANSFER_USD;
 
     // For native tokens, convert amount to USD using real-time prices
     let amountInUsd = amountNum;
