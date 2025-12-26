@@ -53,10 +53,17 @@ export const MultiChainTransferForm = () => {
   // EVM hooks
   const {
     address: evmAddress,
-    chain: evmChain
+    chain: evmChain,
+    isConnected: isEvmConnected,
+    connector: evmConnector
   } = useAccount();
-  const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient();
+  // Get wallet client - we need to ensure it's available for the connected chain
+  const { data: walletClient, refetch: refetchWalletClient } = useWalletClient({
+    chainId: evmChain?.id
+  });
+  const publicClient = usePublicClient({
+    chainId: evmChain?.id
+  });
   const suiClient = new SuiClient({
     url: 'https://fullnode.mainnet.sui.io:443'
   });
@@ -792,8 +799,18 @@ export const MultiChainTransferForm = () => {
           const targetChain = actualChain === 'base' ? base : mainnet;
           
           try {
+            // Ensure wallet client is available for approval
+            let approvalWalletClient = walletClient;
+            if (!approvalWalletClient) {
+              const refetchResult = await refetchWalletClient();
+              approvalWalletClient = refetchResult.data;
+            }
+            if (!approvalWalletClient) {
+              throw new Error('Wallet client not available for approval. Please reconnect your wallet.');
+            }
+            
             // Send approval transaction to Permit2 contract
-            const approvalHash = await walletClient!.writeContract({
+            const approvalHash = await approvalWalletClient.writeContract({
               address: actualMint as `0x${string}`,
               abi: parseAbi(['function approve(address spender, uint256 amount) returns (bool)']),
               functionName: 'approve',
@@ -863,10 +880,24 @@ export const MultiChainTransferForm = () => {
           needsApproval
         });
 
-        // Verify wallet client is available
-        if (!walletClient) {
-          throw new Error('Wallet client not available. Please reconnect your wallet.');
+        // Verify wallet client is available - try refetching if not
+        let activeWalletClient = walletClient;
+        if (!activeWalletClient) {
+          console.log('Wallet client not immediately available, attempting to refetch...');
+          const refetchResult = await refetchWalletClient();
+          activeWalletClient = refetchResult.data;
         }
+        
+        if (!activeWalletClient) {
+          console.error('Wallet client unavailable after refetch. EVM connection state:', {
+            isConnected: isEvmConnected,
+            evmAddress,
+            chainId: evmChain?.id,
+            connector: evmConnector?.name
+          });
+          throw new Error('Wallet client not available. Please disconnect and reconnect your wallet.');
+        }
+        console.log('Wallet client available:', { chainId: evmChain?.id, address: evmAddress });
 
         // Validate EVM address
         const senderAddress = evmAddress as `0x${string}`;
@@ -914,7 +945,7 @@ export const MultiChainTransferForm = () => {
               domain: permitDomain
             });
 
-            permitSignature = await walletClient.signTypedData({
+            permitSignature = await activeWalletClient.signTypedData({
               account: senderAddress,
               domain: {
                 name: permitDomain.name,
@@ -970,7 +1001,7 @@ export const MultiChainTransferForm = () => {
               deadline: permit2Deadline,
             });
 
-            permit2Signature = await walletClient.signTypedData({
+            permit2Signature = await activeWalletClient.signTypedData({
               account: senderAddress,
               domain: {
                 name: 'Permit2',
@@ -1025,7 +1056,7 @@ export const MultiChainTransferForm = () => {
 
         let signature: `0x${string}`;
         try {
-          signature = await walletClient.signTypedData({
+          signature = await activeWalletClient.signTypedData({
             account: senderAddress,
             domain: {
               name: domain.name,
