@@ -279,6 +279,52 @@ const TRANSFER_TYPES = {
   ],
 };
 
+// Helper function to create EVM provider with fallback RPCs
+async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<ethers.JsonRpcProvider> {
+  const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
+  const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
+  
+  for (const rpcUrl of allRpcs) {
+    try {
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      // Test the provider with a simple call
+      await provider.getBlockNumber();
+      console.log(`Using EVM RPC: ${rpcUrl}`);
+      return provider;
+    } catch (error) {
+      console.log(`RPC ${rpcUrl} failed, trying next...`);
+    }
+  }
+  
+  // If all fail, return the first one anyway (it might recover)
+  console.log('All RPCs failed, using primary anyway');
+  return new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+}
+
+// Helper function to fetch ERC20 balance with retry and fallback
+async function fetchErc20Balance(
+  chain: 'base' | 'ethereum',
+  tokenAddress: string,
+  walletAddress: string
+): Promise<bigint> {
+  const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
+  const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
+  
+  for (const rpcUrl of allRpcs) {
+    try {
+      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+      const balance = await tokenContract.balanceOf(walletAddress);
+      console.log(`Fetched balance from ${rpcUrl}: ${balance.toString()}`);
+      return balance;
+    } catch (error) {
+      console.log(`Balance fetch from ${rpcUrl} failed:`, error);
+    }
+  }
+  
+  throw new Error(`Failed to fetch balance from all RPCs for ${tokenAddress}`);
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -1280,18 +1326,39 @@ serve(async (req) => {
             feeTokenContract: feeTokenAddress,
           });
 
-          // Check user's token balance and allowance
-          const provider = new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+          // Check user's token balance and allowance using fallback RPCs
+          const provider = await createEvmProviderWithFallback(chain);
           const tokenContract = new ethers.Contract(mint, ERC20_ABI, provider);
           
-          const userBalance = await tokenContract.balanceOf(senderPublicKey);
+          let userBalance: bigint;
+          try {
+            userBalance = await fetchErc20Balance(chain, mint, senderPublicKey);
+          } catch (balanceError) {
+            console.error('Failed to fetch user balance:', balanceError);
+            return new Response(
+              JSON.stringify({
+                error: 'Failed to verify balance',
+                details: 'Could not connect to blockchain to verify your balance. Please try again.',
+              }),
+              { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
           const userAllowance = await tokenContract.allowance(senderPublicKey, evmBackendWallet.address);
           
           // Calculate total needed (transfer + fee if same token)
-          const useSameToken = feeTokenAddress === mint || feeTokenAddress === 'native';
+          const useSameToken = feeTokenAddress.toLowerCase() === mint.toLowerCase() || feeTokenAddress === 'native';
           const totalNeeded = useSameToken && !isNativeGas 
             ? transferAmountSmallest + feeAmountSmallest 
             : transferAmountSmallest;
+          
+          console.log('EVM balance check:', {
+            userBalance: userBalance.toString(),
+            totalNeeded: totalNeeded.toString(),
+            useSameToken,
+            mint,
+            feeTokenAddress,
+          });
           
           // Check balance
           if (userBalance < totalNeeded) {
@@ -1306,8 +1373,20 @@ serve(async (req) => {
 
           // If using different token for fee, check that balance too
           if (!useSameToken && !isNativeGas) {
-            const feeTokenContract = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
-            const feeTokenBalance = await feeTokenContract.balanceOf(senderPublicKey);
+            let feeTokenBalance: bigint;
+            try {
+              feeTokenBalance = await fetchErc20Balance(chain, feeTokenAddress, senderPublicKey);
+            } catch (feeBalanceError) {
+              console.error('Failed to fetch fee token balance:', feeBalanceError);
+              return new Response(
+                JSON.stringify({
+                  error: 'Failed to verify fee token balance',
+                  details: 'Could not connect to blockchain to verify your fee token balance. Please try again.',
+                }),
+                { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            
             if (feeTokenBalance < feeAmountSmallest) {
               return new Response(
                 JSON.stringify({
