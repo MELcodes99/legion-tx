@@ -468,7 +468,8 @@ export const MultiChainTransferForm = () => {
       }
       return;
     }
-    const currentBalance = balances[selectedToken] || 0;
+    // Use discovered token balance if available, otherwise fall back to balances state
+    const currentBalance = selectedDiscoveredToken?.balance ?? balances[selectedToken] ?? 0;
     if (amountNum > currentBalance) {
       setError(`Insufficient balance. You have ${currentBalance.toFixed(selectedTokenConfig?.isNative ? 6 : 2)} ${selectedTokenConfig?.symbol}`);
       return;
@@ -503,7 +504,11 @@ export const MultiChainTransferForm = () => {
       }
       const transferFee = tokenConfig.gasFee;
       if (selectedGasToken !== selectedToken) {
-        const gasBalance = balances[selectedGasToken] || 0;
+        // Use discovered token balance for gas token if available
+        const gasTokenFromDiscovery = discoveredTokens.find(
+          t => t.symbol === gasTokenConfig.symbol && t.chain === gasTokenConfig.chain
+        );
+        const gasBalance = gasTokenFromDiscovery?.balance ?? balances[selectedGasToken] ?? 0;
         let gasTokenPrice = 1;
         if (gasTokenConfig.isNative) {
           if (gasTokenConfig.chain === 'solana') gasTokenPrice = tokenPrices?.solana || 0;else if (gasTokenConfig.chain === 'sui') gasTokenPrice = tokenPrices?.sui || 0;else gasTokenPrice = tokenPrices?.ethereum || 0;
