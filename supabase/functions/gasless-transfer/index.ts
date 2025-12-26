@@ -535,8 +535,8 @@ serve(async (req) => {
           });
       }
 
-      // Validate minimum amount ($2 for Solana/Sui, $5 for EVM)
-      const minAmount = (chain === 'base' || chain === 'ethereum') ? 5 : 2;
+      // Validate minimum amount ($2 for all chains)
+      const minAmount = 2;
       if (effectiveAmountUSD < minAmount) {
         return new Response(
           JSON.stringify({ error: `Minimum transfer amount is $${minAmount}` }),
@@ -794,12 +794,13 @@ serve(async (req) => {
           
           if (senderGasBalanceSmallest < feeSmallest) {
             const gasTokenInfo = ALLOWED_TOKENS[gasTokenMint];
+            const gasTokenName = buildGasTokenConfig?.symbol || gasTokenInfo?.name || 'gas token';
             const senderGasReadable = Number(senderGasBalanceSmallest) / Math.pow(10, gasTokenDecimals);
             const feeReadable = Number(feeSmallest) / Math.pow(10, gasTokenDecimals);
             return new Response(
               JSON.stringify({
-                error: 'Insufficient gas token balance',
-                details: `You have ${senderGasReadable.toFixed(4)} ${gasTokenInfo?.name || 'tokens'} but need ${feeReadable.toFixed(4)} for the $${feeAmountUSD} fee`,
+                error: `Insufficient ${gasTokenName} balance`,
+                details: `You have ${senderGasReadable.toFixed(4)} ${gasTokenName} but need ${feeReadable.toFixed(4)} for the $${feeAmountUSD} fee`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
