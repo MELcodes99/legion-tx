@@ -478,20 +478,24 @@ export const MultiChainTransferForm = () => {
     // Use discovered token balance if available, otherwise fall back to balances state
     const currentBalance = selectedDiscoveredToken?.balance ?? balances[selectedToken] ?? 0;
     
-    // For non-native, non-stablecoin tokens (like TRUMP, JUP, etc.), we need to check USD value
-    // The user enters USD amount, so we need to verify balance * price >= entered amount
-    const isStablecoin = tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT' || tokenConfig.symbol === 'DAI';
+    // For balance validation, use the ACTUAL token properties (from discovered token if available)
+    // This is critical for tokens like TRUMP that fall back to USDC in selectedToken
+    const actualSymbol = selectedDiscoveredToken?.symbol || tokenConfig.symbol;
+    const actualIsNative = selectedDiscoveredToken?.isNative ?? tokenConfig.isNative;
     
-    if (tokenConfig.isNative) {
+    // Check stablecoin status based on the ACTUAL token being sent, not the fallback config
+    const isStablecoin = actualSymbol === 'USDC' || actualSymbol === 'USDT' || actualSymbol === 'DAI';
+    
+    if (actualIsNative) {
       // For native tokens, amountNum is token amount, check directly
       if (amountNum > currentBalance) {
-        setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${tokenConfig.symbol}`);
+        setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${actualSymbol}`);
         return;
       }
     } else if (isStablecoin) {
       // For stablecoins, amount in USD = amount in tokens (1:1)
       if (amountNum > currentBalance) {
-        setError(`Insufficient balance. You have ${currentBalance.toFixed(2)} ${tokenConfig.symbol}`);
+        setError(`Insufficient balance. You have ${currentBalance.toFixed(2)} ${actualSymbol}`);
         return;
       }
     } else {
@@ -499,7 +503,7 @@ export const MultiChainTransferForm = () => {
       // Check if the USD value of user's balance >= entered USD amount
       const tokenUsdValue = selectedDiscoveredToken?.usdValue ?? 0;
       if (amountInUsd > tokenUsdValue) {
-        setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${tokenConfig.symbol} (~$${tokenUsdValue.toFixed(2)})`);
+        setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${actualSymbol} (~$${tokenUsdValue.toFixed(2)})`);
         return;
       }
     }
