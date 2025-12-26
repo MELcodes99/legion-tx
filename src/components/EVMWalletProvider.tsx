@@ -21,7 +21,8 @@ const config = createConfig({
   storage: null,
   // Disable auto-reconnect behavior
   syncConnectedChain: false,
-  multiInjectedProviderDiscovery: false,
+  // Enable multi-injected provider discovery to detect Phantom, MetaMask, etc.
+  multiInjectedProviderDiscovery: true,
 });
 
 // Use a separate query client for wagmi to avoid conflicts

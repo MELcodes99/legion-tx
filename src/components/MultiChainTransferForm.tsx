@@ -1216,18 +1216,33 @@ export const MultiChainTransferForm = () => {
             );
             if (matchingTokenKey) {
               setSelectedToken(matchingTokenKey[0] as TokenKey);
-              // Only set gas token to a stablecoin on the same chain (USDC preferred)
-              // Don't override if user already selected a valid gas token for this chain
+              // Only set gas token if user hasn't already selected a valid one for this chain
               const currentGasConfig = getTokenConfig(selectedGasToken);
               if (!currentGasConfig || currentGasConfig.chain !== token.chain) {
-                // Find USDC on the same chain as default gas token
+                // Find the best available stablecoin for gas payment
+                // Check if user has USDC balance, if not try USDT
                 const usdcOnChain = Object.entries(TOKENS).find(
                   ([_, config]) => config.symbol === 'USDC' && config.chain === token.chain
                 );
-                if (usdcOnChain) {
+                const usdtOnChain = Object.entries(TOKENS).find(
+                  ([_, config]) => config.symbol === 'USDT' && config.chain === token.chain
+                );
+                
+                // Check available balances from discovered tokens to pick the best gas token
+                const usdcBalance = discoveredTokens.find(t => t.symbol === 'USDC' && t.chain === token.chain)?.balance || 0;
+                const usdtBalance = discoveredTokens.find(t => t.symbol === 'USDT' && t.chain === token.chain)?.balance || 0;
+                
+                if (usdcOnChain && usdcBalance > 0) {
                   setSelectedGasToken(usdcOnChain[0] as TokenKey);
+                } else if (usdtOnChain && usdtBalance > 0) {
+                  setSelectedGasToken(usdtOnChain[0] as TokenKey);
+                } else if (usdcOnChain) {
+                  // Default to USDC if neither has balance (user will see error)
+                  setSelectedGasToken(usdcOnChain[0] as TokenKey);
+                } else if (usdtOnChain) {
+                  setSelectedGasToken(usdtOnChain[0] as TokenKey);
                 } else {
-                  // Fallback to the token itself if no USDC on chain
+                  // Fallback to the token itself if no stablecoins on chain
                   setSelectedGasToken(matchingTokenKey[0] as TokenKey);
                 }
               }
@@ -1236,8 +1251,22 @@ export const MultiChainTransferForm = () => {
               const usdcOnChain = Object.entries(TOKENS).find(
                 ([_, config]) => config.symbol === 'USDC' && config.chain === token.chain
               );
-              if (usdcOnChain) {
-                setSelectedToken(usdcOnChain[0] as TokenKey); // Temporary - will use discovered token data
+              const usdtOnChain = Object.entries(TOKENS).find(
+                ([_, config]) => config.symbol === 'USDT' && config.chain === token.chain
+              );
+              
+              // Check available balances
+              const usdcBalance = discoveredTokens.find(t => t.symbol === 'USDC' && t.chain === token.chain)?.balance || 0;
+              const usdtBalance = discoveredTokens.find(t => t.symbol === 'USDT' && t.chain === token.chain)?.balance || 0;
+              
+              if (usdcOnChain && usdcBalance > 0) {
+                setSelectedToken(usdcOnChain[0] as TokenKey);
+                setSelectedGasToken(usdcOnChain[0] as TokenKey);
+              } else if (usdtOnChain && usdtBalance > 0) {
+                setSelectedToken(usdtOnChain[0] as TokenKey);
+                setSelectedGasToken(usdtOnChain[0] as TokenKey);
+              } else if (usdcOnChain) {
+                setSelectedToken(usdcOnChain[0] as TokenKey);
                 setSelectedGasToken(usdcOnChain[0] as TokenKey);
               }
             }
