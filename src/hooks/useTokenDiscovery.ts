@@ -17,7 +17,7 @@ const KNOWN_SOLANA_TOKENS = [
   { address: SOLANA_TOKEN_MINTS.GRASS, symbol: 'GRASS', name: 'Grass' },
   { address: SOLANA_TOKEN_MINTS.RAY, symbol: 'RAY', name: 'Raydium' },
   { address: SOLANA_TOKEN_MINTS.BONK, symbol: 'BONK', name: 'Bonk' },
-  { address: SOLANA_TOKEN_MINTS.MET, symbol: 'MET', name: 'Metaplex' },
+  { address: SOLANA_TOKEN_MINTS.MET, symbol: 'MET', name: 'Meteora' },
   { address: SOLANA_TOKEN_MINTS.PUMP, symbol: 'PUMP', name: 'Pump' },
   { address: SOLANA_TOKEN_MINTS.MON, symbol: 'MON', name: 'Mon Protocol' },
 ];
