@@ -20,7 +20,7 @@ const KNOWN_TOKEN_IDS: Record<string, string> = {
   'Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs': 'grass', // GRASS
   '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': 'raydium', // RAY
   'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 'bonk', // BONK
-  'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': 'metaplex', // MET
+  'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': 'meteora', // MET
   'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 'pump-fun', // PUMP
   'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': 'monad-protocol', // MON - monad-protocol is the correct CoinGecko ID
   
