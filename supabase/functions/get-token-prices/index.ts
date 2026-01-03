@@ -20,7 +20,7 @@ const KNOWN_TOKEN_IDS: Record<string, string> = {
   'Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs': 'grass', // GRASS
   '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': 'raydium', // RAY
   'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': 'bonk', // BONK
-  'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': 'metaplex', // MET
+  'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': 'meteora', // MET
   'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 'pump-fun', // PUMP
   'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': 'monad-protocol', // MON - monad-protocol is the correct CoinGecko ID
   
@@ -70,9 +70,15 @@ async function fetchDexScreenerPrices(addresses: string[]): Promise<Record<strin
   
   if (addresses.length === 0) return prices;
   
+  // Exclude MET from DexScreener - it returns incorrect price
+  const metAddress = 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL';
+  const filteredAddresses = addresses.filter(addr => addr !== metAddress);
+  
+  if (filteredAddresses.length === 0) return prices;
+  
   try {
     // DexScreener API - free, no auth required
-    const tokenAddresses = addresses.join(',');
+    const tokenAddresses = filteredAddresses.join(',');
     console.log('Fetching DexScreener prices for:', tokenAddresses);
     
     const response = await fetch(
@@ -278,6 +284,42 @@ serve(async (req) => {
         if (monGeckoPrices['mon']) {
           prices[monAddress] = monGeckoPrices['mon'];
           console.log('MON price from CoinGecko:', prices[monAddress]);
+        }
+      }
+    }
+
+    // For MET token (Meteora) - ALWAYS use GeckoTerminal API for accurate price
+    // DexScreener returns incorrect price (~$0.49) for MET, GeckoTerminal has correct price (~$0.28)
+    const metAddress = 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL';
+    if (solanaTokens.includes(metAddress)) {
+      console.log('Fetching MET (Meteora) price from GeckoTerminal...');
+      
+      // GeckoTerminal API for Solana token - most accurate for on-chain prices
+      try {
+        const geckoTerminalResponse = await fetch(
+          `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${metAddress}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (geckoTerminalResponse.ok) {
+          const geckoTerminalData = await geckoTerminalResponse.json();
+          console.log('GeckoTerminal response for MET:', JSON.stringify(geckoTerminalData));
+          const priceUsd = geckoTerminalData.data?.attributes?.price_usd;
+          if (priceUsd) {
+            prices[metAddress] = parseFloat(priceUsd);
+            console.log('MET price set from GeckoTerminal:', prices[metAddress]);
+          }
+        }
+      } catch (e) {
+        console.log('GeckoTerminal price fetch failed for MET:', e);
+      }
+      
+      // If GeckoTerminal fails, try CoinGecko (NOT DexScreener - it has wrong price for MET)
+      if (!prices[metAddress]) {
+        console.log('GeckoTerminal failed, trying CoinGecko for MET...');
+        const metGeckoPrices = await fetchCoinGeckoPrices(['meteora']);
+        if (metGeckoPrices['meteora']) {
+          prices[metAddress] = metGeckoPrices['meteora'];
+          console.log('MET price from CoinGecko:', prices[metAddress]);
         }
       }
     }
