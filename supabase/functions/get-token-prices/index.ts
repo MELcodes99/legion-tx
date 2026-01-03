@@ -282,6 +282,68 @@ serve(async (req) => {
       }
     }
 
+    // For MET token (Meteora) - Use GeckoTerminal API for accurate Solana pool price
+    const metAddress = 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL';
+    if (solanaTokens.includes(metAddress)) {
+      console.log('Fetching MET (Meteora) price from GeckoTerminal...');
+      
+      // GeckoTerminal API for Solana token - most accurate for on-chain prices
+      try {
+        const geckoTerminalResponse = await fetch(
+          `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${metAddress}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (geckoTerminalResponse.ok) {
+          const geckoTerminalData = await geckoTerminalResponse.json();
+          console.log('GeckoTerminal response for MET:', JSON.stringify(geckoTerminalData));
+          const priceUsd = geckoTerminalData.data?.attributes?.price_usd;
+          if (priceUsd) {
+            prices[metAddress] = parseFloat(priceUsd);
+            console.log('MET price from GeckoTerminal:', prices[metAddress]);
+          }
+        }
+      } catch (e) {
+        console.log('GeckoTerminal price fetch failed for MET:', e);
+      }
+      
+      // If GeckoTerminal fails, try DexScreener
+      if (!prices[metAddress]) {
+        console.log('GeckoTerminal failed, trying DexScreener for MET...');
+        try {
+          const dexResponse = await fetch(
+            `https://api.dexscreener.com/latest/dex/tokens/${metAddress}`,
+            { headers: { 'Accept': 'application/json' } }
+          );
+          if (dexResponse.ok) {
+            const dexData = await dexResponse.json();
+            console.log('DexScreener response for MET:', JSON.stringify(dexData));
+            if (dexData.pairs && dexData.pairs.length > 0) {
+              // Get the pair with highest liquidity
+              const bestPair = dexData.pairs
+                .filter((p: any) => p.chainId === 'solana' && p.priceUsd)
+                .sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+              if (bestPair?.priceUsd) {
+                prices[metAddress] = parseFloat(bestPair.priceUsd);
+                console.log('MET price from DexScreener:', prices[metAddress]);
+              }
+            }
+          }
+        } catch (e) {
+          console.log('DexScreener price fetch failed for MET:', e);
+        }
+      }
+      
+      // If still no price, try CoinGecko with 'meteora'
+      if (!prices[metAddress]) {
+        console.log('DexScreener failed, trying CoinGecko for MET...');
+        const metGeckoPrices = await fetchCoinGeckoPrices(['meteora']);
+        if (metGeckoPrices['meteora']) {
+          prices[metAddress] = metGeckoPrices['meteora'];
+          console.log('MET price from CoinGecko:', prices[metAddress]);
+        }
+      }
+    }
+
     // Merge CoinGecko prices by mapping back to addresses
     for (const [address, geckoId] of Object.entries(addressToGeckoId)) {
       if (geckoPrices[geckoId]) {
