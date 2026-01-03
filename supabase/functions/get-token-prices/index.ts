@@ -282,30 +282,6 @@ serve(async (req) => {
       }
     }
 
-    // For MET (Meteora) token - Use GeckoTerminal API for accurate price
-    const metAddress = 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL';
-    if (solanaTokens.includes(metAddress)) {
-      console.log('Fetching MET (Meteora) price from GeckoTerminal...');
-      
-      try {
-        const geckoTerminalResponse = await fetch(
-          `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${metAddress}`,
-          { headers: { 'Accept': 'application/json' } }
-        );
-        if (geckoTerminalResponse.ok) {
-          const geckoTerminalData = await geckoTerminalResponse.json();
-          console.log('GeckoTerminal response for MET:', JSON.stringify(geckoTerminalData));
-          const priceUsd = geckoTerminalData.data?.attributes?.price_usd;
-          if (priceUsd) {
-            prices[metAddress] = parseFloat(priceUsd);
-            console.log('MET price from GeckoTerminal:', prices[metAddress]);
-          }
-        }
-      } catch (e) {
-        console.log('GeckoTerminal price fetch failed for MET:', e);
-      }
-    }
-
     // Merge CoinGecko prices by mapping back to addresses
     for (const [address, geckoId] of Object.entries(addressToGeckoId)) {
       if (geckoPrices[geckoId]) {
