@@ -27,6 +27,7 @@ import solanaLogo from '@/assets/solana-logo.png';
 import suiLogo from '@/assets/sui-logo.png';
 import baseLogo from '@/assets/base-logo.jpeg';
 import ethLogo from '@/assets/eth-logo.jpeg';
+import skrLogo from '@/assets/skr-logo.jpeg';
 import { SuiClient } from '@mysten/sui/client';
 import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -1194,6 +1195,7 @@ export const MultiChainTransferForm = () => {
     if (symbol === 'USDT') return usdtLogo;
     if (symbol === 'SOL') return solanaLogo;
     if (symbol === 'SUI') return suiLogo;
+    if (symbol === 'SKR') return skrLogo;
     if (symbol === 'ETH') {
       return token.chain === 'base' ? baseLogo : ethLogo;
     }
