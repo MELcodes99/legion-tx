@@ -38,6 +38,7 @@ const CHAIN_CONFIG = {
     tokens: {
       'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { name: 'USDC', decimals: 6 },
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
+      'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3': { name: 'SKR', decimals: 6 },
     }
   },
   sui: {
@@ -182,12 +183,37 @@ const priceCache: Record<string, { price: number; timestamp: number }> = {};
 const PRICE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
 // Price fetching from CoinGecko with caching (free API, no key needed)
+// For SKR, uses GeckoTerminal as primary source
 async function fetchTokenPrice(tokenId: string): Promise<number> {
   // Check cache first
   const cached = priceCache[tokenId];
   if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
     console.log(`Using cached ${tokenId} price: $${cached.price}`);
     return cached.price;
+  }
+
+  // For SKR (seeker-2), use GeckoTerminal as primary source
+  if (tokenId === 'seeker-2') {
+    try {
+      const skrAddress = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3';
+      const response = await fetch(
+        `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${skrAddress}`,
+        { headers: { 'Accept': 'application/json' } }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        const priceUsd = data?.data?.attributes?.price_usd;
+        if (priceUsd) {
+          const price = parseFloat(priceUsd);
+          priceCache[tokenId] = { price, timestamp: Date.now() };
+          console.log(`Fetched SKR price from GeckoTerminal: $${price}`);
+          return price;
+        }
+      }
+    } catch (error) {
+      console.log('GeckoTerminal fetch failed for SKR, trying CoinGecko');
+    }
   }
 
   try {
@@ -244,6 +270,7 @@ function getTokenConfig(tokenKey: string) {
     'USDC_SOL': { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', decimals: 6, chain: 'solana', isNative: false },
     'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana', isNative: false },
     'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana', isNative: true },
+    'SKR_SOL': { mint: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3', symbol: 'SKR', decimals: 6, chain: 'solana', isNative: false },
     'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui', isNative: false },
     'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6, chain: 'sui', isNative: false },
     'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui', isNative: true },
@@ -614,13 +641,13 @@ serve(async (req) => {
         const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
         const actualGasTokenMint = gasTokenConfig ? gasTokenConfig.mint : mint;
         
-        // Only validate gas token is in allowed list (USDC, USDT, or native)
+        // Only validate gas token is in allowed list (USDC, USDT, SKR, or native)
         // Transfer token can be any valid SPL/SUI token
         if (gasTokenConfig && !(actualGasTokenMint in ALLOWED_TOKENS) && !gasTokenConfig.isNative) {
           return new Response(
             JSON.stringify({ 
               error: 'Invalid gas token',
-              details: 'Gas fees can only be paid with USDC, USDT, SOL, or SUI'
+              details: 'Gas fees can only be paid with USDC, USDT, SKR, SOL, or SUI'
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -675,6 +702,8 @@ serve(async (req) => {
             feeTokenSymbol = 'usd-coin';
           } else if (feeTokenInfo.name === 'USDT') {
             feeTokenSymbol = 'tether';
+          } else if (feeTokenInfo.name === 'SKR') {
+            feeTokenSymbol = 'seeker-2'; // GeckoTerminal/CoinGecko ID for SKR
           } else if (chain === 'solana') {
             feeTokenSymbol = 'solana';
           } else {
