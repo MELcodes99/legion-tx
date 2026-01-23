@@ -40,6 +40,15 @@ export const TOKENS: Record<string, TokenConfig> = {
     gasFee: 0.50,
     isNative: true,
   },
+  'SKR_SOL': {
+    name: 'Seeker',
+    symbol: 'SKR',
+    mint: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3',
+    decimals: 6,
+    chain: 'solana',
+    gasFee: 0.50,
+    isNative: false,
+  },
   
   // Sui tokens
   'USDC_SUI': {

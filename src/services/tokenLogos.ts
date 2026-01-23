@@ -11,6 +11,7 @@ import bonkLogo from '@/assets/bonk-logo.jpeg';
 import metLogo from '@/assets/met-logo.jpeg';
 import pumpLogo from '@/assets/pump-logo.jpeg';
 import monLogo from '@/assets/mon-logo.jpeg';
+import skrLogo from '@/assets/skr-logo.jpeg';
 import usdtLogo from '@/assets/usdt-logo.png';
 
 // Token logo cache to avoid repeated fetches
@@ -28,6 +29,7 @@ export const SOLANA_TOKEN_MINTS = {
   MET: 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL',
   PUMP: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn',
   MON: 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2',
+  SKR: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3',
 };
 
 // Local logos for new Solana tokens
@@ -42,6 +44,7 @@ export const LOCAL_TOKEN_LOGOS: Record<string, string> = {
   [SOLANA_TOKEN_MINTS.MET]: metLogo,
   [SOLANA_TOKEN_MINTS.PUMP]: pumpLogo,
   [SOLANA_TOKEN_MINTS.MON]: monLogo,
+  [SOLANA_TOKEN_MINTS.SKR]: skrLogo,
 };
 
 // Known token logos (fallback)

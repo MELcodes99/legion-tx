@@ -23,6 +23,7 @@ const KNOWN_TOKEN_IDS: Record<string, string> = {
   'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': 'meteora', // MET
   'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 'pump-fun', // PUMP
   'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': 'monad-protocol', // MON - monad-protocol is the correct CoinGecko ID
+  'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3': 'seeker-2', // SKR - Seeker token
   
   // Sui
   '0x2::sui::SUI': 'sui',
@@ -324,7 +325,64 @@ serve(async (req) => {
       }
     }
 
-    // Merge CoinGecko prices by mapping back to addresses
+    // For SKR token (Seeker) - Use GeckoTerminal API for accurate price
+    const skrAddress = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3';
+    if (!prices[skrAddress] && solanaTokens.includes(skrAddress)) {
+      console.log('Fetching SKR (Seeker) price from GeckoTerminal...');
+      
+      try {
+        const geckoTerminalResponse = await fetch(
+          `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${skrAddress}`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+        if (geckoTerminalResponse.ok) {
+          const geckoTerminalData = await geckoTerminalResponse.json();
+          console.log('GeckoTerminal response for SKR:', JSON.stringify(geckoTerminalData));
+          const priceUsd = geckoTerminalData.data?.attributes?.price_usd;
+          if (priceUsd) {
+            prices[skrAddress] = parseFloat(priceUsd);
+            console.log('SKR price set from GeckoTerminal:', prices[skrAddress]);
+          }
+        }
+      } catch (e) {
+        console.log('GeckoTerminal price fetch failed for SKR:', e);
+      }
+      
+      // If GeckoTerminal fails, try DexScreener
+      if (!prices[skrAddress]) {
+        console.log('GeckoTerminal failed, trying DexScreener for SKR...');
+        try {
+          const dexResponse = await fetch(
+            `https://api.dexscreener.com/latest/dex/tokens/${skrAddress}`,
+            { headers: { 'Accept': 'application/json' } }
+          );
+          if (dexResponse.ok) {
+            const dexData = await dexResponse.json();
+            if (dexData.pairs && dexData.pairs.length > 0) {
+              const bestPair = dexData.pairs
+                .filter((p: any) => p.chainId === 'solana' && p.priceUsd)
+                .sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+              if (bestPair?.priceUsd) {
+                prices[skrAddress] = parseFloat(bestPair.priceUsd);
+                console.log('SKR price from DexScreener:', prices[skrAddress]);
+              }
+            }
+          }
+        } catch (e) {
+          console.log('DexScreener price fetch failed for SKR:', e);
+        }
+      }
+      
+      // If still no price, try CoinGecko
+      if (!prices[skrAddress]) {
+        console.log('DexScreener failed, trying CoinGecko for SKR...');
+        const skrGeckoPrices = await fetchCoinGeckoPrices(['seeker-2']);
+        if (skrGeckoPrices['seeker-2']) {
+          prices[skrAddress] = skrGeckoPrices['seeker-2'];
+          console.log('SKR price from CoinGecko:', prices[skrAddress]);
+        }
+      }
+    }
     for (const [address, geckoId] of Object.entries(addressToGeckoId)) {
       if (geckoPrices[geckoId]) {
         prices[address] = geckoPrices[geckoId];

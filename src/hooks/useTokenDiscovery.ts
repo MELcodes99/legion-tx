@@ -20,6 +20,7 @@ const KNOWN_SOLANA_TOKENS = [
   { address: SOLANA_TOKEN_MINTS.MET, symbol: 'MET', name: 'Meteora' },
   { address: SOLANA_TOKEN_MINTS.PUMP, symbol: 'PUMP', name: 'Pump' },
   { address: SOLANA_TOKEN_MINTS.MON, symbol: 'MON', name: 'Mon Protocol' },
+  { address: SOLANA_TOKEN_MINTS.SKR, symbol: 'SKR', name: 'Seeker' },
 ];
 
 export interface DiscoveredToken {
