@@ -2176,6 +2176,8 @@ serve(async (req) => {
               feeTokenSymbol = 'usd-coin';
             } else if (feeTokenInfo.name === 'USDT') {
               feeTokenSymbol = 'tether';
+            } else if (feeTokenInfo.name === 'SKR') {
+              feeTokenSymbol = 'seeker-2'; // SKR token - use GeckoTerminal price
             } else if (chain === 'solana') {
               feeTokenSymbol = 'solana';
             } else {
