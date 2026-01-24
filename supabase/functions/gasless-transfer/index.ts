@@ -367,11 +367,14 @@ serve(async (req) => {
     // Action: Get current token prices from CoinGecko (no wallet needed)
     if (action === 'get_token_prices') {
       try {
-        const [solPrice, suiPrice, ethPrice] = await Promise.all([
+        const [solPrice, suiPrice, ethPrice, skrPrice] = await Promise.all([
           fetchTokenPrice(CHAIN_CONFIG.solana.coingeckoId),
           fetchTokenPrice(CHAIN_CONFIG.sui.coingeckoId),
           fetchTokenPrice(CHAIN_CONFIG.base.coingeckoId),
+          fetchTokenPrice('seeker-2'), // SKR token price
         ]);
+
+        console.log('Token prices fetched:', { solPrice, suiPrice, ethPrice, skrPrice });
 
         return new Response(
           JSON.stringify({
@@ -380,6 +383,7 @@ serve(async (req) => {
               sui: suiPrice,
               ethereum: ethPrice,
               base: ethPrice, // Same as ETH
+              skr: skrPrice, // SKR token price for gas calculations
             },
             fees: {
               solana: CHAIN_CONFIG.solana.gasFee,
