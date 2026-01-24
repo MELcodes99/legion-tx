@@ -90,17 +90,27 @@ export const MultiChainTransferForm = () => {
     solana: number;
     sui: number;
     ethereum: number;
+    skr?: number;
   } | null>(null);
   const selectedTokenConfig = getTokenConfig(selectedToken);
   const selectedGasTokenConfig = getTokenConfig(selectedGasToken);
   const gasFee = selectedTokenConfig?.gasFee || 0.50;
 
-  // Calculate gas fee in tokens if paying with native token
+  // Calculate gas fee in tokens if paying with native token or SKR
   const getGasFeeDisplay = () => {
     if (!selectedGasTokenConfig || !tokenPrices) return `$${gasFee.toFixed(2)}`;
+    
+    // For SKR token, calculate fee in SKR
+    if (selectedGasTokenConfig.symbol === 'SKR' && tokenPrices.skr && tokenPrices.skr > 0) {
+      const tokenAmount = gasFee / tokenPrices.skr;
+      return `${tokenAmount.toFixed(4)} ${selectedGasTokenConfig.symbol} (~$${gasFee.toFixed(2)})`;
+    }
+    
     if (selectedGasTokenConfig.isNative) {
       let price = 1;
-      if (selectedGasTokenConfig.chain === 'solana') price = tokenPrices.solana;else if (selectedGasTokenConfig.chain === 'sui') price = tokenPrices.sui;else if (selectedGasTokenConfig.chain === 'base' || selectedGasTokenConfig.chain === 'ethereum') price = tokenPrices.ethereum;
+      if (selectedGasTokenConfig.chain === 'solana') price = tokenPrices.solana;
+      else if (selectedGasTokenConfig.chain === 'sui') price = tokenPrices.sui;
+      else if (selectedGasTokenConfig.chain === 'base' || selectedGasTokenConfig.chain === 'ethereum') price = tokenPrices.ethereum;
       const tokenAmount = gasFee / price;
       return `${tokenAmount.toFixed(6)} ${selectedGasTokenConfig.symbol} (~$${gasFee.toFixed(2)})`;
     }
@@ -143,7 +153,8 @@ export const MultiChainTransferForm = () => {
           setTokenPrices({
             solana: data.prices.solana || 0,
             sui: data.prices.sui || 0,
-            ethereum: data.prices.ethereum || data.prices.base || 3000
+            ethereum: data.prices.ethereum || data.prices.base || 3000,
+            skr: data.prices.skr || 0,
           });
           console.log('Token prices fetched:', data.prices);
         }
@@ -1474,6 +1485,10 @@ export const MultiChainTransferForm = () => {
                 // For stablecoins, fee is in USD
                 if (selectedGasTokenConfig.symbol === 'USDC' || selectedGasTokenConfig.symbol === 'USDT') {
                   return gasFee;
+                }
+                // For SKR token, use SKR price
+                if (selectedGasTokenConfig.symbol === 'SKR' && tokenPrices?.skr && tokenPrices.skr > 0) {
+                  return gasFee / tokenPrices.skr;
                 }
                 // For native tokens, convert from USD
                 if (tokenPrices) {
