@@ -14,6 +14,96 @@ export type Database = {
   }
   public: {
     Tables: {
+      daily_reports: {
+        Row: {
+          chain_breakdown: Json | null
+          created_at: string
+          gas_token_breakdown: Json | null
+          id: string
+          most_used_chain: string | null
+          most_used_gas_token: string | null
+          new_user_count: number
+          report_date: string
+          total_revenue: number
+          total_transactions: number
+          updated_at: string
+        }
+        Insert: {
+          chain_breakdown?: Json | null
+          created_at?: string
+          gas_token_breakdown?: Json | null
+          id?: string
+          most_used_chain?: string | null
+          most_used_gas_token?: string | null
+          new_user_count?: number
+          report_date: string
+          total_revenue?: number
+          total_transactions?: number
+          updated_at?: string
+        }
+        Update: {
+          chain_breakdown?: Json | null
+          created_at?: string
+          gas_token_breakdown?: Json | null
+          id?: string
+          most_used_chain?: string | null
+          most_used_gas_token?: string | null
+          new_user_count?: number
+          report_date?: string
+          total_revenue?: number
+          total_transactions?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      transactions: {
+        Row: {
+          amount: number
+          chain: string
+          created_at: string
+          gas_fee_amount: number | null
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          chain: string
+          created_at?: string
+          gas_fee_amount?: number | null
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          chain?: string
+          created_at?: string
+          gas_fee_amount?: number | null
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       transfer_rate_limits: {
         Row: {
           created_at: string
@@ -47,6 +137,10 @@ export type Database = {
     }
     Functions: {
       cleanup_old_rate_limits: { Args: never; Returns: undefined }
+      generate_daily_report: {
+        Args: { target_date?: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
