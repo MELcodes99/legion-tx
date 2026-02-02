@@ -25,6 +25,53 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Initialize Supabase client for transaction logging
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+// Helper function to log transactions to database
+async function logTransaction(data: {
+  sender_address: string;
+  receiver_address: string;
+  amount: number;
+  token_sent: string;
+  gas_token: string;
+  chain: string;
+  status: 'pending' | 'success' | 'failed';
+  tx_hash?: string;
+  gas_fee_amount?: number;
+  gas_fee_usd?: number;
+}) {
+  try {
+    const { error } = await supabaseAdmin
+      .from('transactions')
+      .insert(data);
+    
+    if (error) {
+      console.error('Failed to log transaction:', error);
+    } else {
+      console.log('Transaction logged successfully:', data.tx_hash || 'pending');
+    }
+  } catch (err) {
+    console.error('Error logging transaction:', err);
+  }
+}
+
+// Helper function to update daily report
+async function updateDailyReport() {
+  try {
+    const { error } = await supabaseAdmin.rpc('generate_daily_report');
+    if (error) {
+      console.error('Failed to update daily report:', error);
+    } else {
+      console.log('Daily report updated successfully');
+    }
+  } catch (err) {
+    console.error('Error updating daily report:', err);
+  }
+}
+
 // Solana RPC endpoint - use mainnet-beta for production
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
 
@@ -2342,6 +2389,29 @@ serve(async (req) => {
 
           const balanceLamports = await connection.getBalance(backendWallet.publicKey);
 
+          // Get token symbol for logging
+          const logTokenInfo = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
+          const logTokenSymbol = logTokenInfo?.name || mint || 'UNKNOWN';
+          const logGasTokenInfo = gasToken ? getTokenConfig(gasToken) : null;
+          const logGasTokenSymbol = logGasTokenInfo ? logGasTokenInfo.symbol : logTokenSymbol;
+
+          // Log successful transaction
+          await logTransaction({
+            sender_address: senderPublicKey || '',
+            receiver_address: recipientPublicKey || '',
+            amount: effectiveAmount || 0,
+            token_sent: logTokenSymbol,
+            gas_token: logGasTokenSymbol,
+            chain: 'solana',
+            status: 'success',
+            tx_hash: signature,
+            gas_fee_amount: feeAmount,
+            gas_fee_usd: feeAmountUSD,
+          });
+
+          // Update daily report
+          await updateDailyReport();
+
           return new Response(
             JSON.stringify({
               success: true,
@@ -2353,6 +2423,26 @@ serve(async (req) => {
           );
         } catch (txError) {
           console.error('Solana transaction error:', txError);
+
+          // Log failed transaction
+          const logTokenInfo = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
+          const logTokenSymbol = logTokenInfo?.name || mint || 'UNKNOWN';
+          const logGasTokenInfo = gasToken ? getTokenConfig(gasToken) : null;
+          const logGasTokenSymbol = logGasTokenInfo ? logGasTokenInfo.symbol : logTokenSymbol;
+          const failedAmount = amount || amountUSD || tokenAmount || 0;
+          const failedFeeUSD = CHAIN_CONFIG.solana.gasFee;
+
+          await logTransaction({
+            sender_address: senderPublicKey || '',
+            receiver_address: recipientPublicKey || '',
+            amount: failedAmount,
+            token_sent: logTokenSymbol,
+            gas_token: logGasTokenSymbol,
+            chain: 'solana',
+            status: 'failed',
+            gas_fee_usd: failedFeeUSD,
+          });
+
           return new Response(
             JSON.stringify({
               error: 'Transaction failed',
@@ -2414,6 +2504,28 @@ serve(async (req) => {
 
           console.log(`✅ ATOMIC Sui transaction confirmed: ${result.digest}`);
           
+          // Log successful Sui transaction
+          const suiTokenSymbol = tokenInfo?.name || 'UNKNOWN';
+          const suiGasTokenInfo = gasToken ? getTokenConfig(gasToken) : null;
+          const suiGasTokenSymbol = suiGasTokenInfo ? suiGasTokenInfo.symbol : suiTokenSymbol;
+          const suiAmount = amount || amountUSD || tokenAmount || 0;
+          const suiFeeUSD = CHAIN_CONFIG.sui.gasFee;
+
+          await logTransaction({
+            sender_address: senderPublicKey || '',
+            receiver_address: recipientPublicKey || '',
+            amount: suiAmount,
+            token_sent: suiTokenSymbol,
+            gas_token: suiGasTokenSymbol,
+            chain: 'sui',
+            status: 'success',
+            tx_hash: result.digest,
+            gas_fee_usd: suiFeeUSD,
+          });
+
+          // Update daily report
+          await updateDailyReport();
+          
           return new Response(
             JSON.stringify({
               success: true,
@@ -2425,6 +2537,22 @@ serve(async (req) => {
           );
         } catch (txError) {
           console.error('Sui transaction error:', txError);
+
+          // Log failed Sui transaction
+          const suiAmount = amount || amountUSD || tokenAmount || 0;
+          const suiFeeUSD = CHAIN_CONFIG.sui.gasFee;
+
+          await logTransaction({
+            sender_address: senderPublicKey || '',
+            receiver_address: recipientPublicKey || '',
+            amount: suiAmount,
+            token_sent: mint || 'UNKNOWN',
+            gas_token: gasToken || mint || 'UNKNOWN',
+            chain: 'sui',
+            status: 'failed',
+            gas_fee_usd: suiFeeUSD,
+          });
+
           return new Response(
             JSON.stringify({
               error: 'Sui transaction failed',
