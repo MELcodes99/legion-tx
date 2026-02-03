@@ -14,6 +14,111 @@ export type Database = {
   }
   public: {
     Tables: {
+      chain_period_analytics: {
+        Row: {
+          chain: string
+          created_at: string
+          failed_transactions: number
+          gas_token_breakdown: Json | null
+          id: string
+          most_used_gas_token: string | null
+          period_end: string
+          period_start: string
+          period_type: Database["public"]["Enums"]["report_period"]
+          successful_transactions: number
+          token_breakdown: Json | null
+          total_revenue: number
+          total_transactions: number
+          total_volume: number
+          unique_receivers: number
+          unique_senders: number
+          updated_at: string
+        }
+        Insert: {
+          chain: string
+          created_at?: string
+          failed_transactions?: number
+          gas_token_breakdown?: Json | null
+          id?: string
+          most_used_gas_token?: string | null
+          period_end: string
+          period_start: string
+          period_type: Database["public"]["Enums"]["report_period"]
+          successful_transactions?: number
+          token_breakdown?: Json | null
+          total_revenue?: number
+          total_transactions?: number
+          total_volume?: number
+          unique_receivers?: number
+          unique_senders?: number
+          updated_at?: string
+        }
+        Update: {
+          chain?: string
+          created_at?: string
+          failed_transactions?: number
+          gas_token_breakdown?: Json | null
+          id?: string
+          most_used_gas_token?: string | null
+          period_end?: string
+          period_start?: string
+          period_type?: Database["public"]["Enums"]["report_period"]
+          successful_transactions?: number
+          token_breakdown?: Json | null
+          total_revenue?: number
+          total_transactions?: number
+          total_volume?: number
+          unique_receivers?: number
+          unique_senders?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      chain_rankings: {
+        Row: {
+          average_transaction_size: number | null
+          chain: string
+          created_at: string
+          id: string
+          last_transaction_at: string | null
+          most_used_gas_token: string | null
+          rank_position: number | null
+          total_revenue_all_time: number
+          total_transactions_all_time: number
+          total_volume_all_time: number
+          unique_users: number
+          updated_at: string
+        }
+        Insert: {
+          average_transaction_size?: number | null
+          chain: string
+          created_at?: string
+          id?: string
+          last_transaction_at?: string | null
+          most_used_gas_token?: string | null
+          rank_position?: number | null
+          total_revenue_all_time?: number
+          total_transactions_all_time?: number
+          total_volume_all_time?: number
+          unique_users?: number
+          updated_at?: string
+        }
+        Update: {
+          average_transaction_size?: number | null
+          chain?: string
+          created_at?: string
+          id?: string
+          last_transaction_at?: string | null
+          most_used_gas_token?: string | null
+          rank_position?: number | null
+          total_revenue_all_time?: number
+          total_transactions_all_time?: number
+          total_volume_all_time?: number
+          unique_users?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       daily_reports: {
         Row: {
           chain_breakdown: Json | null
@@ -137,13 +242,26 @@ export type Database = {
     }
     Functions: {
       cleanup_old_rate_limits: { Args: never; Returns: undefined }
+      generate_all_chain_analytics: {
+        Args: { p_target_date?: string }
+        Returns: undefined
+      }
+      generate_chain_period_analytics: {
+        Args: {
+          p_chain: string
+          p_period_type: Database["public"]["Enums"]["report_period"]
+          p_target_date?: string
+        }
+        Returns: undefined
+      }
       generate_daily_report: {
         Args: { target_date?: string }
         Returns: undefined
       }
+      update_chain_rankings: { Args: never; Returns: undefined }
     }
     Enums: {
-      [_ in never]: never
+      report_period: "daily" | "weekly" | "bi_weekly" | "monthly" | "yearly"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -270,6 +388,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      report_period: ["daily", "weekly", "bi_weekly", "monthly", "yearly"],
+    },
   },
 } as const
