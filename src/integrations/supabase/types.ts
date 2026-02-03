@@ -14,6 +14,231 @@ export type Database = {
   }
   public: {
     Tables: {
+      base_transactions_biweekly: {
+        Row: {
+          amount: number
+          biweek_start: string
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          biweek_start: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          biweek_start?: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      base_transactions_daily: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          period_date: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          period_date?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          period_date?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      base_transactions_monthly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          month_start?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      base_transactions_weekly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          week_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
+      base_transactions_yearly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          year_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start?: string
+        }
+        Relationships: []
+      }
       chain_period_analytics: {
         Row: {
           chain: string
@@ -161,6 +386,681 @@ export type Database = {
         }
         Relationships: []
       }
+      ethereum_transactions_biweekly: {
+        Row: {
+          amount: number
+          biweek_start: string
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          biweek_start: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          biweek_start?: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ethereum_transactions_daily: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          period_date: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          period_date?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          period_date?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ethereum_transactions_monthly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          month_start?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ethereum_transactions_weekly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          week_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
+      ethereum_transactions_yearly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          year_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start?: string
+        }
+        Relationships: []
+      }
+      solana_transactions_biweekly: {
+        Row: {
+          amount: number
+          biweek_start: string
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          biweek_start: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          biweek_start?: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      solana_transactions_daily: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          period_date: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          period_date?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          period_date?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      solana_transactions_monthly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          month_start?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      solana_transactions_weekly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          week_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
+      solana_transactions_yearly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          year_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start?: string
+        }
+        Relationships: []
+      }
+      sui_transactions_biweekly: {
+        Row: {
+          amount: number
+          biweek_start: string
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          biweek_start: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          biweek_start?: string
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sui_transactions_daily: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          period_date: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          period_date?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          period_date?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sui_transactions_monthly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          month_start: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          month_start?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sui_transactions_weekly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          week_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
+      sui_transactions_yearly: {
+        Row: {
+          amount: number
+          created_at: string
+          gas_fee_usd: number | null
+          gas_token: string
+          id: string
+          receiver_address: string
+          sender_address: string
+          status: string
+          token_sent: string
+          tx_hash: string | null
+          updated_at: string
+          year_start: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token: string
+          id?: string
+          receiver_address: string
+          sender_address: string
+          status?: string
+          token_sent: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          gas_fee_usd?: number | null
+          gas_token?: string
+          id?: string
+          receiver_address?: string
+          sender_address?: string
+          status?: string
+          token_sent?: string
+          tx_hash?: string | null
+          updated_at?: string
+          year_start?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
@@ -256,6 +1156,20 @@ export type Database = {
       }
       generate_daily_report: {
         Args: { target_date?: string }
+        Returns: undefined
+      }
+      insert_chain_transaction: {
+        Args: {
+          p_amount: number
+          p_chain: string
+          p_gas_fee_usd: number
+          p_gas_token: string
+          p_receiver: string
+          p_sender: string
+          p_status: string
+          p_token_sent: string
+          p_tx_hash: string
+        }
         Returns: undefined
       }
       update_chain_rankings: { Args: never; Returns: undefined }
