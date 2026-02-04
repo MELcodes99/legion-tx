@@ -44,6 +44,7 @@ async function logTransaction(data: {
   gas_fee_usd?: number;
 }) {
   try {
+    // 1. Insert into main transactions table
     const { error } = await supabaseAdmin
       .from('transactions')
       .insert(data);
@@ -52,6 +53,49 @@ async function logTransaction(data: {
       console.error('Failed to log transaction:', error);
     } else {
       console.log('Transaction logged successfully:', data.tx_hash || 'pending');
+    }
+
+    // 2. If successful, also insert into chain-specific period tables
+    if (data.status === 'success') {
+      try {
+        const { error: chainError } = await supabaseAdmin.rpc('insert_chain_transaction', {
+          p_chain: data.chain,
+          p_sender: data.sender_address,
+          p_receiver: data.receiver_address,
+          p_amount: data.amount,
+          p_token_sent: data.token_sent,
+          p_gas_token: data.gas_token,
+          p_status: data.status,
+          p_tx_hash: data.tx_hash || '',
+          p_gas_fee_usd: data.gas_fee_usd || 0,
+        });
+        
+        if (chainError) {
+          console.error('Failed to insert chain transaction:', chainError);
+        } else {
+          console.log('Chain transaction inserted into period tables for:', data.chain);
+        }
+      } catch (chainErr) {
+        console.error('Error inserting chain transaction:', chainErr);
+      }
+
+      // 3. Update platform stats and user wallet stats
+      try {
+        const { error: statsError } = await supabaseAdmin.rpc('record_transaction_stats', {
+          p_wallet_address: data.sender_address,
+          p_network: data.chain,
+          p_volume: data.amount,
+          p_fee: data.gas_fee_usd || 0,
+        });
+        
+        if (statsError) {
+          console.error('Failed to record transaction stats:', statsError);
+        } else {
+          console.log('Platform and user stats updated for wallet:', data.sender_address);
+        }
+      } catch (statsErr) {
+        console.error('Error recording transaction stats:', statsErr);
+      }
     }
   } catch (err) {
     console.error('Error logging transaction:', err);
@@ -2076,6 +2120,33 @@ serve(async (req) => {
           ? `https://basescan.org/tx/${txHash}`
           : `https://etherscan.io/tx/${txHash}`;
 
+        // Log successful EVM transaction
+        const chainTokens = chain === 'base' ? CHAIN_CONFIG.base.tokens : CHAIN_CONFIG.ethereum.tokens;
+        const evmTokenInfo = chainTokens[tokenContract as keyof typeof chainTokens] as { name: string; decimals: number } | undefined;
+        const evmTokenSymbol = evmTokenInfo?.name || 'UNKNOWN';
+        const evmGasTokenInfo = feeToken ? chainTokens[feeToken as keyof typeof chainTokens] as { name: string; decimals: number } | undefined : evmTokenInfo;
+        const evmGasTokenSymbol = evmGasTokenInfo?.name || evmTokenSymbol;
+        const evmFeeUSD = chain === 'base' ? CHAIN_CONFIG.base.gasFee : CHAIN_CONFIG.ethereum.gasFee;
+        
+        // Calculate amount in human-readable format
+        const evmDecimals = evmTokenInfo?.decimals || 6;
+        const evmAmount = Number(BigInt(transferAmount)) / Math.pow(10, evmDecimals);
+
+        await logTransaction({
+          sender_address: senderAddress,
+          receiver_address: recipientAddress,
+          amount: evmAmount,
+          token_sent: evmTokenSymbol,
+          gas_token: evmGasTokenSymbol,
+          chain: chain,
+          status: 'success',
+          tx_hash: txHash,
+          gas_fee_usd: evmFeeUSD,
+        });
+
+        // Update daily report
+        await updateDailyReport();
+
         return new Response(
           JSON.stringify({
             success: true,
@@ -2088,6 +2159,28 @@ serve(async (req) => {
         );
       } catch (error) {
         console.error('EVM transfer execution error:', error);
+        
+        // Log failed EVM transaction
+        const chainTokens = chain === 'base' ? CHAIN_CONFIG.base.tokens : CHAIN_CONFIG.ethereum.tokens;
+        const evmTokenInfo = chainTokens[tokenContract as keyof typeof chainTokens] as { name: string; decimals: number } | undefined;
+        const evmTokenSymbol = evmTokenInfo?.name || 'UNKNOWN';
+        const evmGasTokenInfo = feeToken ? chainTokens[feeToken as keyof typeof chainTokens] as { name: string; decimals: number } | undefined : evmTokenInfo;
+        const evmGasTokenSymbol = evmGasTokenInfo?.name || evmTokenSymbol;
+        const evmFeeUSD = chain === 'base' ? CHAIN_CONFIG.base.gasFee : CHAIN_CONFIG.ethereum.gasFee;
+        const evmDecimals = evmTokenInfo?.decimals || 6;
+        const evmAmount = Number(BigInt(transferAmount)) / Math.pow(10, evmDecimals);
+
+        await logTransaction({
+          sender_address: senderAddress,
+          receiver_address: recipientAddress,
+          amount: evmAmount,
+          token_sent: evmTokenSymbol,
+          gas_token: evmGasTokenSymbol,
+          chain: chain,
+          status: 'failed',
+          gas_fee_usd: evmFeeUSD,
+        });
+
         return new Response(
           JSON.stringify({
             error: 'Transfer execution failed',
