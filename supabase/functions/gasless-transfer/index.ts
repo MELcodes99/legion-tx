@@ -96,6 +96,19 @@ async function logTransaction(data: {
       } catch (statsErr) {
         console.error('Error recording transaction stats:', statsErr);
       }
+
+      // 4. Update chain rankings (aggregates all-time stats per chain)
+      try {
+        const { error: rankingsError } = await supabaseAdmin.rpc('update_chain_rankings');
+        
+        if (rankingsError) {
+          console.error('Failed to update chain rankings:', rankingsError);
+        } else {
+          console.log('Chain rankings updated for:', data.chain);
+        }
+      } catch (rankingsErr) {
+        console.error('Error updating chain rankings:', rankingsErr);
+      }
     }
   } catch (err) {
     console.error('Error logging transaction:', err);
