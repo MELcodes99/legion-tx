@@ -611,6 +611,36 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_stats: {
+        Row: {
+          created_at: string
+          id: string
+          total_fees_earned: number
+          total_transactions: number
+          total_users: number
+          total_volume: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          total_fees_earned?: number
+          total_transactions?: number
+          total_users?: number
+          total_volume?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          total_fees_earned?: number
+          total_transactions?: number
+          total_users?: number
+          total_volume?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       solana_transactions_biweekly: {
         Row: {
           amount: number
@@ -1136,6 +1166,45 @@ export type Database = {
         }
         Relationships: []
       }
+      user_wallets: {
+        Row: {
+          created_at: string
+          id: string
+          joined_at: string
+          last_transaction_at: string | null
+          network: string
+          total_fees: number
+          total_transactions: number
+          total_volume: number
+          updated_at: string
+          wallet_address: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          joined_at?: string
+          last_transaction_at?: string | null
+          network: string
+          total_fees?: number
+          total_transactions?: number
+          total_volume?: number
+          updated_at?: string
+          wallet_address: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          joined_at?: string
+          last_transaction_at?: string | null
+          network?: string
+          total_fees?: number
+          total_transactions?: number
+          total_volume?: number
+          updated_at?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -1169,6 +1238,15 @@ export type Database = {
           p_status: string
           p_token_sent: string
           p_tx_hash: string
+        }
+        Returns: undefined
+      }
+      record_transaction_stats: {
+        Args: {
+          p_fee: number
+          p_network: string
+          p_volume: number
+          p_wallet_address: string
         }
         Returns: undefined
       }
