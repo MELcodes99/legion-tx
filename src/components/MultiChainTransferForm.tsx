@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Send, AlertCircle, Wallet } from 'lucide-react';
+ import { Scan } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ProcessingLogo } from './ProcessingLogo';
 import { ConnectedWalletInfo } from './ConnectedWalletInfo';
@@ -32,6 +33,7 @@ import { SuiClient } from '@mysten/sui/client';
 import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown } from 'lucide-react';
+ import { QRScanner } from './QRScanner';
 
 type TokenKey = keyof typeof TOKENS;
 type BalanceMap = Record<TokenKey, number>;
@@ -1258,6 +1260,7 @@ export const MultiChainTransferForm = () => {
   const baseTokensWithBalance = connectedChain === 'base' ? tokensWithBalance : [];
   const ethTokensWithBalance = connectedChain === 'ethereum' ? tokensWithBalance : [];
   const [balancesOpen, setBalancesOpen] = useState(false);
+   const [qrScannerOpen, setQrScannerOpen] = useState(false);
   return <Card className="glass-card w-full max-w-md border-2 mx-4 sm:mx-0 border-secondary-foreground">
       <CardHeader className="space-y-1 p-4 sm:p-6">
         <div className="flex items-center justify-between">
@@ -1446,8 +1449,27 @@ export const MultiChainTransferForm = () => {
           <>
             <div className="space-y-2">
               <Label htmlFor="recipient" className="text-sm">Recipient Address</Label>
-              <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+               <div className="relative">
+                 <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm pr-10" />
+                 <button
+                   type="button"
+                   onClick={() => setQrScannerOpen(true)}
+                   disabled={!hasWalletConnected || isLoading}
+                   className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md hover:bg-secondary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                   title="Scan QR Code"
+                 >
+                   <Scan className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />
+                 </button>
+               </div>
             </div>
+
+             {/* QR Scanner Modal */}
+             <QRScanner
+               open={qrScannerOpen}
+               onClose={() => setQrScannerOpen(false)}
+               onScan={(address) => setRecipient(address)}
+               chain={connectedChain}
+             />
 
             <div className="space-y-2">
               <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
