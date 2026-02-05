@@ -212,7 +212,7 @@
              Scan Wallet QR Code
            </DialogTitle>
            <DialogDescription>
-             Scan a {getChainName()} wallet address QR code
+             Scan a wallet address QR code
            </DialogDescription>
          </DialogHeader>
  

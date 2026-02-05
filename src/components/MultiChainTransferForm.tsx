@@ -1449,18 +1449,16 @@ export const MultiChainTransferForm = () => {
           <>
             <div className="space-y-2">
               <Label htmlFor="recipient" className="text-sm">Recipient Address</Label>
-               <div className="relative">
-                 <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm pr-10" />
-                 <button
-                   type="button"
-                   onClick={() => setQrScannerOpen(true)}
-                   disabled={!hasWalletConnected || isLoading}
-                   className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md hover:bg-secondary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                   title="Scan QR Code"
-                 >
-                   <Scan className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />
-                 </button>
-               </div>
+               <Input id="recipient" placeholder="Enter recipient address" value={recipient} onChange={e => setRecipient(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+               <button
+                 type="button"
+                 onClick={() => setQrScannerOpen(true)}
+                 disabled={!hasWalletConnected || isLoading}
+                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none"
+               >
+                 <Scan className="h-3.5 w-3.5" />
+                 <span>Scan QR Code</span>
+               </button>
             </div>
 
              {/* QR Scanner Modal */}
