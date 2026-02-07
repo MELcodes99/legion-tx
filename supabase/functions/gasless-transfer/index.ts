@@ -924,22 +924,30 @@ serve(async (req) => {
           const senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
           const totalNeeded = transferAmountSmallest + feeSmallest;
           
+          // Add small tolerance for floating-point rounding (1 smallest unit per 100 tokens)
+          // This allows users to send their full balance without rounding errors blocking them
+          const toleranceUnits = BigInt(Math.max(1, Math.floor(Number(totalNeeded) / 10000)));
+          const effectiveTotalNeeded = totalNeeded - toleranceUnits;
+          
           console.log('Balance validation (same token for transfer & fee):', {
             senderBalance: senderTransferBalanceSmallest.toString(),
             transferAmount: transferAmountSmallest.toString(),
             feeAmount: feeSmallest.toString(),
             totalNeeded: totalNeeded.toString(),
-            hasSufficient: senderTransferBalanceSmallest >= totalNeeded,
+            toleranceUnits: toleranceUnits.toString(),
+            effectiveTotalNeeded: effectiveTotalNeeded.toString(),
+            hasSufficient: senderTransferBalanceSmallest >= effectiveTotalNeeded,
           });
           
-          if (senderTransferBalanceSmallest < totalNeeded) {
+          if (senderTransferBalanceSmallest < effectiveTotalNeeded) {
             const senderBalanceReadable = Number(senderTransferBalanceSmallest) / Math.pow(10, decimals);
             const totalNeededReadable = Number(totalNeeded) / Math.pow(10, decimals);
+            const transferAmountReadable = Number(transferAmountSmallest) / Math.pow(10, decimals);
             
             return new Response(
               JSON.stringify({
                 error: 'Insufficient balance',
-                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenName} but need ${totalNeededReadable.toFixed(4)} (${amount} transfer + $${feeAmountUSD} fee)`,
+                details: `You have ${senderBalanceReadable.toFixed(4)} ${transferTokenName} but need ${totalNeededReadable.toFixed(4)} (${transferAmountReadable.toFixed(4)} transfer + $${feeAmountUSD} fee)`,
               }),
               { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
