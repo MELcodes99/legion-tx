@@ -1201,7 +1201,11 @@ serve(async (req) => {
             ? transferAmountSmallest + feeSmallest 
             : transferAmountSmallest;
           
-          if (totalBalance < totalNeeded) {
+          // Add tolerance for floating-point rounding (allows full balance transfers)
+          const toleranceUnits = BigInt(Math.max(1, Math.floor(Number(totalNeeded) / 10000)));
+          const effectiveTotalNeeded = totalNeeded - toleranceUnits;
+          
+          if (totalBalance < effectiveTotalNeeded) {
             return new Response(
               JSON.stringify({
                 error: 'Insufficient balance',
@@ -1219,7 +1223,11 @@ serve(async (req) => {
             });
             const feeTotalBalance = feeCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
             
-            if (feeTotalBalance < feeSmallest) {
+            // Add tolerance for fee token
+            const feeToleranceUnits = BigInt(Math.max(1, Math.floor(Number(feeSmallest) / 10000)));
+            const effectiveFeeNeeded = feeSmallest - feeToleranceUnits;
+            
+            if (feeTotalBalance < effectiveFeeNeeded) {
               return new Response(
                 JSON.stringify({
                   error: 'Insufficient fee token balance',
@@ -1505,8 +1513,11 @@ serve(async (req) => {
             feeTokenAddress,
           });
           
-          // Check balance
-          if (userBalance < totalNeeded) {
+          // Check balance with tolerance for full-balance transfers
+          const evmToleranceUnits = BigInt(Math.max(1, Math.floor(Number(totalNeeded) / 10000)));
+          const effectiveTotalNeeded = totalNeeded - evmToleranceUnits;
+          
+          if (userBalance < effectiveTotalNeeded) {
             return new Response(
               JSON.stringify({
                 error: 'Insufficient balance',
@@ -1532,7 +1543,11 @@ serve(async (req) => {
               );
             }
             
-            if (feeTokenBalance < feeAmountSmallest) {
+            // Add tolerance for fee token balance check
+            const feeToleranceUnits = BigInt(Math.max(1, Math.floor(Number(feeAmountSmallest) / 10000)));
+            const effectiveFeeNeeded = feeAmountSmallest - feeToleranceUnits;
+            
+            if (feeTokenBalance < effectiveFeeNeeded) {
               return new Response(
                 JSON.stringify({
                   error: 'Insufficient fee token balance',
