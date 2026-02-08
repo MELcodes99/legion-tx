@@ -500,18 +500,15 @@ export const MultiChainTransferForm = () => {
     // Check stablecoin status based on the ACTUAL token being sent, not the fallback config
     const isStablecoin = actualSymbol === 'USDC' || actualSymbol === 'USDT' || actualSymbol === 'DAI';
     
-    // Use a small epsilon for floating-point comparison to allow sending full balance
-    const epsilon = 0.000001;
-    
     if (actualIsNative) {
       // For native tokens, amountNum is token amount, check directly
-      if (amountNum > currentBalance + epsilon) {
+      if (amountNum > currentBalance) {
         setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${actualSymbol}`);
         return;
       }
     } else if (isStablecoin) {
       // For stablecoins, amount in USD = amount in tokens (1:1)
-      if (amountNum > currentBalance + epsilon) {
+      if (amountNum > currentBalance) {
         setError(`Insufficient balance. You have ${currentBalance.toFixed(2)} ${actualSymbol}`);
         return;
       }
@@ -519,7 +516,7 @@ export const MultiChainTransferForm = () => {
       // For other tokens (TRUMP, JUP, PENGU, etc.), user enters USD value
       // Check if the USD value of user's balance >= entered USD amount
       const tokenUsdValue = selectedDiscoveredToken?.usdValue ?? 0;
-      if (amountInUsd > tokenUsdValue + epsilon) {
+      if (amountInUsd > tokenUsdValue) {
         setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${actualSymbol} (~$${tokenUsdValue.toFixed(2)})`);
         return;
       }
@@ -1192,18 +1189,10 @@ export const MultiChainTransferForm = () => {
       }
     } catch (err) {
       console.error('Transfer error:', err);
-      let errorMessage = err instanceof Error ? err.message : 'Transfer failed';
-      
-      // Sanitize error messages - don't expose internal "edge function" terminology
-      if (errorMessage.toLowerCase().includes('edge function') || 
-          errorMessage.toLowerCase().includes('function invocation') ||
-          errorMessage.toLowerCase().includes('supabase')) {
-        errorMessage = 'Transaction failed. Please try again.';
-      }
-      
+      const errorMessage = err instanceof Error ? err.message : 'Transfer failed';
       setError(errorMessage);
       toast({
-        title: 'Transaction failed',
+        title: 'Transfer failed',
         description: errorMessage,
         variant: 'destructive'
       });
