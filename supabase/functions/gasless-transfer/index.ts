@@ -163,7 +163,7 @@ const CHAIN_CONFIG = {
   },
   base: {
     rpcUrl: 'https://mainnet.base.org',
-    fallbackRpcs: ['https://base.llamarpc.com', 'https://base.meowrpc.com'],
+    fallbackRpcs: ['https://base-rpc.publicnode.com', 'https://1rpc.io/base'],
     chainId: 8453,
     gasFee: 0.40, // Fixed $0.40 fee for Base
     coingeckoId: 'ethereum', // ETH price for gas
@@ -175,8 +175,8 @@ const CHAIN_CONFIG = {
     }
   },
   ethereum: {
-    rpcUrl: 'https://eth.llamarpc.com',
-    fallbackRpcs: ['https://rpc.ankr.com/eth', 'https://eth.meowrpc.com'],
+    rpcUrl: 'https://cloudflare-eth.com',
+    fallbackRpcs: ['https://ethereum-rpc.publicnode.com', 'https://1rpc.io/eth'],
     chainId: 1,
     gasFee: 0.40, // Fixed $0.40 fee for Ethereum
     coingeckoId: 'ethereum', // ETH price for gas
