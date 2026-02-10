@@ -14,8 +14,14 @@ const config = createConfig({
     }),
   ],
   transports: {
-    [mainnet.id]: http('https://cloudflare-eth.com'),
-    [base.id]: http('https://mainnet.base.org'),
+    [mainnet.id]: http('https://cloudflare-eth.com', {
+      fetchOptions: { cache: 'no-store' },
+      retryCount: 3,
+    }),
+    [base.id]: http('https://mainnet.base.org', {
+      fetchOptions: { cache: 'no-store' },
+      retryCount: 3,
+    }),
   },
   // Disable storage to prevent auto-reconnect on page load
   storage: null,
