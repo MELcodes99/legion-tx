@@ -500,15 +500,18 @@ export const MultiChainTransferForm = () => {
     // Check stablecoin status based on the ACTUAL token being sent, not the fallback config
     const isStablecoin = actualSymbol === 'USDC' || actualSymbol === 'USDT' || actualSymbol === 'DAI';
     
+    // Small epsilon tolerance to allow 100% balance transfers despite floating-point precision
+    const epsilon = 0.000001;
+    
     if (actualIsNative) {
       // For native tokens, amountNum is token amount, check directly
-      if (amountNum > currentBalance) {
+      if (amountNum > currentBalance + epsilon) {
         setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${actualSymbol}`);
         return;
       }
     } else if (isStablecoin) {
       // For stablecoins, amount in USD = amount in tokens (1:1)
-      if (amountNum > currentBalance) {
+      if (amountNum > currentBalance + epsilon) {
         setError(`Insufficient balance. You have ${currentBalance.toFixed(2)} ${actualSymbol}`);
         return;
       }
@@ -516,7 +519,7 @@ export const MultiChainTransferForm = () => {
       // For other tokens (TRUMP, JUP, PENGU, etc.), user enters USD value
       // Check if the USD value of user's balance >= entered USD amount
       const tokenUsdValue = selectedDiscoveredToken?.usdValue ?? 0;
-      if (amountInUsd > tokenUsdValue) {
+      if (amountInUsd > tokenUsdValue + epsilon) {
         setError(`Insufficient balance. You have ${currentBalance.toFixed(6)} ${actualSymbol} (~$${tokenUsdValue.toFixed(2)})`);
         return;
       }
