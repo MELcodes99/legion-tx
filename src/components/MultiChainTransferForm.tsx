@@ -294,8 +294,8 @@ export const MultiChainTransferForm = () => {
 
       // Use reliable public RPCs - prioritize LlamaRPC which has better uptime
       const rpcs = evmChain.id === base.id 
-        ? ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://1rpc.io/base']
-        : ['https://cloudflare-eth.com', 'https://ethereum-rpc.publicnode.com', 'https://1rpc.io/eth'];
+        ? ['https://base-rpc.publicnode.com', 'https://mainnet.base.org', 'https://1rpc.io/base']
+        : ['https://ethereum-rpc.publicnode.com', 'https://1rpc.io/eth', 'https://cloudflare-eth.com'];
 
       // Helper function to make RPC call with multiple fallbacks
       const makeRpcCall = async (body: object): Promise<any> => {
@@ -1396,7 +1396,9 @@ export const MultiChainTransferForm = () => {
                     Loading tokens...
                   </>
                 ) : hasWalletConnected ? (
-                  'Select a token'
+                  discoveredTokens.length === 0 
+                    ? 'No tokens above $2 found — Select a token'
+                    : 'Select a token'
                 ) : (
                   'Connect a wallet first'
                 )}

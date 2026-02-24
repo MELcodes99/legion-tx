@@ -82,6 +82,7 @@ export const useTokenDiscovery = (
   const suiClient = useSuiClient();
   const [discoveredTokens, setDiscoveredTokens] = useState<DiscoveredToken[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [tokenPrices, setTokenPrices] = useState<TokenPrice>({});
 
   // Fetch token prices from edge function
@@ -457,7 +458,10 @@ export const useTokenDiscovery = (
 
   // Main discovery function
   const discoverTokens = useCallback(async () => {
-    setIsLoading(true);
+    // Only show loading spinner on first load, not on background refreshes
+    if (!hasLoadedOnce) {
+      setIsLoading(true);
+    }
 
     try {
       const [solanaTokens, suiTokens, evmTokens] = await Promise.all([
@@ -483,17 +487,19 @@ export const useTokenDiscovery = (
       }
 
       setDiscoveredTokens(allTokens);
+      setHasLoadedOnce(true);
     } catch (error) {
       console.error('Error discovering tokens:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
+  }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens, hasLoadedOnce]);
 
   // Auto-discover when wallet changes
   useEffect(() => {
     const hasWallet = solanaPublicKey || suiAccount || evmAddress;
     if (hasWallet) {
+      setHasLoadedOnce(false); // Reset so first load shows spinner
       discoverTokens();
       // Refresh prices every 30 seconds to keep USD values updated
       const interval = setInterval(() => {
@@ -502,8 +508,9 @@ export const useTokenDiscovery = (
       return () => clearInterval(interval);
     } else {
       setDiscoveredTokens([]);
+      setHasLoadedOnce(false);
     }
-  }, [solanaPublicKey, suiAccount, evmAddress, evmChainId, discoverTokens]);
+  }, [solanaPublicKey, suiAccount, evmAddress, evmChainId]);
 
   return {
     discoveredTokens,
