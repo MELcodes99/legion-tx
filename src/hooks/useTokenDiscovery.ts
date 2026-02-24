@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { useSuiClient } from '@mysten/dapp-kit';
@@ -82,8 +82,8 @@ export const useTokenDiscovery = (
   const suiClient = useSuiClient();
   const [discoveredTokens, setDiscoveredTokens] = useState<DiscoveredToken[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [tokenPrices, setTokenPrices] = useState<TokenPrice>({});
+  const hasLoadedOnceRef = useRef(false);
 
   // Fetch token prices from edge function
   const fetchTokenPrices = useCallback(async (tokens: { address: string; chain: ChainType }[]) => {
@@ -459,7 +459,7 @@ export const useTokenDiscovery = (
   // Main discovery function
   const discoverTokens = useCallback(async () => {
     // Only show loading spinner on first load, not on background refreshes
-    if (!hasLoadedOnce) {
+    if (!hasLoadedOnceRef.current) {
       setIsLoading(true);
     }
 
@@ -479,7 +479,6 @@ export const useTokenDiscovery = (
         
         // Attach logos to tokens - preserve local logos for known tokens
         for (const token of allTokens) {
-          // Don't overwrite existing local logo
           if (!token.logoUrl) {
             token.logoUrl = logos[token.address] || undefined;
           }
@@ -487,28 +486,32 @@ export const useTokenDiscovery = (
       }
 
       setDiscoveredTokens(allTokens);
-      setHasLoadedOnce(true);
+      hasLoadedOnceRef.current = true;
     } catch (error) {
       console.error('Error discovering tokens:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens, hasLoadedOnce]);
+  }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
+
+  // Keep a ref to the latest discoverTokens to avoid stale closures in setInterval
+  const discoverTokensRef = useRef(discoverTokens);
+  discoverTokensRef.current = discoverTokens;
 
   // Auto-discover when wallet changes
   useEffect(() => {
     const hasWallet = solanaPublicKey || suiAccount || evmAddress;
     if (hasWallet) {
-      setHasLoadedOnce(false); // Reset so first load shows spinner
-      discoverTokens();
+      hasLoadedOnceRef.current = false; // Reset so first load shows spinner
+      discoverTokensRef.current();
       // Refresh prices every 30 seconds to keep USD values updated
       const interval = setInterval(() => {
-        discoverTokens();
+        discoverTokensRef.current();
       }, 30 * 1000);
       return () => clearInterval(interval);
     } else {
       setDiscoveredTokens([]);
-      setHasLoadedOnce(false);
+      hasLoadedOnceRef.current = false;
     }
   }, [solanaPublicKey, suiAccount, evmAddress, evmChainId]);
 
