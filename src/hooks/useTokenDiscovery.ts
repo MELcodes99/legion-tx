@@ -338,8 +338,8 @@ export const useTokenDiscovery = (
 
     // Use multiple RPC endpoints with fallback for reliability
     const rpcUrls = evmChainId === base.id 
-      ? ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://1rpc.io/base']
-      : ['https://cloudflare-eth.com', 'https://ethereum-rpc.publicnode.com', 'https://1rpc.io/eth'];
+      ? ['https://base-rpc.publicnode.com', 'https://mainnet.base.org', 'https://1rpc.io/base']
+      : ['https://ethereum-rpc.publicnode.com', 'https://1rpc.io/eth', 'https://cloudflare-eth.com'];
     
     // Try each RPC until one works
     let publicClient = null;
