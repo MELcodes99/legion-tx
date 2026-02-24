@@ -1,27 +1,28 @@
 import { ReactNode } from 'react';
-import { WagmiProvider, createConfig, http } from 'wagmi';
+import { WagmiProvider, createConfig, http, fallback } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { injected } from 'wagmi/connectors';
 
-// Use free public RPCs that don't require API keys
+// Use fallback transports with multiple reliable public RPCs
 const config = createConfig({
   chains: [mainnet, base],
   connectors: [
     injected({
-      // Prevent auto-connect on page load
       shimDisconnect: true,
     }),
   ],
   transports: {
-    [mainnet.id]: http('https://cloudflare-eth.com', {
-      fetchOptions: { cache: 'no-store' },
-      retryCount: 3,
-    }),
-    [base.id]: http('https://mainnet.base.org', {
-      fetchOptions: { cache: 'no-store' },
-      retryCount: 3,
-    }),
+    [mainnet.id]: fallback([
+      http('https://ethereum-rpc.publicnode.com', { retryCount: 3 }),
+      http('https://1rpc.io/eth', { retryCount: 2 }),
+      http('https://cloudflare-eth.com', { retryCount: 1 }),
+    ]),
+    [base.id]: fallback([
+      http('https://base-rpc.publicnode.com', { retryCount: 3 }),
+      http('https://mainnet.base.org', { retryCount: 2 }),
+      http('https://1rpc.io/base', { retryCount: 1 }),
+    ]),
   },
   // Disable storage to prevent auto-reconnect on page load
   storage: null,
