@@ -470,45 +470,55 @@ serve(async (req) => {
 
     // Action: Get current token prices from CoinGecko (no wallet needed)
     if (action === 'get_token_prices') {
-      try {
-        const [solPrice, suiPrice, ethPrice, skrPrice] = await Promise.all([
-          fetchTokenPrice(CHAIN_CONFIG.solana.coingeckoId),
-          fetchTokenPrice(CHAIN_CONFIG.sui.coingeckoId),
-          fetchTokenPrice(CHAIN_CONFIG.base.coingeckoId),
-          fetchTokenPrice('seeker-2'), // SKR token price
-        ]);
+      // Reasonable fallback prices to use when all API sources fail (cold start + rate limit)
+      const FALLBACK_PRICES: Record<string, number> = {
+        solana: 80,
+        sui: 0.85,
+        ethereum: 1850,
+        'seeker-2': 0.024,
+      };
 
-        console.log('Token prices fetched:', { solPrice, suiPrice, ethPrice, skrPrice });
+      const results = await Promise.allSettled([
+        fetchTokenPrice(CHAIN_CONFIG.solana.coingeckoId),
+        fetchTokenPrice(CHAIN_CONFIG.sui.coingeckoId),
+        fetchTokenPrice(CHAIN_CONFIG.base.coingeckoId),
+        fetchTokenPrice('seeker-2'),
+      ]);
 
-        return new Response(
-          JSON.stringify({
-            prices: {
-              solana: solPrice,
-              sui: suiPrice,
-              ethereum: ethPrice,
-              base: ethPrice, // Same as ETH
-              skr: skrPrice, // SKR token price for gas calculations
-            },
-            fees: {
-              solana: CHAIN_CONFIG.solana.gasFee,
-              sui: CHAIN_CONFIG.sui.gasFee,
-              base: CHAIN_CONFIG.base.gasFee,
-              ethereum: CHAIN_CONFIG.ethereum.gasFee,
-            },
-            message: 'Current token prices retrieved successfully',
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } catch (error) {
-        console.error('Error fetching token prices:', error);
-        return new Response(
-          JSON.stringify({
-            error: 'Failed to fetch token prices',
-            details: error instanceof Error ? error.message : 'Unknown error',
-          }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      const solPrice = results[0].status === 'fulfilled' ? results[0].value : FALLBACK_PRICES.solana;
+      const suiPrice = results[1].status === 'fulfilled' ? results[1].value : FALLBACK_PRICES.sui;
+      const ethPrice = results[2].status === 'fulfilled' ? results[2].value : FALLBACK_PRICES.ethereum;
+      const skrPrice = results[3].status === 'fulfilled' ? results[3].value : FALLBACK_PRICES['seeker-2'];
+
+      const usedFallback = results.some(r => r.status === 'rejected');
+      if (usedFallback) {
+        console.warn('Some prices used fallback values due to API failures');
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') console.warn(`Price fetch ${i} failed:`, r.reason);
+        });
       }
+
+      console.log('Token prices fetched:', { solPrice, suiPrice, ethPrice, skrPrice, usedFallback });
+
+      return new Response(
+        JSON.stringify({
+          prices: {
+            solana: solPrice,
+            sui: suiPrice,
+            ethereum: ethPrice,
+            base: ethPrice,
+            skr: skrPrice,
+          },
+          fees: {
+            solana: CHAIN_CONFIG.solana.gasFee,
+            sui: CHAIN_CONFIG.sui.gasFee,
+            base: CHAIN_CONFIG.base.gasFee,
+            ethereum: CHAIN_CONFIG.ethereum.gasFee,
+          },
+          message: 'Current token prices retrieved successfully',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Initialize Supabase client for rate limiting
