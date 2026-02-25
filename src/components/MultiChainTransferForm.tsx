@@ -1396,9 +1396,7 @@ export const MultiChainTransferForm = () => {
                     Loading tokens...
                   </>
                 ) : hasWalletConnected ? (
-                  discoveredTokens.length === 0 
-                    ? 'No tokens above $2 found — Select a token'
-                    : 'Select a token'
+                  'Select a token'
                 ) : (
                   'Connect a wallet first'
                 )}
