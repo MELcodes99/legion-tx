@@ -12,14 +12,8 @@ interface WalletProviderProps {
 export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
   // Use a reliable public RPC endpoint - publicnode.com is more stable than the official public endpoint
   const endpoint = useMemo(() => {
-    // Primary: Alchemy public, Fallbacks: publicnode, drpc
-    const endpoints = [
-      'https://api.mainnet-beta.solana.com',
-      'https://solana-rpc.publicnode.com',
-      'https://solana.drpc.org',
-    ];
-    // Try the first endpoint - if it fails, the connection adapter handles retries
-    const selected = endpoints[0];
+    // Primary: ankr (more permissive for token queries), Fallbacks: publicnode, drpc
+    const selected = 'https://rpc.ankr.com/solana';
     console.log('Using Solana RPC endpoint:', selected);
     return selected;
   }, []);
