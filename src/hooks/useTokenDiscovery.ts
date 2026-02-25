@@ -40,7 +40,7 @@ interface TokenPrice {
   [address: string]: number;
 }
 
-const MIN_USD_VALUE = 2;
+const MIN_USD_VALUE = 0.001;
 
 // ERC20 ABI for balance and metadata
 const erc20Abi = parseAbi([

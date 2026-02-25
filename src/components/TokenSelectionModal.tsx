@@ -60,7 +60,7 @@ export const TokenSelectionModal = ({
             {filteredTokens.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 {tokens.length === 0 
-                  ? 'No tokens with balance above $2 found'
+                  ? 'No tokens found in this wallet'
                   : 'No tokens match your search'}
               </div>
             ) : (
