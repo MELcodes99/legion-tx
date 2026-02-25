@@ -120,8 +120,10 @@ export const useTokenDiscovery = (
     }
   }, []);
 
-  // Solana fallback RPC endpoints
+  // Solana fallback RPC endpoints - ordered by reliability for getParsedTokenAccountsByOwner
   const SOLANA_FALLBACK_RPCS = [
+    'https://rpc.ankr.com/solana',
+    'https://solana-mainnet.rpc.extrnode.com',
     'https://solana-rpc.publicnode.com',
     'https://solana.drpc.org',
     'https://api.mainnet-beta.solana.com',
