@@ -10,6 +10,8 @@ import { batchFetchLogos, getSolanaTokenMetadata, SOLANA_TOKEN_MINTS, LOCAL_TOKE
 
 // Known Solana tokens to always check for (decimals fetched from actual token accounts)
 const KNOWN_SOLANA_TOKENS = [
+  { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC', name: 'USD Coin' },
+  { address: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', name: 'Tether USD' },
   { address: SOLANA_TOKEN_MINTS.PENGU, symbol: 'PENGU', name: 'Pudgy Penguins' },
   { address: SOLANA_TOKEN_MINTS.WET, symbol: 'WET', name: 'Wet' },
   { address: SOLANA_TOKEN_MINTS.TRUMP, symbol: 'TRUMP', name: 'Official Trump' },
@@ -162,10 +164,10 @@ export const useTokenDiscovery = (
       // Fetch prices
       const prices = await fetchTokenPrices(tokenAddresses);
 
-      // Add SOL if value >= $2
+      // Add SOL if user has any balance
       const solPrice = prices['So11111111111111111111111111111111111111112'] || 0;
       const solUsdValue = solAmount * solPrice;
-      if (solUsdValue >= MIN_USD_VALUE) {
+      if (solAmount > 0) {
         tokens.push({
           key: 'SOL',
           address: 'So11111111111111111111111111111111111111112',
@@ -214,7 +216,7 @@ export const useTokenDiscovery = (
         const price = prices[mint] || 0;
         const usdValue = tokenData.uiAmount * price;
         
-        if (usdValue >= MIN_USD_VALUE) {
+        if (tokenData.uiAmount > 0) {
           // Check if it's a known token in our config (USDC, USDT, etc.)
           const knownToken = Object.entries(TOKENS).find(
             ([_, config]) => config.chain === 'solana' && config.mint === mint
@@ -298,9 +300,8 @@ export const useTokenDiscovery = (
 
         // Show all stablecoins that meet the minimum balance requirement OR have sufficient balance
         // For stablecoins, use the balance directly as USD value if price was not fetched
-        const effectiveUsdValue = isKnownStablecoin && price === 1 ? amount : usdValue;
-        
-        if (effectiveUsdValue >= MIN_USD_VALUE) {
+        // Show all tokens with any balance
+        if (amount > 0) {
           // Extract symbol from coin type
           const parts = coinType.split('::');
           const symbol = parts[parts.length - 1] || coinType.slice(0, 6);
@@ -316,7 +317,7 @@ export const useTokenDiscovery = (
             name: knownToken ? knownToken[1].name : symbol,
             decimals,
             balance: amount,
-            usdValue: effectiveUsdValue,
+            usdValue,
             chain: 'sui',
             isNative: isSui,
           });
@@ -384,10 +385,10 @@ export const useTokenDiscovery = (
 
       const prices = await fetchTokenPrices(tokenAddresses);
 
-      // Add ETH if value >= $2
+      // Add ETH if user has any balance
       const ethPrice = prices['0x0000000000000000000000000000000000000000'] || 0;
       const ethUsdValue = ethAmount * ethPrice;
-      if (ethUsdValue >= MIN_USD_VALUE) {
+      if (ethAmount > 0) {
         tokens.push({
           key: chain === 'base' ? 'BASE_ETH' : 'ETH',
           address: '0x0000000000000000000000000000000000000000',
@@ -422,11 +423,9 @@ export const useTokenDiscovery = (
             }
             
             const usdValue = tokenBalance * price;
-
-            // For stablecoins, always show if balance meets minimum, regardless of price fetch success
             const effectiveUsdValue = isStablecoin && price === 1 ? tokenBalance : usdValue;
             
-            if (effectiveUsdValue >= MIN_USD_VALUE) {
+            if (tokenBalance > 0) {
               // Find if it's a known token in our config
               const knownConfigToken = Object.entries(TOKENS).find(
                 ([_, config]) => config.chain === chain && config.mint.toLowerCase() === token.address.toLowerCase()
