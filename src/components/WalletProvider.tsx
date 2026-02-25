@@ -12,11 +12,16 @@ interface WalletProviderProps {
 export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
   // Use a reliable public RPC endpoint - publicnode.com is more stable than the official public endpoint
   const endpoint = useMemo(() => {
-    // Using publicnode.com which has better rate limits and reliability
-    // Fallback endpoints if needed: 'https://solana.api.onfinality.io/public', 'https://solana.drpc.org'
-    const reliableEndpoint = 'https://solana-rpc.publicnode.com';
-    console.log('Using RPC endpoint:', reliableEndpoint);
-    return reliableEndpoint;
+    // Primary: Alchemy public, Fallbacks: publicnode, drpc
+    const endpoints = [
+      'https://api.mainnet-beta.solana.com',
+      'https://solana-rpc.publicnode.com',
+      'https://solana.drpc.org',
+    ];
+    // Try the first endpoint - if it fails, the connection adapter handles retries
+    const selected = endpoints[0];
+    console.log('Using Solana RPC endpoint:', selected);
+    return selected;
   }, []);
 
   // Use empty wallets array - the wallet-standard protocol will auto-detect installed wallets

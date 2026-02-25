@@ -120,19 +120,56 @@ export const useTokenDiscovery = (
     }
   }, []);
 
+  // Solana fallback RPC endpoints
+  const SOLANA_FALLBACK_RPCS = [
+    'https://solana-rpc.publicnode.com',
+    'https://solana.drpc.org',
+    'https://api.mainnet-beta.solana.com',
+  ];
+
   // Discover Solana tokens
   const discoverSolanaTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
-    if (!solanaPublicKey || !connection) return [];
+    if (!solanaPublicKey) return [];
 
     const tokens: DiscoveredToken[] = [];
 
+    // Try primary connection first, then fallbacks
+    let activeConnection = connection;
+    let solBalance: number | null = null;
+
+    // Try primary connection
     try {
-      // Get native SOL balance
-      const solBalance = await connection.getBalance(solanaPublicKey);
+      if (activeConnection) {
+        solBalance = await activeConnection.getBalance(solanaPublicKey);
+      }
+    } catch (primaryError) {
+      console.warn('Primary Solana RPC failed, trying fallbacks...', primaryError);
+    }
+
+    // If primary failed, try fallback RPCs
+    if (solBalance === null) {
+      for (const rpcUrl of SOLANA_FALLBACK_RPCS) {
+        try {
+          activeConnection = new Connection(rpcUrl, 'confirmed');
+          solBalance = await activeConnection.getBalance(solanaPublicKey);
+          console.log('Solana fallback RPC succeeded:', rpcUrl);
+          break;
+        } catch (e) {
+          console.warn(`Solana fallback RPC failed: ${rpcUrl}`);
+        }
+      }
+    }
+
+    if (solBalance === null || !activeConnection) {
+      console.error('All Solana RPC endpoints failed');
+      return [];
+    }
+
+    try {
       const solAmount = solBalance / 1e9;
       
       // Get all token accounts
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+      const tokenAccounts = await activeConnection.getParsedTokenAccountsByOwner(
         solanaPublicKey,
         { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
       );
