@@ -168,11 +168,45 @@ export const useTokenDiscovery = (
     try {
       const solAmount = solBalance / 1e9;
       
-      // Get all token accounts
-      const tokenAccounts = await activeConnection.getParsedTokenAccountsByOwner(
-        solanaPublicKey,
-        { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
-      );
+      // Get all token accounts - try activeConnection first, then fallbacks
+      let tokenAccounts: any = null;
+      const allRpcsToTry = [activeConnection, ...SOLANA_FALLBACK_RPCS.map(url => new Connection(url, 'confirmed'))];
+      
+      for (const conn of allRpcsToTry) {
+        try {
+          tokenAccounts = await conn.getParsedTokenAccountsByOwner(
+            solanaPublicKey,
+            { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
+          );
+          if (tokenAccounts) {
+            console.log('getParsedTokenAccountsByOwner succeeded');
+            break;
+          }
+        } catch (e) {
+          console.warn('getParsedTokenAccountsByOwner failed on RPC, trying next...', e);
+        }
+      }
+
+      if (!tokenAccounts) {
+        console.error('All RPCs failed for getParsedTokenAccountsByOwner');
+        // Still return SOL if we have it
+        if (solAmount > 0) {
+          const solPrices = await fetchTokenPrices([{ address: 'So11111111111111111111111111111111111111112', chain: 'solana' }]);
+          const solPrice = solPrices['So11111111111111111111111111111111111111112'] || 0;
+          tokens.push({
+            key: 'SOL',
+            address: 'So11111111111111111111111111111111111111112',
+            symbol: 'SOL',
+            name: 'Solana',
+            decimals: 9,
+            balance: solAmount,
+            usdValue: solAmount * solPrice,
+            chain: 'solana',
+            isNative: true,
+          });
+        }
+        return tokens;
+      }
 
       // Build a map of mint -> token account data for quick lookup
       const tokenAccountMap: Record<string, { uiAmount: number; decimals: number }> = {};
