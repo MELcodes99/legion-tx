@@ -15,9 +15,9 @@ import {
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
 } from 'https://esm.sh/@solana/spl-token@0.4.14';
-import { SuiClient } from 'https://esm.sh/@mysten/sui@1.44.0/client';
-import { Transaction as SuiTransaction } from 'https://esm.sh/@mysten/sui@1.44.0/transactions';
-import { Ed25519Keypair } from 'https://esm.sh/@mysten/sui@1.44.0/keypairs/ed25519';
+import { SuiClient } from 'npm:@mysten/sui@1.44.0/client';
+import { Transaction as SuiTransaction } from 'npm:@mysten/sui@1.44.0/transactions';
+import { Ed25519Keypair } from 'npm:@mysten/sui@1.44.0/keypairs/ed25519';
 import { ethers } from 'https://esm.sh/ethers@6.13.1';
 
 const corsHeaders = {
@@ -517,6 +517,99 @@ serve(async (req) => {
           },
           message: 'Current token prices retrieved successfully',
         }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Action: Discover Solana SPL tokens for a wallet (server-side to bypass browser RPC restrictions)
+    if (action === 'discover_solana_tokens') {
+      const { walletAddress } = body;
+      if (!walletAddress) {
+        return new Response(
+          JSON.stringify({ error: 'walletAddress is required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const SOLANA_RPCS = [
+        'https://api.mainnet-beta.solana.com',
+        'https://solana-rpc.publicnode.com',
+        'https://solana.drpc.org',
+      ];
+
+      let solBalance = 0;
+      let tokenAccounts: any = null;
+
+      for (const rpcUrl of SOLANA_RPCS) {
+        try {
+          const conn = new Connection(rpcUrl, 'confirmed');
+          const pubkey = new PublicKey(walletAddress);
+          
+          if (solBalance === 0) {
+            try {
+              solBalance = await conn.getBalance(pubkey);
+            } catch (e) {
+              console.log(`getBalance failed on ${rpcUrl}`);
+            }
+          }
+
+          if (!tokenAccounts) {
+            try {
+              tokenAccounts = await conn.getParsedTokenAccountsByOwner(
+                pubkey,
+                { programId: TOKEN_PROGRAM_ID }
+              );
+              console.log(`getParsedTokenAccountsByOwner succeeded on ${rpcUrl}, found ${tokenAccounts.value.length} accounts`);
+              if (solBalance === 0) {
+                // Try to get balance from same RPC
+                try { solBalance = await conn.getBalance(pubkey); } catch(e) {}
+              }
+              break;
+            } catch (e) {
+              console.log(`getParsedTokenAccountsByOwner failed on ${rpcUrl}:`, e);
+            }
+          }
+        } catch (e) {
+          console.log(`RPC ${rpcUrl} failed entirely`);
+        }
+      }
+
+      const tokens: any[] = [];
+
+      // Add SOL
+      const solAmount = solBalance / LAMPORTS_PER_SOL;
+      tokens.push({
+        address: 'So11111111111111111111111111111111111111112',
+        symbol: 'SOL',
+        name: 'Solana',
+        decimals: 9,
+        balance: solAmount,
+        isNative: true,
+      });
+
+      // Add SPL tokens
+      if (tokenAccounts) {
+        for (const account of tokenAccounts.value) {
+          const parsedInfo = account.account.data.parsed.info;
+          const mint = parsedInfo.mint;
+          const tokenAmount = parsedInfo.tokenAmount;
+          if (tokenAmount.uiAmount > 0) {
+            tokens.push({
+              address: mint,
+              symbol: null, // Frontend will resolve
+              name: null,
+              decimals: tokenAmount.decimals,
+              balance: tokenAmount.uiAmount,
+              isNative: false,
+            });
+          }
+        }
+      }
+
+      console.log(`Discovered ${tokens.length} tokens for ${walletAddress}`);
+
+      return new Response(
+        JSON.stringify({ tokens }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

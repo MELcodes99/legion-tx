@@ -129,117 +129,53 @@ export const useTokenDiscovery = (
     'https://api.mainnet-beta.solana.com',
   ];
 
-  // Discover Solana tokens
+  // Discover Solana tokens via server-side edge function (bypasses browser RPC restrictions)
   const discoverSolanaTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
     if (!solanaPublicKey) return [];
 
     const tokens: DiscoveredToken[] = [];
 
-    // Try primary connection first, then fallbacks
-    let activeConnection = connection;
-    let solBalance: number | null = null;
-
-    // Try primary connection
     try {
-      if (activeConnection) {
-        solBalance = await activeConnection.getBalance(solanaPublicKey);
-      }
-    } catch (primaryError) {
-      console.warn('Primary Solana RPC failed, trying fallbacks...', primaryError);
-    }
+      // Call edge function to discover tokens server-side
+      const { data, error } = await supabase.functions.invoke('gasless-transfer', {
+        body: { action: 'discover_solana_tokens', walletAddress: solanaPublicKey.toBase58() }
+      });
 
-    // If primary failed, try fallback RPCs
-    if (solBalance === null) {
-      for (const rpcUrl of SOLANA_FALLBACK_RPCS) {
-        try {
-          activeConnection = new Connection(rpcUrl, 'confirmed');
-          solBalance = await activeConnection.getBalance(solanaPublicKey);
-          console.log('Solana fallback RPC succeeded:', rpcUrl);
-          break;
-        } catch (e) {
-          console.warn(`Solana fallback RPC failed: ${rpcUrl}`);
-        }
-      }
-    }
-
-    if (solBalance === null || !activeConnection) {
-      console.error('All Solana RPC endpoints failed');
-      return [];
-    }
-
-    try {
-      const solAmount = solBalance / 1e9;
-      
-      // Get all token accounts - try activeConnection first, then fallbacks
-      let tokenAccounts: any = null;
-      const allRpcsToTry = [activeConnection, ...SOLANA_FALLBACK_RPCS.map(url => new Connection(url, 'confirmed'))];
-      
-      for (const conn of allRpcsToTry) {
-        try {
-          tokenAccounts = await conn.getParsedTokenAccountsByOwner(
-            solanaPublicKey,
-            { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
-          );
-          if (tokenAccounts) {
-            console.log('getParsedTokenAccountsByOwner succeeded');
-            break;
-          }
-        } catch (e) {
-          console.warn('getParsedTokenAccountsByOwner failed on RPC, trying next...', e);
-        }
+      if (error) {
+        console.error('Edge function error for Solana token discovery:', error);
+        return [];
       }
 
-      if (!tokenAccounts) {
-        console.error('All RPCs failed for getParsedTokenAccountsByOwner');
-        // Still return SOL if we have it
-        if (solAmount > 0) {
-          const solPrices = await fetchTokenPrices([{ address: 'So11111111111111111111111111111111111111112', chain: 'solana' }]);
-          const solPrice = solPrices['So11111111111111111111111111111111111111112'] || 0;
-          tokens.push({
-            key: 'SOL',
-            address: 'So11111111111111111111111111111111111111112',
-            symbol: 'SOL',
-            name: 'Solana',
-            decimals: 9,
-            balance: solAmount,
-            usdValue: solAmount * solPrice,
-            chain: 'solana',
-            isNative: true,
-          });
-        }
-        return tokens;
+      const serverTokens = data?.tokens || [];
+      if (serverTokens.length === 0) {
+        console.log('No Solana tokens found by edge function');
+        return [];
       }
 
-      // Build a map of mint -> token account data for quick lookup
+      // Build token account map from server response
       const tokenAccountMap: Record<string, { uiAmount: number; decimals: number }> = {};
-      for (const account of tokenAccounts.value) {
-        const parsedInfo = account.account.data.parsed.info;
-        const mint = parsedInfo.mint;
-        const tokenAmount = parsedInfo.tokenAmount;
-        if (tokenAmount.uiAmount > 0) {
-          tokenAccountMap[mint] = {
-            uiAmount: tokenAmount.uiAmount,
-            decimals: tokenAmount.decimals,
-          };
+      let solAmount = 0;
+
+      for (const t of serverTokens) {
+        if (t.isNative) {
+          solAmount = t.balance;
+        } else if (t.balance > 0) {
+          tokenAccountMap[t.address] = { uiAmount: t.balance, decimals: t.decimals };
         }
       }
 
-      // Collect token addresses for price fetching - include SOL and all found tokens
+      // Collect token addresses for price fetching
       const tokenAddresses: { address: string; chain: ChainType }[] = [
         { address: 'So11111111111111111111111111111111111111112', chain: 'solana' }
       ];
-
-      // Add all tokens the user has
       Object.keys(tokenAccountMap).forEach(mint => {
         tokenAddresses.push({ address: mint, chain: 'solana' });
       });
 
-      // Fetch prices
       const prices = await fetchTokenPrices(tokenAddresses);
 
-      // Add SOL if user has any balance
+      // Add SOL
       const solPrice = prices['So11111111111111111111111111111111111111112'] || 0;
-      const solUsdValue = solAmount * solPrice;
       if (solAmount > 0) {
         tokens.push({
           key: 'SOL',
@@ -248,24 +184,19 @@ export const useTokenDiscovery = (
           name: 'Solana',
           decimals: 9,
           balance: solAmount,
-          usdValue: solUsdValue,
+          usdValue: solAmount * solPrice,
           chain: 'solana',
           isNative: true,
         });
       }
 
-      // Process SPL tokens - prioritize known tokens first
+      // Process known Solana tokens first
       const processedMints = new Set<string>();
-
-      // First, process known Solana tokens that user has
       for (const knownToken of KNOWN_SOLANA_TOKENS) {
         const tokenData = tokenAccountMap[knownToken.address];
         if (tokenData && tokenData.uiAmount > 0) {
           const price = prices[knownToken.address] || 0;
           const usdValue = tokenData.uiAmount * price;
-          
-          // Always show known tokens if user has balance, even if < $2 for debugging
-          // In production, use: if (usdValue >= MIN_USD_VALUE)
           tokens.push({
             key: `SOL_${knownToken.symbol}`,
             address: knownToken.address,
@@ -282,29 +213,22 @@ export const useTokenDiscovery = (
         }
       }
 
-      // Then process remaining tokens from user's wallet
+      // Process remaining tokens
       for (const [mint, tokenData] of Object.entries(tokenAccountMap)) {
         if (processedMints.has(mint)) continue;
-        
         const price = prices[mint] || 0;
         const usdValue = tokenData.uiAmount * price;
-        
         if (tokenData.uiAmount > 0) {
-          // Check if it's a known token in our config (USDC, USDT, etc.)
           const knownToken = Object.entries(TOKENS).find(
             ([_, config]) => config.chain === 'solana' && config.mint === mint
           );
-
-          // Try to get metadata from Jupiter
           let symbol = knownToken ? knownToken[1].symbol : mint.slice(0, 6);
           let name = knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`;
-          
           const jupiterMeta = await getSolanaTokenMetadata(mint);
           if (jupiterMeta) {
             symbol = jupiterMeta.symbol;
             name = jupiterMeta.name;
           }
-
           tokens.push({
             key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
             address: mint,
@@ -323,7 +247,7 @@ export const useTokenDiscovery = (
     }
 
     return tokens;
-  }, [solanaPublicKey, connection, fetchTokenPrices]);
+  }, [solanaPublicKey, fetchTokenPrices]);
 
   // Discover Sui tokens
   const discoverSuiTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
