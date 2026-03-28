@@ -1817,6 +1817,44 @@ export const MultiChainTransferForm = () => {
                     {incognitoEnabled ? 'ON' : 'OFF'}
                   </Button>
                   <span className="text-[10px] text-muted-foreground ml-0.5">Bungee Incognito</span>
+                  
+                  {/* Incognito receive token selector */}
+                  {incognitoEnabled && connectedChain && INCOGNITO_SUPPORTED[connectedChain] && (
+                    <div className="w-full mt-2">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Receiver gets</Label>
+                      <div className="relative">
+                        <Input
+                          type="text"
+                          placeholder="Search receive token..."
+                          value={incognitoTokenSearch}
+                          onChange={(e) => setIncognitoTokenSearch(e.target.value)}
+                          className="h-8 text-xs pr-8"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {INCOGNITO_SUPPORTED[connectedChain]
+                          .filter(t => !incognitoTokenSearch || t.toLowerCase().includes(incognitoTokenSearch.toLowerCase()))
+                          .map(token => (
+                            <Button
+                              key={token}
+                              type="button"
+                              size="sm"
+                              variant={incognitoReceiveToken === token ? 'default' : 'outline'}
+                              className="h-7 px-2.5 text-[11px] gap-1"
+                              onClick={() => {
+                                setIncognitoReceiveToken(token);
+                                setIncognitoTokenSearch('');
+                              }}
+                            >
+                              {token}
+                            </Button>
+                          ))}
+                      </div>
+                      {incognitoReceiveToken && (
+                        <p className="text-[10px] text-primary mt-1">Receiver will get: {incognitoReceiveToken}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
