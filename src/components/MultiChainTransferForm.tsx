@@ -1909,7 +1909,13 @@ export const MultiChainTransferForm = () => {
               const isGasStablecoin = gasSymbol === 'USDC' || gasSymbol === 'USDT';
               
               return (
-                <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
+                <div className={`rounded-lg p-3 space-y-1.5 text-sm ${incognitoEnabled ? 'bg-primary/5 border border-primary/20' : 'bg-secondary/30'}`}>
+                  {incognitoEnabled && (
+                    <div className="flex items-center gap-1.5 text-primary text-xs font-medium mb-2">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span>Private Transfer via Bungee Incognito</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">You're Sending:</span>
                     <span className="font-medium">
@@ -1920,11 +1926,13 @@ export const MultiChainTransferForm = () => {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Gas Fee:</span>
+                    <span className="text-muted-foreground">{incognitoEnabled ? 'Incognito Fee (5%):' : 'Gas Fee:'}</span>
                     <span className="font-medium">
-                      {isGasStablecoin 
-                        ? `${gasFeeTokens.toFixed(2)} ${gasSymbol} ($${gasFee.toFixed(2)})`
-                        : `${gasFeeTokens.toFixed(6)} ${gasSymbol} ($${gasFee.toFixed(2)})`
+                      {incognitoEnabled 
+                        ? `$${(amountUsd * 0.05).toFixed(2)}`
+                        : isGasStablecoin 
+                          ? `${gasFeeTokens.toFixed(2)} ${gasSymbol} ($${gasFee.toFixed(2)})`
+                          : `${gasFeeTokens.toFixed(6)} ${gasSymbol} ($${gasFee.toFixed(2)})`
                       }
                     </span>
                   </div>
@@ -1932,32 +1940,22 @@ export const MultiChainTransferForm = () => {
                   <div className="flex justify-between font-semibold text-base">
                     <span>Recipient Receives:</span>
                     <span className="text-primary">
-                      {isStablecoin 
-                        ? `${tokenAmount.toFixed(2)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
-                        : `${tokenAmount.toFixed(6)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                      {incognitoEnabled
+                        ? `$${(amountUsd * 0.95).toFixed(2)}`
+                        : isStablecoin 
+                          ? `${tokenAmount.toFixed(2)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                          : `${tokenAmount.toFixed(6)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
                       }
                     </span>
                   </div>
-                  {selectedToken === selectedGasToken && (
-                    <div className="mt-2 pt-2 border-t border-border/50">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Total Value:</span>
-                        <span className="font-semibold text-accent">
-                          ${(amountUsd + gasFee).toFixed(2)}
-                        </span>
-                      </div>
+                  <div className="mt-2 pt-2 border-t border-border/50">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Total Value:</span>
+                      <span className="font-semibold text-accent">
+                        ${incognitoEnabled ? amountUsd.toFixed(2) : (amountUsd + gasFee).toFixed(2)}
+                      </span>
                     </div>
-                  )}
-                  {selectedToken !== selectedGasToken && (
-                    <div className="mt-2 pt-2 border-t border-border/50">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Total Value:</span>
-                        <span className="font-semibold text-accent">
-                          ${(amountUsd + gasFee).toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                  </div>
                   {selectedGasTokenConfig?.isNative && !tokenPrices && (
                     <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>
                   )}
