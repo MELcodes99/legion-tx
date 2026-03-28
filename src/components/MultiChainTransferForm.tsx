@@ -482,8 +482,21 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
-    // Calculate minimum transfer based on chain - $2 for all chains
-    const minTransfer = MIN_TRANSFER_USD;
+    // Incognito mode validation
+    if (incognitoEnabled) {
+      if (amountNum < INCOGNITO_MIN_USD) {
+        setError(`Minimum $${INCOGNITO_MIN_USD} required for private transfers`);
+        return;
+      }
+      const actualSymbol = selectedDiscoveredToken?.symbol || tokenConfig.symbol;
+      if (!connectedChain || !INCOGNITO_SUPPORTED[connectedChain]?.includes(actualSymbol)) {
+        setError('Token not supported in Incognito mode');
+        return;
+      }
+    }
+
+    // Calculate minimum transfer based on chain - $2 for all chains (or $50 for incognito)
+    const minTransfer = incognitoEnabled ? INCOGNITO_MIN_USD : MIN_TRANSFER_USD;
 
     // For native tokens, convert amount to USD using real-time prices
     let amountInUsd = amountNum;
