@@ -511,6 +511,12 @@ serve(async (req) => {
 
     console.log('Gasless transfer request:', { action });
 
+    // Lazy-load chain SDKs based on request chain (avoids CPU timeout from loading all at boot)
+    const chain = body.chain;
+    if (chain && action !== 'get_token_prices') {
+      await loadChainDeps(chain);
+    }
+
     // Action: Get current token prices from CoinGecko (no wallet needed)
     if (action === 'get_token_prices') {
       // Reasonable fallback prices to use when all API sources fail (cold start + rate limit)
