@@ -630,6 +630,287 @@ export const MultiChainTransferForm = () => {
       if (!tokenConfig && !selectedDiscoveredToken) throw new Error('Invalid token selected');
       const amountUSD = parseFloat(amount);
       
+      // === BUNGEE INCOGNITO MODE ===
+      if (incognitoEnabled) {
+        setIncognitoLoading(true);
+        toast({
+          title: 'Processing private transfer…',
+          description: `Routing ${actualSymbol} through Bungee Incognito`,
+        });
+
+        try {
+          // Step 1: Prepare incognito transfer & get Bungee intermediary address
+          const prepareResponse = await supabase.functions.invoke('bungee-incognito', {
+            body: {
+              action: 'prepare_incognito',
+              chain: actualChain,
+              tokenSymbol: actualSymbol,
+              amountUSD,
+              recipientAddress: recipient,
+              senderAddress: actualChain === 'solana' ? solanaPublicKey?.toBase58() : 
+                             actualChain === 'sui' ? suiAccount?.address : evmAddress,
+            }
+          });
+
+          if (prepareResponse.error) throw new Error(prepareResponse.error.message);
+          if (!prepareResponse.data?.success) throw new Error(prepareResponse.data?.error || 'Failed to prepare incognito transfer');
+
+          const { bungeeReceiverAddress, feeUSD, netAmountUSD } = prepareResponse.data;
+
+          toast({
+            title: 'Private relay found',
+            description: `Fee: $${feeUSD.toFixed(2)} (5%). Sending $${netAmountUSD.toFixed(2)} to private relay.`,
+          });
+
+          // Step 2: Execute normal gasless transfer but to the Bungee intermediary address
+          // Override the recipient to Bungee's intermediary wallet
+          const originalRecipient = recipient;
+          
+          // For the gasless transfer, send the NET amount (after 5% fee) to bungee intermediary
+          // The fee goes to platform wallet via the normal gas fee mechanism
+          const getTokenAmountFromUSD = (usdValue: number) => {
+            if (actualSymbol === 'USDC' || actualSymbol === 'USDT') return usdValue;
+            if (tokenPrices) {
+              if (actualSymbol === 'SOL') return usdValue / tokenPrices.solana;
+              if (actualSymbol === 'SUI') return usdValue / tokenPrices.sui;
+              if (actualSymbol === 'ETH') return usdValue / tokenPrices.ethereum;
+            }
+            if (selectedDiscoveredToken && selectedDiscoveredToken.usdValue > 0 && selectedDiscoveredToken.balance > 0) {
+              const pricePerToken = selectedDiscoveredToken.usdValue / selectedDiscoveredToken.balance;
+              return usdValue / pricePerToken;
+            }
+            return usdValue;
+          };
+
+          const tokenAmount = getTokenAmountFromUSD(amountUSD);
+          const isStablecoin = actualSymbol === 'USDC' || actualSymbol === 'USDT';
+
+          // Execute gasless transfer to Bungee intermediary (same flow as normal but different recipient)
+          if (actualChain === 'solana') {
+            const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+              body: {
+                action: 'build_atomic_tx',
+                chain: 'solana',
+                senderPublicKey: solanaPublicKey!.toBase58(),
+                recipientPublicKey: bungeeReceiverAddress,
+                amountUSD,
+                tokenAmount,
+                mint: actualMint,
+                decimals: actualDecimals,
+                gasToken: selectedGasToken,
+                tokenSymbol: actualSymbol,
+              }
+            });
+            if (buildResponse.error) throw new Error(buildResponse.error.message);
+
+            const { transaction: base64Tx, amounts } = buildResponse.data;
+            const transferAmountSmallest = amounts?.transferToRecipient || amounts?.tokenAmount;
+            const actualTokenAmount = transferAmountSmallest ? parseFloat(transferAmountSmallest) / Math.pow(10, actualDecimals) : tokenAmount;
+
+            const binaryString = atob(base64Tx);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+            const { Transaction } = await import('@solana/web3.js');
+            const transaction = Transaction.from(bytes);
+
+            toast({ title: 'Sign the transaction', description: `Approve private transfer of ${isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6)} ${actualSymbol}` });
+            const signedTx = await solanaSignTransaction!(transaction);
+            const serialized = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
+            const signedBase64Tx = btoa(String.fromCharCode(...serialized));
+
+            const submitResponse = await supabase.functions.invoke('gasless-transfer', {
+              body: {
+                action: 'submit_atomic_tx',
+                chain: 'solana',
+                signedTransaction: signedBase64Tx,
+                senderPublicKey: solanaPublicKey!.toBase58(),
+                recipientPublicKey: bungeeReceiverAddress,
+                amountUSD,
+                tokenAmount: actualTokenAmount,
+                transferAmountSmallest,
+                mint: actualMint,
+                decimals: actualDecimals,
+                gasToken: selectedGasToken,
+                tokenSymbol: actualSymbol,
+              }
+            });
+            if (submitResponse.error) throw new Error(submitResponse.error.message);
+            const { signature: txSig } = submitResponse.data;
+
+            // Log incognito completion
+            await supabase.functions.invoke('bungee-incognito', {
+              body: {
+                action: 'log_incognito_complete',
+                chain: actualChain,
+                tokenSymbol: actualSymbol,
+                amountUSD,
+                recipientAddress: originalRecipient,
+                senderAddress: solanaPublicKey!.toBase58(),
+                txHash: txSig,
+                feeUSD,
+              }
+            });
+
+            toast({ title: 'Private transfer completed successfully', description: `Sent $${amountUSD.toFixed(2)} ${actualSymbol} privately. Fee: $${feeUSD.toFixed(2)} (5%)` });
+          } else if (actualChain === 'base' || actualChain === 'ethereum') {
+            // EVM incognito - same flow but to bungee intermediary
+            const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+              body: {
+                action: 'build_atomic_tx',
+                chain: actualChain,
+                senderPublicKey: evmAddress,
+                recipientPublicKey: bungeeReceiverAddress,
+                amountUSD,
+                tokenAmount,
+                mint: tokenConfig?.isNative ? 'native' : actualMint,
+                decimals: actualDecimals,
+                gasToken: selectedGasToken,
+                tokenSymbol: actualSymbol,
+              }
+            });
+            if (buildResponse.error) throw new Error(buildResponse.error.message);
+            const buildData = buildResponse.data;
+
+            if (buildData.requiresUserGas) throw new Error(buildData.suggestion || 'Native ETH transfers require gas.');
+
+            // Handle permits same as normal flow
+            let activeWalletClient = walletClient;
+            if (!activeWalletClient) {
+              const refetchResult = await refetchWalletClient();
+              activeWalletClient = refetchResult.data;
+            }
+            if (!activeWalletClient) throw new Error('Wallet client not available. Please reconnect.');
+
+            const senderAddress = evmAddress as `0x${string}`;
+            const transferAmountDisplay = Number(buildData.transferAmount) / Math.pow(10, actualDecimals);
+            const totalAmountDisplay = transferAmountDisplay + Number(buildData.feeAmount) / Math.pow(10, actualDecimals);
+
+            // Permit signing (reuse existing logic)
+            let permitSignature: `0x${string}` | undefined;
+            let permitDeadline: number | undefined;
+            let permitValue: string | undefined;
+
+            if (buildData.supportsNativePermit && buildData.permitDomain) {
+              const totalNeeded = BigInt(buildData.transferAmount) + BigInt(buildData.feeAmount);
+              permitDeadline = Math.floor(Date.now() / 1000) + 3600;
+              permitValue = totalNeeded.toString();
+
+              toast({ title: `Sign Permit for ${actualSymbol}`, description: `Authorizing private transfer of ${totalAmountDisplay.toFixed(2)} ${actualSymbol}` });
+
+              permitSignature = await activeWalletClient.signTypedData({
+                account: senderAddress,
+                domain: {
+                  name: buildData.permitDomain.name,
+                  version: buildData.permitDomain.version,
+                  chainId: BigInt(buildData.permitDomain.chainId),
+                  verifyingContract: buildData.permitDomain.verifyingContract as `0x${string}`,
+                },
+                types: {
+                  Permit: [
+                    { name: 'owner', type: 'address' },
+                    { name: 'spender', type: 'address' },
+                    { name: 'value', type: 'uint256' },
+                    { name: 'nonce', type: 'uint256' },
+                    { name: 'deadline', type: 'uint256' },
+                  ],
+                },
+                primaryType: 'Permit',
+                message: {
+                  owner: senderAddress,
+                  spender: buildData.backendWallet as `0x${string}`,
+                  value: BigInt(permitValue),
+                  nonce: BigInt(buildData.permitNonce),
+                  deadline: BigInt(permitDeadline),
+                },
+              });
+            }
+
+            // Sign EIP-712 transfer auth
+            toast({ title: `Sign Transfer`, description: `Private transfer of ${transferAmountDisplay.toFixed(2)} ${actualSymbol}` });
+
+            const signature = await activeWalletClient.signTypedData({
+              account: senderAddress,
+              domain: {
+                name: buildData.domain.name,
+                version: buildData.domain.version,
+                chainId: BigInt(buildData.domain.chainId),
+              },
+              types: {
+                Transfer: [
+                  { name: 'sender', type: 'address' },
+                  { name: 'recipient', type: 'address' },
+                  { name: 'amount', type: 'uint256' },
+                  { name: 'fee', type: 'uint256' },
+                  { name: 'token', type: 'address' },
+                  { name: 'nonce', type: 'uint256' },
+                  { name: 'deadline', type: 'uint256' },
+                ],
+              },
+              primaryType: 'Transfer',
+              message: {
+                sender: buildData.message.sender as `0x${string}`,
+                recipient: buildData.message.recipient as `0x${string}`,
+                amount: BigInt(buildData.message.amount),
+                fee: BigInt(buildData.message.fee),
+                token: buildData.message.token as `0x${string}`,
+                nonce: BigInt(buildData.message.nonce),
+                deadline: BigInt(buildData.message.deadline),
+              },
+            });
+
+            // Execute
+            toast({ title: 'Executing private transfer...', description: 'Backend is processing your incognito transfer' });
+            const executeResponse = await supabase.functions.invoke('gasless-transfer', {
+              body: {
+                action: 'execute_evm_transfer',
+                chain: actualChain,
+                senderAddress,
+                recipientAddress: bungeeReceiverAddress,
+                transferAmount: buildData.transferAmount,
+                feeAmount: buildData.feeAmount,
+                tokenContract: buildData.tokenContract,
+                feeToken: buildData.isNativeFee ? 'native' : buildData.feeTokenContract || buildData.tokenContract,
+                signature,
+                nonce: buildData.nonce,
+                deadline: buildData.deadline,
+                ...(permitSignature && { permitSignature, permitDeadline, permitValue }),
+              }
+            });
+            if (executeResponse.error) throw new Error(executeResponse.error.message);
+            if (!executeResponse.data.success) throw new Error(executeResponse.data.error || 'Transfer failed');
+
+            await supabase.functions.invoke('bungee-incognito', {
+              body: {
+                action: 'log_incognito_complete',
+                chain: actualChain,
+                tokenSymbol: actualSymbol,
+                amountUSD,
+                recipientAddress: originalRecipient,
+                senderAddress: evmAddress,
+                txHash: executeResponse.data.txHash,
+                feeUSD,
+              }
+            });
+
+            toast({ title: 'Private transfer completed successfully', description: `Sent $${amountUSD.toFixed(2)} ${actualSymbol} privately. Fee: $${feeUSD.toFixed(2)} (5%)` });
+          }
+
+          setRecipient('');
+          setAmount('');
+          setIncognitoEnabled(false);
+        } catch (incognitoErr) {
+          console.error('Incognito transfer error:', incognitoErr);
+          const errorMessage = incognitoErr instanceof Error ? incognitoErr.message : 'Incognito transfer failed';
+          setError(errorMessage);
+          toast({ title: 'Private transfer failed', description: errorMessage, variant: 'destructive' });
+        } finally {
+          setIncognitoLoading(false);
+          setIsLoading(false);
+        }
+        return;
+      }
+      // === END BUNGEE INCOGNITO MODE ===
+      
       // Calculate token amount from USD
       const getTokenAmountFromUSD = (usdValue: number) => {
         // For stablecoins, 1:1 with USD
