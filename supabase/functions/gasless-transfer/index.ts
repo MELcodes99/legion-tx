@@ -1,24 +1,49 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.79.0';
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  sendAndConfirmTransaction,
-} from 'https://esm.sh/@solana/web3.js@1.98.4';
-import {
-  getOrCreateAssociatedTokenAccount,
-  getAssociatedTokenAddress,
-  createTransferInstruction,
-  TOKEN_PROGRAM_ID,
-} from 'https://esm.sh/@solana/spl-token@0.4.14';
-import { SuiClient } from 'npm:@mysten/sui@1.44.0/client';
-import { Transaction as SuiTransaction } from 'npm:@mysten/sui@1.44.0/transactions';
-import { Ed25519Keypair } from 'npm:@mysten/sui@1.44.0/keypairs/ed25519';
-import { ethers } from 'https://esm.sh/ethers@6.13.1';
+
+// DYNAMIC IMPORTS - loaded on demand per chain to avoid CPU timeout
+// Solana SDK
+let _solanaWeb3: any = null;
+let _splToken: any = null;
+async function getSolanaWeb3() {
+  if (!_solanaWeb3) {
+    _solanaWeb3 = await import('https://esm.sh/@solana/web3.js@1.98.4');
+  }
+  return _solanaWeb3;
+}
+async function getSplToken() {
+  if (!_splToken) {
+    _splToken = await import('https://esm.sh/@solana/spl-token@0.4.14');
+  }
+  return _splToken;
+}
+
+// SUI SDK
+let _suiClient: any = null;
+let _suiTx: any = null;
+let _suiKeypair: any = null;
+async function getSuiClient() {
+  if (!_suiClient) _suiClient = await import('npm:@mysten/sui@1.44.0/client');
+  return _suiClient;
+}
+async function getSuiTransaction() {
+  if (!_suiTx) _suiTx = await import('npm:@mysten/sui@1.44.0/transactions');
+  return _suiTx;
+}
+async function getSuiKeypair() {
+  if (!_suiKeypair) _suiKeypair = await import('npm:@mysten/sui@1.44.0/keypairs/ed25519');
+  return _suiKeypair;
+}
+
+// Ethers
+let _ethers: any = null;
+async function getEthers() {
+  if (!_ethers) {
+    const mod = await import('https://esm.sh/ethers@6.13.1');
+    _ethers = mod;
+  }
+  return _ethers;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
