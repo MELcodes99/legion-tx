@@ -97,9 +97,11 @@ export const MultiChainTransferForm = () => {
     skr?: number;
   } | null>(null);
   
-  // Bungee Incognito state
+   // Bungee Incognito state
   const [incognitoEnabled, setIncognitoEnabled] = useState(false);
   const [incognitoLoading, setIncognitoLoading] = useState(false);
+  const [incognitoReceiveToken, setIncognitoReceiveToken] = useState('');
+  const [incognitoTokenSearch, setIncognitoTokenSearch] = useState('');
   
   // Incognito supported chains/tokens
   const INCOGNITO_SUPPORTED: Record<string, string[]> = {
