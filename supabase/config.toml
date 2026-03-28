@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.search-tokens]
 verify_jwt = false
+
+[functions.bungee-incognito]
+verify_jwt = false
