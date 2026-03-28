@@ -454,7 +454,7 @@ const TRANSFER_TYPES = {
 };
 
 // Helper function to create EVM provider with fallback RPCs
-async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<ethers.JsonRpcProvider> {
+async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<any> {
   const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
   const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
   
