@@ -1968,13 +1968,13 @@ export const MultiChainTransferForm = () => {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>}
 
-            <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono">
+            <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount || (incognitoEnabled && parseFloat(amount || '0') < INCOGNITO_MIN_USD)} className={`w-full gap-2 hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono ${incognitoEnabled ? 'bg-gradient-to-r from-primary via-purple-500 to-primary' : 'bg-gradient-to-r from-primary via-accent to-primary'}`}>
               {isLoading ? <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="hidden xs:inline">Processing...</span>
+                  <span>{incognitoEnabled ? 'Processing private transfer…' : 'Processing...'}</span>
                 </> : <>
-                  <Send className="h-4 w-4" />
-                  Send Now
+                  {incognitoEnabled ? <ShieldCheck className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                  {incognitoEnabled ? 'Send Privately' : 'Send Now'}
                 </>}
             </Button>
           </>
