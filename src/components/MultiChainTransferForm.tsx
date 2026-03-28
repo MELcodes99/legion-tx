@@ -1792,40 +1792,15 @@ export const MultiChainTransferForm = () => {
               const isDisabled = !isChainSupported || !hasWalletConnected || isLoading;
 
               return (
-                <div className={`flex items-center justify-between rounded-lg border p-3 ${
-                  isDisabled ? 'opacity-40 border-border/30 bg-secondary/20' : 
-                  incognitoEnabled ? 'border-primary/50 bg-primary/5' : 'border-border/50 bg-secondary/30'
-                } transition-all`}>
-                  <div className="flex items-center gap-2.5">
-                    <ShieldCheck className={`h-4 w-4 ${incognitoEnabled ? 'text-primary' : 'text-muted-foreground'}`} />
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-sm font-medium ${incognitoEnabled ? 'text-primary' : 'text-foreground'}`}>
-                          Bungee Incognito
-                        </span>
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-[250px]">
-                              <p className="text-xs">Bungee Incognito routes your transaction through a private relay for anonymity.</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-                        {isChainSupported 
-                          ? 'Enable private transfers via Bungee (min $50, gasless)'
-                          : `Not available on ${connectedChain ? CHAIN_NAMES[connectedChain] : 'this network'}`
-                        }
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={incognitoEnabled}
-                    onCheckedChange={(checked) => {
-                      if (!isTokenSupported && checked) {
+                <div className="flex flex-col items-start gap-1">
+                  <Button
+                    type="button"
+                    variant={incognitoEnabled ? 'default' : 'outline'}
+                    size="sm"
+                    disabled={isDisabled}
+                    className={`h-8 px-3 text-xs gap-1.5 ${incognitoEnabled ? 'bg-primary text-primary-foreground' : ''}`}
+                    onClick={() => {
+                      if (!isTokenSupported && !incognitoEnabled) {
                         toast({
                           title: 'Token not supported',
                           description: `${currentTokenSymbol} is not supported in Incognito mode on ${connectedChain ? CHAIN_NAMES[connectedChain] : 'this chain'}.`,
@@ -1833,10 +1808,13 @@ export const MultiChainTransferForm = () => {
                         });
                         return;
                       }
-                      setIncognitoEnabled(checked);
+                      setIncognitoEnabled(!incognitoEnabled);
                     }}
-                    disabled={isDisabled}
-                  />
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {incognitoEnabled ? 'ON' : 'OFF'}
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground ml-0.5">Bungee Incognito</span>
                 </div>
               );
             })()}
