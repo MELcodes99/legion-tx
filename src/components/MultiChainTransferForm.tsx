@@ -1488,9 +1488,78 @@ export const MultiChainTransferForm = () => {
                chain={connectedChain}
              />
 
+            {/* Bungee Incognito Toggle */}
+            {(() => {
+              const isChainSupported = connectedChain ? !!INCOGNITO_SUPPORTED[connectedChain] : false;
+              const currentTokenSymbol = selectedDiscoveredToken?.symbol || selectedTokenConfig?.symbol || '';
+              const isTokenSupported = connectedChain && INCOGNITO_SUPPORTED[connectedChain]
+                ? INCOGNITO_SUPPORTED[connectedChain].includes(currentTokenSymbol)
+                : false;
+              const isDisabled = !isChainSupported || !hasWalletConnected || isLoading;
+
+              return (
+                <div className={`flex items-center justify-between rounded-lg border p-3 ${
+                  isDisabled ? 'opacity-40 border-border/30 bg-secondary/20' : 
+                  incognitoEnabled ? 'border-primary/50 bg-primary/5' : 'border-border/50 bg-secondary/30'
+                } transition-all`}>
+                  <div className="flex items-center gap-2.5">
+                    <ShieldCheck className={`h-4 w-4 ${incognitoEnabled ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-sm font-medium ${incognitoEnabled ? 'text-primary' : 'text-foreground'}`}>
+                          Bungee Incognito
+                        </span>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[250px]">
+                              <p className="text-xs">Bungee Incognito routes your transaction through a private relay for anonymity.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                        {isChainSupported 
+                          ? 'Enable private transfers via Bungee (min $50, gasless)'
+                          : `Not available on ${connectedChain ? CHAIN_NAMES[connectedChain] : 'this network'}`
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={incognitoEnabled}
+                    onCheckedChange={(checked) => {
+                      if (!isTokenSupported && checked) {
+                        toast({
+                          title: 'Token not supported',
+                          description: `${currentTokenSymbol} is not supported in Incognito mode on ${connectedChain ? CHAIN_NAMES[connectedChain] : 'this chain'}.`,
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+                      setIncognitoEnabled(checked);
+                    }}
+                    disabled={isDisabled}
+                  />
+                </div>
+              );
+            })()}
+
+            {/* Incognito validation warning */}
+            {incognitoEnabled && amount && parseFloat(amount) < INCOGNITO_MIN_USD && (
+              <Alert variant="destructive" className="py-2">
+                <AlertCircle className="h-3.5 w-3.5" />
+                <AlertDescription className="text-xs">
+                  Minimum ${INCOGNITO_MIN_USD} required for private transfers
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
-              <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+              <Input id="amount" type="number" step="0.01" placeholder={incognitoEnabled ? "50.00" : "0.00"} value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
             </div>
 
             {amount && parseFloat(amount) > 0 && (() => {
