@@ -682,25 +682,29 @@ serve(async (req) => {
       );
     }
 
-    // Parse Solana private key (should be array of numbers as JSON string)
-    let backendWallet: Keypair;
-    try {
-      const privateKeyArray = JSON.parse(backendWalletPrivateKey);
-      backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
-      console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
-    } catch (error) {
-      console.error('Error parsing Solana backend wallet:', error);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Parse Solana private key (only if needed for this chain)
+    let backendWallet: any = null;
+    if (chain === 'solana' || chain === 'sui' || action === 'get_backend_wallet') {
+      await loadSolana();
+      try {
+        const privateKeyArray = JSON.parse(backendWalletPrivateKey);
+        backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
+        console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
+      } catch (error) {
+        console.error('Error parsing Solana backend wallet:', error);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
-    // Parse Sui relayer wallet if provided
-    let suiRelayerKeypair: Ed25519Keypair | null = null;
-    if (suiRelayerWalletJson) {
+    // Parse Sui relayer wallet if needed
+    let suiRelayerKeypair: any = null;
+    if ((chain === 'sui' || action === 'get_backend_wallet') && suiRelayerWalletJson) {
+      await loadSui();
       try {
         const suiWalletData = JSON.parse(suiRelayerWalletJson);
         suiRelayerKeypair = Ed25519Keypair.fromSecretKey(new Uint8Array(suiWalletData));
@@ -710,22 +714,21 @@ serve(async (req) => {
       }
     }
 
-    // Parse EVM backend wallet if provided
-    let evmBackendWallet: ethers.Wallet | null = null;
-    if (evmBackendWalletPrivateKey) {
+    // Parse EVM backend wallet if needed
+    let evmBackendWallet: any = null;
+    if ((chain === 'base' || chain === 'ethereum' || action === 'get_backend_wallet') && evmBackendWalletPrivateKey) {
+      await loadEthers();
       try {
         let privateKeyHex: string;
         
         // Check if it's a JSON array format (like Solana wallet)
         const trimmedKey = evmBackendWalletPrivateKey.trim();
         if (trimmedKey.startsWith('[')) {
-          // Parse as JSON array and convert to hex
           const privateKeyArray = JSON.parse(trimmedKey);
           const bytes = new Uint8Array(privateKeyArray);
           privateKeyHex = '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
           console.log('EVM backend wallet parsed from JSON array format');
         } else {
-          // Handle hex string format (with or without 0x prefix)
           privateKeyHex = trimmedKey.startsWith('0x') ? trimmedKey : `0x${trimmedKey}`;
         }
         
@@ -736,9 +739,15 @@ serve(async (req) => {
       }
     }
 
-    // Initialize blockchain clients
-    const connection = new Connection(SOLANA_RPC, 'confirmed');
-    const suiClient = new SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl });
+    // Initialize blockchain clients only as needed
+    let connection: any = null;
+    let suiClient: any = null;
+    if (chain === 'solana' && _solanaLoaded) {
+      connection = new Connection(SOLANA_RPC, 'confirmed');
+    }
+    if (chain === 'sui' && _suiLoaded) {
+      suiClient = new SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl });
+    }
 
     // Action: Get backend wallet public key
     if (action === 'get_backend_wallet') {
