@@ -1,24 +1,67 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.79.0';
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  sendAndConfirmTransaction,
-} from 'https://esm.sh/@solana/web3.js@1.98.4';
-import {
-  getOrCreateAssociatedTokenAccount,
-  getAssociatedTokenAddress,
-  createTransferInstruction,
-  TOKEN_PROGRAM_ID,
-} from 'https://esm.sh/@solana/spl-token@0.4.14';
-import { SuiClient } from 'npm:@mysten/sui@1.44.0/client';
-import { Transaction as SuiTransaction } from 'npm:@mysten/sui@1.44.0/transactions';
-import { Ed25519Keypair } from 'npm:@mysten/sui@1.44.0/keypairs/ed25519';
-import { ethers } from 'https://esm.sh/ethers@6.13.1';
+
+// ===== LAZY SDK LOADING =====
+// These are populated on-demand to avoid CPU timeout from loading all SDKs at boot.
+// Each variable matches the original static import name so all downstream code works unchanged.
+
+// Solana
+let Connection: any, Keypair: any, PublicKey: any, Transaction: any, SystemProgram: any, LAMPORTS_PER_SOL: any, sendAndConfirmTransaction: any;
+let getOrCreateAssociatedTokenAccount: any, getAssociatedTokenAddress: any, createTransferInstruction: any, TOKEN_PROGRAM_ID: any;
+let _solanaLoaded = false;
+async function loadSolana() {
+  if (_solanaLoaded) return;
+  const web3 = await import('https://esm.sh/@solana/web3.js@1.98.4');
+  Connection = web3.Connection;
+  Keypair = web3.Keypair;
+  PublicKey = web3.PublicKey;
+  Transaction = web3.Transaction;
+  SystemProgram = web3.SystemProgram;
+  LAMPORTS_PER_SOL = web3.LAMPORTS_PER_SOL;
+  sendAndConfirmTransaction = web3.sendAndConfirmTransaction;
+  const spl = await import('https://esm.sh/@solana/spl-token@0.4.14');
+  getOrCreateAssociatedTokenAccount = spl.getOrCreateAssociatedTokenAccount;
+  getAssociatedTokenAddress = spl.getAssociatedTokenAddress;
+  createTransferInstruction = spl.createTransferInstruction;
+  TOKEN_PROGRAM_ID = spl.TOKEN_PROGRAM_ID;
+  _solanaLoaded = true;
+}
+
+// SUI
+let SuiClient: any, SuiTransaction: any, Ed25519Keypair: any;
+let _suiLoaded = false;
+async function loadSui() {
+  if (_suiLoaded) return;
+  const client = await import('npm:@mysten/sui@1.44.0/client');
+  SuiClient = client.SuiClient;
+  const tx = await import('npm:@mysten/sui@1.44.0/transactions');
+  SuiTransaction = tx.Transaction;
+  const kp = await import('npm:@mysten/sui@1.44.0/keypairs/ed25519');
+  Ed25519Keypair = kp.Ed25519Keypair;
+  _suiLoaded = true;
+}
+
+// Ethers
+let ethers: any;
+let _ethersLoaded = false;
+async function loadEthers() {
+  if (_ethersLoaded) return;
+  const mod = await import('https://esm.sh/ethers@6.13.1');
+  ethers = mod.ethers || mod;
+  _ethersLoaded = true;
+}
+
+// Load only what's needed for a given chain
+async function loadChainDeps(chain: string) {
+  if (chain === 'solana') {
+    await loadSolana();
+  } else if (chain === 'sui') {
+    await loadSolana(); // backend wallet parsing needs Keypair
+    await loadSui();
+  } else if (chain === 'base' || chain === 'ethereum') {
+    await loadEthers();
+  }
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -411,7 +454,7 @@ const TRANSFER_TYPES = {
 };
 
 // Helper function to create EVM provider with fallback RPCs
-async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<ethers.JsonRpcProvider> {
+async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<any> {
   const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
   const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
   
@@ -467,6 +510,12 @@ serve(async (req) => {
     const { action } = body;
 
     console.log('Gasless transfer request:', { action });
+
+    // Lazy-load chain SDKs based on request chain (avoids CPU timeout from loading all at boot)
+    const chain = body.chain;
+    if (chain && action !== 'get_token_prices') {
+      await loadChainDeps(chain);
+    }
 
     // Action: Get current token prices from CoinGecko (no wallet needed)
     if (action === 'get_token_prices') {
@@ -633,25 +682,29 @@ serve(async (req) => {
       );
     }
 
-    // Parse Solana private key (should be array of numbers as JSON string)
-    let backendWallet: Keypair;
-    try {
-      const privateKeyArray = JSON.parse(backendWalletPrivateKey);
-      backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
-      console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
-    } catch (error) {
-      console.error('Error parsing Solana backend wallet:', error);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Parse Solana private key (only if needed for this chain)
+    let backendWallet: any = null;
+    if (chain === 'solana' || chain === 'sui' || action === 'get_backend_wallet') {
+      await loadSolana();
+      try {
+        const privateKeyArray = JSON.parse(backendWalletPrivateKey);
+        backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
+        console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
+      } catch (error) {
+        console.error('Error parsing Solana backend wallet:', error);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
-    // Parse Sui relayer wallet if provided
-    let suiRelayerKeypair: Ed25519Keypair | null = null;
-    if (suiRelayerWalletJson) {
+    // Parse Sui relayer wallet if needed
+    let suiRelayerKeypair: any = null;
+    if ((chain === 'sui' || action === 'get_backend_wallet') && suiRelayerWalletJson) {
+      await loadSui();
       try {
         const suiWalletData = JSON.parse(suiRelayerWalletJson);
         suiRelayerKeypair = Ed25519Keypair.fromSecretKey(new Uint8Array(suiWalletData));
@@ -661,22 +714,21 @@ serve(async (req) => {
       }
     }
 
-    // Parse EVM backend wallet if provided
-    let evmBackendWallet: ethers.Wallet | null = null;
-    if (evmBackendWalletPrivateKey) {
+    // Parse EVM backend wallet if needed
+    let evmBackendWallet: any = null;
+    if ((chain === 'base' || chain === 'ethereum' || action === 'get_backend_wallet') && evmBackendWalletPrivateKey) {
+      await loadEthers();
       try {
         let privateKeyHex: string;
         
         // Check if it's a JSON array format (like Solana wallet)
         const trimmedKey = evmBackendWalletPrivateKey.trim();
         if (trimmedKey.startsWith('[')) {
-          // Parse as JSON array and convert to hex
           const privateKeyArray = JSON.parse(trimmedKey);
           const bytes = new Uint8Array(privateKeyArray);
           privateKeyHex = '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
           console.log('EVM backend wallet parsed from JSON array format');
         } else {
-          // Handle hex string format (with or without 0x prefix)
           privateKeyHex = trimmedKey.startsWith('0x') ? trimmedKey : `0x${trimmedKey}`;
         }
         
@@ -687,9 +739,15 @@ serve(async (req) => {
       }
     }
 
-    // Initialize blockchain clients
-    const connection = new Connection(SOLANA_RPC, 'confirmed');
-    const suiClient = new SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl });
+    // Initialize blockchain clients only as needed
+    let connection: any = null;
+    let suiClient: any = null;
+    if (chain === 'solana' && _solanaLoaded) {
+      connection = new Connection(SOLANA_RPC, 'confirmed');
+    }
+    if (chain === 'sui' && _suiLoaded) {
+      suiClient = new SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl });
+    }
 
     // Action: Get backend wallet public key
     if (action === 'get_backend_wallet') {
