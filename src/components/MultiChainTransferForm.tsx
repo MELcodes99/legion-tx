@@ -96,9 +96,23 @@ export const MultiChainTransferForm = () => {
     ethereum: number;
     skr?: number;
   } | null>(null);
+  
+  // Bungee Incognito state
+  const [incognitoEnabled, setIncognitoEnabled] = useState(false);
+  const [incognitoLoading, setIncognitoLoading] = useState(false);
+  
+  // Incognito supported chains/tokens
+  const INCOGNITO_SUPPORTED: Record<string, string[]> = {
+    solana: ['SOL', 'USDT', 'USDC', 'SKR'],
+    ethereum: ['ETH', 'USDC'],
+    base: ['ETH', 'USDC'],
+  };
+  const INCOGNITO_MIN_USD = 50;
+  const INCOGNITO_FEE_PERCENT = 5; // 5%
+  
   const selectedTokenConfig = getTokenConfig(selectedToken);
   const selectedGasTokenConfig = getTokenConfig(selectedGasToken);
-  const gasFee = selectedTokenConfig?.gasFee || 0.50;
+  const gasFee = incognitoEnabled ? 0 : (selectedTokenConfig?.gasFee || 0.50);
 
   // Calculate gas fee in tokens if paying with native token or SKR
   const getGasFeeDisplay = () => {
