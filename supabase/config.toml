@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.bungee-incognito]
 verify_jwt = false
+
+[functions.discover-tokens]
+verify_jwt = false
