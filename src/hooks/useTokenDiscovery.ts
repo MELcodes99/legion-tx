@@ -129,16 +129,16 @@ export const useTokenDiscovery = (
     'https://api.mainnet-beta.solana.com',
   ];
 
-  // Discover Solana tokens via server-side edge function (bypasses browser RPC restrictions)
+  // Discover Solana tokens via lightweight dedicated edge function
   const discoverSolanaTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
     if (!solanaPublicKey) return [];
 
     const tokens: DiscoveredToken[] = [];
 
     try {
-      // Call edge function to discover tokens server-side
-      const { data, error } = await supabase.functions.invoke('gasless-transfer', {
-        body: { action: 'discover_solana_tokens', walletAddress: solanaPublicKey.toBase58() }
+      // Call lightweight discover-tokens function (no heavy deps)
+      const { data, error } = await supabase.functions.invoke('discover-tokens', {
+        body: { chain: 'solana', walletAddress: solanaPublicKey.toBase58() }
       });
 
       if (error) {
