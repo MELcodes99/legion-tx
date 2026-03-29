@@ -3,6 +3,15 @@ project_id = "jmnyaudcgdanpgctroko"
 [functions.gasless-transfer]
 verify_jwt = false
 
+[functions.gasless-solana]
+verify_jwt = false
+
+[functions.gasless-evm]
+verify_jwt = false
+
+[functions.gasless-sui]
+verify_jwt = false
+
 [functions.get-token-prices]
 verify_jwt = false
 
