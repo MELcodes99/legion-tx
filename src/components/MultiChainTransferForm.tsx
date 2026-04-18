@@ -137,26 +137,33 @@ export const MultiChainTransferForm = () => {
     });
   };
   const availableTokens = getAvailableTokens();
+  const connectedDiscoveredTokens = discoveredTokens.filter(token => token.chain === connectedChain);
 
   // Fetch token prices from backend in real-time
   useEffect(() => {
     const fetchPrices = async () => {
       try {
+        const nativePriceTokens: { address: string; chain: ChainType }[] = [
+          { address: 'So11111111111111111111111111111111111111112', chain: 'solana' },
+          { address: '0x2::sui::SUI', chain: 'sui' },
+          { address: '0x0000000000000000000000000000000000000000', chain: 'ethereum' },
+          { address: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3', chain: 'solana' },
+        ];
         const {
           data,
           error
-        } = await supabase.functions.invoke('gasless-transfer', {
+        } = await supabase.functions.invoke('get-token-prices', {
           body: {
-            action: 'get_token_prices'
+            tokens: nativePriceTokens
           }
         });
         if (error) throw error;
         if (data?.prices) {
           setTokenPrices({
-            solana: data.prices.solana || 0,
-            sui: data.prices.sui || 0,
-            ethereum: data.prices.ethereum || data.prices.base || 3000,
-            skr: data.prices.skr || 0,
+            solana: data.prices['So11111111111111111111111111111111111111112'] || 0,
+            sui: data.prices['0x2::sui::SUI'] || 0,
+            ethereum: data.prices['0x0000000000000000000000000000000000000000'] || 3000,
+            skr: data.prices['SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3'] || 0,
           });
           console.log('Token prices fetched:', data.prices);
         }
@@ -1288,7 +1295,7 @@ export const MultiChainTransferForm = () => {
         <TokenSelectionModal
           open={tokenSelectionOpen}
           onClose={() => setTokenSelectionOpen(false)}
-          tokens={discoveredTokens}
+          tokens={connectedDiscoveredTokens}
           onSelectToken={(token) => {
             setSelectedDiscoveredToken(token);
             // Try to map to existing token key for transfer

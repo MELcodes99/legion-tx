@@ -8,11 +8,8 @@ const corsHeaders = {
 
 const SOLANA_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const SOLANA_RPC_ENDPOINTS = [
-  'https://rpc.ankr.com/solana',
-  'https://solana-mainnet.rpc.extrnode.com',
-  'https://solana-rpc.publicnode.com',
-  'https://solana.drpc.org',
   'https://api.mainnet-beta.solana.com',
+  'https://solana-rpc.publicnode.com',
 ];
 
 const KNOWN_SOLANA_TOKENS: Record<string, { symbol: string; name: string }> = {
@@ -82,7 +79,7 @@ serve(async (req) => {
       try {
         const [balanceResult, tokenAccountsResult] = await Promise.all([
           rpcCall<{ value: number }>(rpcUrl, 'getBalance', [walletAddress, { commitment: 'confirmed' }]),
-          rpcCall<{ value: Array<any> }>(rpcUrl, 'getParsedTokenAccountsByOwner', [
+          rpcCall<{ value: Array<any> }>(rpcUrl, 'getTokenAccountsByOwner', [
             walletAddress,
             { programId: SOLANA_TOKEN_PROGRAM_ID },
             { encoding: 'jsonParsed', commitment: 'confirmed' },
