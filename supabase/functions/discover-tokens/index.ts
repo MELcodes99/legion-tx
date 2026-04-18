@@ -16,20 +16,20 @@ const SOLANA_RPC_ENDPOINTS = [
 ];
 
 const KNOWN_SOLANA_TOKENS: Record<string, { symbol: string; name: string }> = {
-  So11111111111111111111111111111111111111112: { symbol: 'SOL', name: 'Solana' },
-  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: { symbol: 'USDC', name: 'USD Coin' },
-  Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: { symbol: 'USDT', name: 'Tether USD' },
-  JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN: { symbol: 'JUP', name: 'Jupiter' },
-  DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: { symbol: 'BONK', name: 'Bonk' },
-  2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv: { symbol: 'PENGU', name: 'Pudgy Penguins' },
-  Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs: { symbol: 'GRASS', name: 'Grass' },
-  4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R: { symbol: 'RAY', name: 'Raydium' },
-  WETZjtprkDMCcUxPi9PfWnowMRZkiGGHDb9rABuRZ2U: { symbol: 'WET', name: 'Wet' },
-  6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN: { symbol: 'TRUMP', name: 'Official Trump' },
-  METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL: { symbol: 'MET', name: 'Meteora' },
-  pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn: { symbol: 'PUMP', name: 'Pump.fun' },
-  CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2: { symbol: 'MON', name: 'Mon Protocol' },
-  SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3: { symbol: 'SKR', name: 'Seeker' },
+  'So11111111111111111111111111111111111111112': { symbol: 'SOL', name: 'Solana' },
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { symbol: 'USDC', name: 'USD Coin' },
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { symbol: 'USDT', name: 'Tether USD' },
+  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN': { symbol: 'JUP', name: 'Jupiter' },
+  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263': { symbol: 'BONK', name: 'Bonk' },
+  '2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv': { symbol: 'PENGU', name: 'Pudgy Penguins' },
+  'Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs': { symbol: 'GRASS', name: 'Grass' },
+  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R': { symbol: 'RAY', name: 'Raydium' },
+  'WETZjtprkDMCcUxPi9PfWnowMRZkiGGHDb9rABuRZ2U': { symbol: 'WET', name: 'Wet' },
+  '6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN': { symbol: 'TRUMP', name: 'Official Trump' },
+  'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL': { symbol: 'MET', name: 'Meteora' },
+  'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': { symbol: 'PUMP', name: 'Pump.fun' },
+  'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': { symbol: 'MON', name: 'Mon Protocol' },
+  'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3': { symbol: 'SKR', name: 'Seeker' },
 };
 
 const BodySchema = z.object({
