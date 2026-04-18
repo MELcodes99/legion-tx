@@ -13,11 +13,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, AlertCircle, Wallet, ShieldCheck, Info } from 'lucide-react';
-import { Scan } from 'lucide-react';
+import { Loader2, Send, AlertCircle, Wallet } from 'lucide-react';
+ import { Scan } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Switch } from '@/components/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ProcessingLogo } from './ProcessingLogo';
 import { ConnectedWalletInfo } from './ConnectedWalletInfo';
 import { TokenSelectionModal } from './TokenSelectionModal';
@@ -35,7 +33,7 @@ import { SuiClient } from '@mysten/sui/client';
 import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown } from 'lucide-react';
-import { QRScanner } from './QRScanner';
+ import { QRScanner } from './QRScanner';
 
 type TokenKey = keyof typeof TOKENS;
 type BalanceMap = Record<TokenKey, number>;
@@ -96,25 +94,9 @@ export const MultiChainTransferForm = () => {
     ethereum: number;
     skr?: number;
   } | null>(null);
-  
-   // Bungee Incognito state
-  const [incognitoEnabled, setIncognitoEnabled] = useState(false);
-  const [incognitoLoading, setIncognitoLoading] = useState(false);
-  const [incognitoReceiveToken, setIncognitoReceiveToken] = useState('');
-  const [incognitoTokenSearch, setIncognitoTokenSearch] = useState('');
-  
-  // Incognito supported chains/tokens
-  const INCOGNITO_SUPPORTED: Record<string, string[]> = {
-    solana: ['SOL', 'USDT', 'USDC', 'SKR'],
-    ethereum: ['ETH', 'USDC'],
-    base: ['ETH', 'USDC'],
-  };
-  const INCOGNITO_MIN_USD = 50;
-  const INCOGNITO_FEE_PERCENT = 5; // 5%
-  
   const selectedTokenConfig = getTokenConfig(selectedToken);
   const selectedGasTokenConfig = getTokenConfig(selectedGasToken);
-  const gasFee = incognitoEnabled ? 0 : (selectedTokenConfig?.gasFee || 0.50);
+  const gasFee = selectedTokenConfig?.gasFee || 0.50;
 
   // Calculate gas fee in tokens if paying with native token or SKR
   const getGasFeeDisplay = () => {
@@ -156,27 +138,25 @@ export const MultiChainTransferForm = () => {
   };
   const availableTokens = getAvailableTokens();
 
-  // Fetch token prices from lightweight get-token-prices edge function
+  // Fetch token prices from backend in real-time
   useEffect(() => {
     const fetchPrices = async () => {
       try {
-        // Use the lightweight get-token-prices function with native token addresses
-        const priceTokens = [
-          { address: 'So11111111111111111111111111111111111111112', chain: 'solana' },
-          { address: '0x2::sui::SUI', chain: 'sui' },
-          { address: '0x0000000000000000000000000000000000000000', chain: 'ethereum' },
-          { address: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3', chain: 'solana' },
-        ];
-        const { data, error } = await supabase.functions.invoke('get-token-prices', {
-          body: { tokens: priceTokens }
+        const {
+          data,
+          error
+        } = await supabase.functions.invoke('gasless-transfer', {
+          body: {
+            action: 'get_token_prices'
+          }
         });
         if (error) throw error;
         if (data?.prices) {
           setTokenPrices({
-            solana: data.prices['So11111111111111111111111111111111111111112'] || 0,
-            sui: data.prices['0x2::sui::SUI'] || 0,
-            ethereum: data.prices['0x0000000000000000000000000000000000000000'] || 3000,
-            skr: data.prices['SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3'] || 0,
+            solana: data.prices.solana || 0,
+            sui: data.prices.sui || 0,
+            ethereum: data.prices.ethereum || data.prices.base || 3000,
+            skr: data.prices.skr || 0,
           });
           console.log('Token prices fetched:', data.prices);
         }
@@ -185,6 +165,7 @@ export const MultiChainTransferForm = () => {
       }
     };
     fetchPrices();
+    // Fetch prices more frequently (every 30 seconds) for real-time accuracy
     const interval = setInterval(fetchPrices, 30 * 1000);
     return () => clearInterval(interval);
   }, []);
@@ -485,21 +466,8 @@ export const MultiChainTransferForm = () => {
       return;
     }
 
-    // Incognito mode validation
-    if (incognitoEnabled) {
-      if (amountNum < INCOGNITO_MIN_USD) {
-        setError(`Minimum $${INCOGNITO_MIN_USD} required for private transfers`);
-        return;
-      }
-      const actualSymbol = selectedDiscoveredToken?.symbol || tokenConfig.symbol;
-      if (!connectedChain || !INCOGNITO_SUPPORTED[connectedChain]?.includes(actualSymbol)) {
-        setError('Token not supported in Incognito mode');
-        return;
-      }
-    }
-
-    // Calculate minimum transfer based on chain - $2 for all chains (or $50 for incognito)
-    const minTransfer = incognitoEnabled ? INCOGNITO_MIN_USD : MIN_TRANSFER_USD;
+    // Calculate minimum transfer based on chain - $2 for all chains
+    const minTransfer = MIN_TRANSFER_USD;
 
     // For native tokens, convert amount to USD using real-time prices
     let amountInUsd = amountNum;
@@ -632,287 +600,6 @@ export const MultiChainTransferForm = () => {
     try {
       if (!tokenConfig && !selectedDiscoveredToken) throw new Error('Invalid token selected');
       const amountUSD = parseFloat(amount);
-      
-      // === BUNGEE INCOGNITO MODE ===
-      if (incognitoEnabled) {
-        setIncognitoLoading(true);
-        toast({
-          title: 'Processing private transfer…',
-          description: `Routing ${actualSymbol} through Bungee Incognito`,
-        });
-
-        try {
-          // Step 1: Prepare incognito transfer & get Bungee intermediary address
-          const prepareResponse = await supabase.functions.invoke('bungee-incognito', {
-            body: {
-              action: 'prepare_incognito',
-              chain: actualChain,
-              tokenSymbol: actualSymbol,
-              amountUSD,
-              recipientAddress: recipient,
-              senderAddress: actualChain === 'solana' ? solanaPublicKey?.toBase58() : 
-                             actualChain === 'sui' ? suiAccount?.address : evmAddress,
-            }
-          });
-
-          if (prepareResponse.error) throw new Error(prepareResponse.error.message);
-          if (!prepareResponse.data?.success) throw new Error(prepareResponse.data?.error || 'Failed to prepare incognito transfer');
-
-          const { bungeeReceiverAddress, feeUSD, netAmountUSD } = prepareResponse.data;
-
-          toast({
-            title: 'Private relay found',
-            description: `Fee: $${feeUSD.toFixed(2)} (5%). Sending $${netAmountUSD.toFixed(2)} to private relay.`,
-          });
-
-          // Step 2: Execute normal gasless transfer but to the Bungee intermediary address
-          // Override the recipient to Bungee's intermediary wallet
-          const originalRecipient = recipient;
-          
-          // For the gasless transfer, send the NET amount (after 5% fee) to bungee intermediary
-          // The fee goes to platform wallet via the normal gas fee mechanism
-          const getTokenAmountFromUSD = (usdValue: number) => {
-            if (actualSymbol === 'USDC' || actualSymbol === 'USDT') return usdValue;
-            if (tokenPrices) {
-              if (actualSymbol === 'SOL') return usdValue / tokenPrices.solana;
-              if (actualSymbol === 'SUI') return usdValue / tokenPrices.sui;
-              if (actualSymbol === 'ETH') return usdValue / tokenPrices.ethereum;
-            }
-            if (selectedDiscoveredToken && selectedDiscoveredToken.usdValue > 0 && selectedDiscoveredToken.balance > 0) {
-              const pricePerToken = selectedDiscoveredToken.usdValue / selectedDiscoveredToken.balance;
-              return usdValue / pricePerToken;
-            }
-            return usdValue;
-          };
-
-          const tokenAmount = getTokenAmountFromUSD(amountUSD);
-          const isStablecoin = actualSymbol === 'USDC' || actualSymbol === 'USDT';
-
-          // Execute gasless transfer to Bungee intermediary (same flow as normal but different recipient)
-          if (actualChain === 'solana') {
-            const buildResponse = await supabase.functions.invoke('gasless-transfer', {
-              body: {
-                action: 'build_atomic_tx',
-                chain: 'solana',
-                senderPublicKey: solanaPublicKey!.toBase58(),
-                recipientPublicKey: bungeeReceiverAddress,
-                amountUSD,
-                tokenAmount,
-                mint: actualMint,
-                decimals: actualDecimals,
-                gasToken: selectedGasToken,
-                tokenSymbol: actualSymbol,
-              }
-            });
-            if (buildResponse.error) throw new Error(buildResponse.error.message);
-
-            const { transaction: base64Tx, amounts } = buildResponse.data;
-            const transferAmountSmallest = amounts?.transferToRecipient || amounts?.tokenAmount;
-            const actualTokenAmount = transferAmountSmallest ? parseFloat(transferAmountSmallest) / Math.pow(10, actualDecimals) : tokenAmount;
-
-            const binaryString = atob(base64Tx);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-            const { Transaction } = await import('@solana/web3.js');
-            const transaction = Transaction.from(bytes);
-
-            toast({ title: 'Sign the transaction', description: `Approve private transfer of ${isStablecoin ? actualTokenAmount.toFixed(2) : actualTokenAmount.toFixed(6)} ${actualSymbol}` });
-            const signedTx = await solanaSignTransaction!(transaction);
-            const serialized = signedTx.serialize({ requireAllSignatures: false, verifySignatures: false });
-            const signedBase64Tx = btoa(String.fromCharCode(...serialized));
-
-            const submitResponse = await supabase.functions.invoke('gasless-transfer', {
-              body: {
-                action: 'submit_atomic_tx',
-                chain: 'solana',
-                signedTransaction: signedBase64Tx,
-                senderPublicKey: solanaPublicKey!.toBase58(),
-                recipientPublicKey: bungeeReceiverAddress,
-                amountUSD,
-                tokenAmount: actualTokenAmount,
-                transferAmountSmallest,
-                mint: actualMint,
-                decimals: actualDecimals,
-                gasToken: selectedGasToken,
-                tokenSymbol: actualSymbol,
-              }
-            });
-            if (submitResponse.error) throw new Error(submitResponse.error.message);
-            const { signature: txSig } = submitResponse.data;
-
-            // Log incognito completion
-            await supabase.functions.invoke('bungee-incognito', {
-              body: {
-                action: 'log_incognito_complete',
-                chain: actualChain,
-                tokenSymbol: actualSymbol,
-                amountUSD,
-                recipientAddress: originalRecipient,
-                senderAddress: solanaPublicKey!.toBase58(),
-                txHash: txSig,
-                feeUSD,
-              }
-            });
-
-            toast({ title: 'Private transfer completed successfully', description: `Sent $${amountUSD.toFixed(2)} ${actualSymbol} privately. Fee: $${feeUSD.toFixed(2)} (5%)` });
-          } else if (actualChain === 'base' || actualChain === 'ethereum') {
-            // EVM incognito - same flow but to bungee intermediary
-            const buildResponse = await supabase.functions.invoke('gasless-transfer', {
-              body: {
-                action: 'build_atomic_tx',
-                chain: actualChain,
-                senderPublicKey: evmAddress,
-                recipientPublicKey: bungeeReceiverAddress,
-                amountUSD,
-                tokenAmount,
-                mint: tokenConfig?.isNative ? 'native' : actualMint,
-                decimals: actualDecimals,
-                gasToken: selectedGasToken,
-                tokenSymbol: actualSymbol,
-              }
-            });
-            if (buildResponse.error) throw new Error(buildResponse.error.message);
-            const buildData = buildResponse.data;
-
-            if (buildData.requiresUserGas) throw new Error(buildData.suggestion || 'Native ETH transfers require gas.');
-
-            // Handle permits same as normal flow
-            let activeWalletClient = walletClient;
-            if (!activeWalletClient) {
-              const refetchResult = await refetchWalletClient();
-              activeWalletClient = refetchResult.data;
-            }
-            if (!activeWalletClient) throw new Error('Wallet client not available. Please reconnect.');
-
-            const senderAddress = evmAddress as `0x${string}`;
-            const transferAmountDisplay = Number(buildData.transferAmount) / Math.pow(10, actualDecimals);
-            const totalAmountDisplay = transferAmountDisplay + Number(buildData.feeAmount) / Math.pow(10, actualDecimals);
-
-            // Permit signing (reuse existing logic)
-            let permitSignature: `0x${string}` | undefined;
-            let permitDeadline: number | undefined;
-            let permitValue: string | undefined;
-
-            if (buildData.supportsNativePermit && buildData.permitDomain) {
-              const totalNeeded = BigInt(buildData.transferAmount) + BigInt(buildData.feeAmount);
-              permitDeadline = Math.floor(Date.now() / 1000) + 3600;
-              permitValue = totalNeeded.toString();
-
-              toast({ title: `Sign Permit for ${actualSymbol}`, description: `Authorizing private transfer of ${totalAmountDisplay.toFixed(2)} ${actualSymbol}` });
-
-              permitSignature = await activeWalletClient.signTypedData({
-                account: senderAddress,
-                domain: {
-                  name: buildData.permitDomain.name,
-                  version: buildData.permitDomain.version,
-                  chainId: BigInt(buildData.permitDomain.chainId),
-                  verifyingContract: buildData.permitDomain.verifyingContract as `0x${string}`,
-                },
-                types: {
-                  Permit: [
-                    { name: 'owner', type: 'address' },
-                    { name: 'spender', type: 'address' },
-                    { name: 'value', type: 'uint256' },
-                    { name: 'nonce', type: 'uint256' },
-                    { name: 'deadline', type: 'uint256' },
-                  ],
-                },
-                primaryType: 'Permit',
-                message: {
-                  owner: senderAddress,
-                  spender: buildData.backendWallet as `0x${string}`,
-                  value: BigInt(permitValue),
-                  nonce: BigInt(buildData.permitNonce),
-                  deadline: BigInt(permitDeadline),
-                },
-              });
-            }
-
-            // Sign EIP-712 transfer auth
-            toast({ title: `Sign Transfer`, description: `Private transfer of ${transferAmountDisplay.toFixed(2)} ${actualSymbol}` });
-
-            const signature = await activeWalletClient.signTypedData({
-              account: senderAddress,
-              domain: {
-                name: buildData.domain.name,
-                version: buildData.domain.version,
-                chainId: BigInt(buildData.domain.chainId),
-              },
-              types: {
-                Transfer: [
-                  { name: 'sender', type: 'address' },
-                  { name: 'recipient', type: 'address' },
-                  { name: 'amount', type: 'uint256' },
-                  { name: 'fee', type: 'uint256' },
-                  { name: 'token', type: 'address' },
-                  { name: 'nonce', type: 'uint256' },
-                  { name: 'deadline', type: 'uint256' },
-                ],
-              },
-              primaryType: 'Transfer',
-              message: {
-                sender: buildData.message.sender as `0x${string}`,
-                recipient: buildData.message.recipient as `0x${string}`,
-                amount: BigInt(buildData.message.amount),
-                fee: BigInt(buildData.message.fee),
-                token: buildData.message.token as `0x${string}`,
-                nonce: BigInt(buildData.message.nonce),
-                deadline: BigInt(buildData.message.deadline),
-              },
-            });
-
-            // Execute
-            toast({ title: 'Executing private transfer...', description: 'Backend is processing your incognito transfer' });
-            const executeResponse = await supabase.functions.invoke('gasless-transfer', {
-              body: {
-                action: 'execute_evm_transfer',
-                chain: actualChain,
-                senderAddress,
-                recipientAddress: bungeeReceiverAddress,
-                transferAmount: buildData.transferAmount,
-                feeAmount: buildData.feeAmount,
-                tokenContract: buildData.tokenContract,
-                feeToken: buildData.isNativeFee ? 'native' : buildData.feeTokenContract || buildData.tokenContract,
-                signature,
-                nonce: buildData.nonce,
-                deadline: buildData.deadline,
-                ...(permitSignature && { permitSignature, permitDeadline, permitValue }),
-              }
-            });
-            if (executeResponse.error) throw new Error(executeResponse.error.message);
-            if (!executeResponse.data.success) throw new Error(executeResponse.data.error || 'Transfer failed');
-
-            await supabase.functions.invoke('bungee-incognito', {
-              body: {
-                action: 'log_incognito_complete',
-                chain: actualChain,
-                tokenSymbol: actualSymbol,
-                amountUSD,
-                recipientAddress: originalRecipient,
-                senderAddress: evmAddress,
-                txHash: executeResponse.data.txHash,
-                feeUSD,
-              }
-            });
-
-            toast({ title: 'Private transfer completed successfully', description: `Sent $${amountUSD.toFixed(2)} ${actualSymbol} privately. Fee: $${feeUSD.toFixed(2)} (5%)` });
-          }
-
-          setRecipient('');
-          setAmount('');
-          setIncognitoEnabled(false);
-        } catch (incognitoErr) {
-          console.error('Incognito transfer error:', incognitoErr);
-          const errorMessage = incognitoErr instanceof Error ? incognitoErr.message : 'Incognito transfer failed';
-          setError(errorMessage);
-          toast({ title: 'Private transfer failed', description: errorMessage, variant: 'destructive' });
-        } finally {
-          setIncognitoLoading(false);
-          setIsLoading(false);
-        }
-        return;
-      }
-      // === END BUNGEE INCOGNITO MODE ===
       
       // Calculate token amount from USD
       const getTokenAmountFromUSD = (usdValue: number) => {
@@ -1785,94 +1472,9 @@ export const MultiChainTransferForm = () => {
                chain={connectedChain}
              />
 
-            {/* Bungee Incognito Toggle */}
-            {(() => {
-              const isChainSupported = connectedChain ? !!INCOGNITO_SUPPORTED[connectedChain] : false;
-              const currentTokenSymbol = selectedDiscoveredToken?.symbol || selectedTokenConfig?.symbol || '';
-              const isTokenSupported = connectedChain && INCOGNITO_SUPPORTED[connectedChain]
-                ? INCOGNITO_SUPPORTED[connectedChain].includes(currentTokenSymbol)
-                : false;
-              const isDisabled = !isChainSupported || !hasWalletConnected || isLoading;
-
-              return (
-                <div className="flex flex-col items-start gap-1">
-                  <Button
-                    type="button"
-                    variant={incognitoEnabled ? 'default' : 'outline'}
-                    size="sm"
-                    disabled={isDisabled}
-                    className={`h-8 px-3 text-xs gap-1.5 ${incognitoEnabled ? 'bg-primary text-primary-foreground' : ''}`}
-                    onClick={() => {
-                      if (!isTokenSupported && !incognitoEnabled) {
-                        toast({
-                          title: 'Token not supported',
-                          description: `${currentTokenSymbol} is not supported in Incognito mode on ${connectedChain ? CHAIN_NAMES[connectedChain] : 'this chain'}.`,
-                          variant: 'destructive',
-                        });
-                        return;
-                      }
-                      setIncognitoEnabled(!incognitoEnabled);
-                    }}
-                  >
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                    {incognitoEnabled ? 'ON' : 'OFF'}
-                  </Button>
-                  <span className="text-[10px] text-muted-foreground ml-0.5">Bungee Incognito</span>
-                  
-                  {/* Incognito receive token selector */}
-                  {incognitoEnabled && connectedChain && INCOGNITO_SUPPORTED[connectedChain] && (
-                    <div className="w-full mt-2">
-                      <Label className="text-xs text-muted-foreground mb-1 block">Receiver gets</Label>
-                      <div className="relative">
-                        <Input
-                          type="text"
-                          placeholder="Search receive token..."
-                          value={incognitoTokenSearch}
-                          onChange={(e) => setIncognitoTokenSearch(e.target.value)}
-                          className="h-8 text-xs pr-8"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 mt-1.5">
-                        {INCOGNITO_SUPPORTED[connectedChain]
-                          .filter(t => !incognitoTokenSearch || t.toLowerCase().includes(incognitoTokenSearch.toLowerCase()))
-                          .map(token => (
-                            <Button
-                              key={token}
-                              type="button"
-                              size="sm"
-                              variant={incognitoReceiveToken === token ? 'default' : 'outline'}
-                              className="h-7 px-2.5 text-[11px] gap-1"
-                              onClick={() => {
-                                setIncognitoReceiveToken(token);
-                                setIncognitoTokenSearch('');
-                              }}
-                            >
-                              {token}
-                            </Button>
-                          ))}
-                      </div>
-                      {incognitoReceiveToken && (
-                        <p className="text-[10px] text-primary mt-1">Receiver will get: {incognitoReceiveToken}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Incognito validation warning */}
-            {incognitoEnabled && amount && parseFloat(amount) < INCOGNITO_MIN_USD && (
-              <Alert variant="destructive" className="py-2">
-                <AlertCircle className="h-3.5 w-3.5" />
-                <AlertDescription className="text-xs">
-                  Minimum ${INCOGNITO_MIN_USD} required for private transfers
-                </AlertDescription>
-              </Alert>
-            )}
-
             <div className="space-y-2">
               <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
-              <Input id="amount" type="number" step="0.01" placeholder={incognitoEnabled ? "50.00" : "0.00"} value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+              <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
             </div>
 
             {amount && parseFloat(amount) > 0 && (() => {
@@ -1928,13 +1530,7 @@ export const MultiChainTransferForm = () => {
               const isGasStablecoin = gasSymbol === 'USDC' || gasSymbol === 'USDT';
               
               return (
-                <div className={`rounded-lg p-3 space-y-1.5 text-sm ${incognitoEnabled ? 'bg-primary/5 border border-primary/20' : 'bg-secondary/30'}`}>
-                  {incognitoEnabled && (
-                    <div className="flex items-center gap-1.5 text-primary text-xs font-medium mb-2">
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      <span>Private Transfer via Bungee Incognito</span>
-                    </div>
-                  )}
+                <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">You're Sending:</span>
                     <span className="font-medium">
@@ -1945,13 +1541,11 @@ export const MultiChainTransferForm = () => {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">{incognitoEnabled ? 'Incognito Fee (5%):' : 'Gas Fee:'}</span>
+                    <span className="text-muted-foreground">Gas Fee:</span>
                     <span className="font-medium">
-                      {incognitoEnabled 
-                        ? `$${(amountUsd * 0.05).toFixed(2)}`
-                        : isGasStablecoin 
-                          ? `${gasFeeTokens.toFixed(2)} ${gasSymbol} ($${gasFee.toFixed(2)})`
-                          : `${gasFeeTokens.toFixed(6)} ${gasSymbol} ($${gasFee.toFixed(2)})`
+                      {isGasStablecoin 
+                        ? `${gasFeeTokens.toFixed(2)} ${gasSymbol} ($${gasFee.toFixed(2)})`
+                        : `${gasFeeTokens.toFixed(6)} ${gasSymbol} ($${gasFee.toFixed(2)})`
                       }
                     </span>
                   </div>
@@ -1959,22 +1553,32 @@ export const MultiChainTransferForm = () => {
                   <div className="flex justify-between font-semibold text-base">
                     <span>Recipient Receives:</span>
                     <span className="text-primary">
-                      {incognitoEnabled
-                        ? `$${(amountUsd * 0.95).toFixed(2)}`
-                        : isStablecoin 
-                          ? `${tokenAmount.toFixed(2)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
-                          : `${tokenAmount.toFixed(6)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                      {isStablecoin 
+                        ? `${tokenAmount.toFixed(2)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
+                        : `${tokenAmount.toFixed(6)} ${tokenSymbol} ($${amountUsd.toFixed(2)})`
                       }
                     </span>
                   </div>
-                  <div className="mt-2 pt-2 border-t border-border/50">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">Total Value:</span>
-                      <span className="font-semibold text-accent">
-                        ${incognitoEnabled ? amountUsd.toFixed(2) : (amountUsd + gasFee).toFixed(2)}
-                      </span>
+                  {selectedToken === selectedGasToken && (
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Total Value:</span>
+                        <span className="font-semibold text-accent">
+                          ${(amountUsd + gasFee).toFixed(2)}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
+                  {selectedToken !== selectedGasToken && (
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Total Value:</span>
+                        <span className="font-semibold text-accent">
+                          ${(amountUsd + gasFee).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   {selectedGasTokenConfig?.isNative && !tokenPrices && (
                     <p className="text-xs text-muted-foreground mt-2">Loading current {selectedGasTokenConfig.symbol} price...</p>
                   )}
@@ -1987,13 +1591,13 @@ export const MultiChainTransferForm = () => {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>}
 
-            <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount || (incognitoEnabled && parseFloat(amount || '0') < INCOGNITO_MIN_USD)} className={`w-full gap-2 hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono ${incognitoEnabled ? 'bg-gradient-to-r from-primary via-purple-500 to-primary' : 'bg-gradient-to-r from-primary via-accent to-primary'}`}>
+            <Button onClick={initiateTransfer} disabled={!hasWalletConnected || isLoading || !recipient || !amount} className="w-full gap-2 bg-gradient-to-r from-primary via-accent to-primary hover:opacity-90 text-sm sm:text-base py-5 sm:py-6 font-mono">
               {isLoading ? <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{incognitoEnabled ? 'Processing private transfer…' : 'Processing...'}</span>
+                  <span className="hidden xs:inline">Processing...</span>
                 </> : <>
-                  {incognitoEnabled ? <ShieldCheck className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-                  {incognitoEnabled ? 'Send Privately' : 'Send Now'}
+                  <Send className="h-4 w-4" />
+                  Send Now
                 </>}
             </Button>
           </>
