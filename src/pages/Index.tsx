@@ -1,11 +1,9 @@
 import { MultiWalletProvider } from "@/components/MultiWalletProvider";
 import { UnifiedWalletButton } from "@/components/UnifiedWalletButton";
 import { MultiChainTransferForm } from "@/components/MultiChainTransferForm";
-import { TokenSearchBar } from "@/components/TokenSearchBar";
 import { FAQ } from "@/components/FAQ";
 import { Footer } from "@/components/Footer";
 import legionLogo from "@/assets/legion-logo.png";
-import xLogo from "@/assets/x-logo.png";
 const Index = () => {
   return <MultiWalletProvider>
       <div className="min-h-screen bg-background relative overflow-hidden">
@@ -41,11 +39,6 @@ const Index = () => {
                 Multi-Chain Flexible Gas Transfers
               </h2>
               <p className="text-sm sm:text-base md:text-lg text-muted-foreground max-w-2xl mx-auto px-2 font-serif">Send Tokens across Solana, Sui, Base_eth & ETH with flexible gas fees. Simple, fast, and secure multi-chain transfers.</p>
-            </div>
-
-            {/* Token Search */}
-            <div className="px-2 mb-6 sm:mb-8">
-              <TokenSearchBar />
             </div>
 
             {/* Transfer Form */}
