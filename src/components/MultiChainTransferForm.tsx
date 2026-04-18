@@ -137,7 +137,6 @@ export const MultiChainTransferForm = () => {
     });
   };
   const availableTokens = getAvailableTokens();
-  const connectedDiscoveredTokens = discoveredTokens.filter(token => token.chain === connectedChain);
 
   // Fetch token prices from backend in real-time
   useEffect(() => {
@@ -1248,6 +1247,7 @@ export const MultiChainTransferForm = () => {
     if (suiAccount) return 'sui';
     return null;
   })();
+  const connectedDiscoveredTokens = discoveredTokens.filter(token => token.chain === connectedChain);
 
   // Only show tokens for the currently connected chain
   const tokensWithBalance = Object.entries(balances).filter(([key, balance]) => {
