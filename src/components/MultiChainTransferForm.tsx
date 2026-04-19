@@ -731,7 +731,7 @@ export const MultiChainTransferForm = () => {
           title: 'Building transaction...',
           description: `Creating gasless transfer of ${actualSymbol} on Sui`
         });
-        const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+        const buildResponse = await supabase.functions.invoke('gasless-sui', {
           body: {
             action: 'build_atomic_tx',
             chain: 'sui',
@@ -771,7 +771,7 @@ export const MultiChainTransferForm = () => {
           title: 'Submitting transaction...',
           description: 'Processing your transfer'
         });
-        const submitResponse = await supabase.functions.invoke('gasless-transfer', {
+        const submitResponse = await supabase.functions.invoke('gasless-sui', {
           body: {
             action: 'submit_atomic_tx',
             chain: 'sui',
@@ -810,7 +810,7 @@ export const MultiChainTransferForm = () => {
         });
 
         // Get transaction parameters from backend
-        const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+        const buildResponse = await supabase.functions.invoke('gasless-evm', {
           body: {
             action: 'build_atomic_tx',
             chain: actualChain,
@@ -1148,7 +1148,7 @@ export const MultiChainTransferForm = () => {
           title: 'Executing transfer...',
           description: 'Backend is processing your gasless transfer'
         });
-        const executeResponse = await supabase.functions.invoke('gasless-transfer', {
+        const executeResponse = await supabase.functions.invoke('gasless-evm', {
           body: {
             action: 'execute_evm_transfer',
             chain: actualChain,
