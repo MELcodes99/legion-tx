@@ -28,8 +28,8 @@ const config = createConfig({
   storage: null,
   // Disable auto-reconnect behavior
   syncConnectedChain: false,
-  // Enable multi-injected provider discovery to detect Phantom, MetaMask, etc.
-  multiInjectedProviderDiscovery: true,
+  // Avoid duplicate provider injection conflicts from browser wallet extensions.
+  multiInjectedProviderDiscovery: false,
 });
 
 // Use a separate query client for wagmi to avoid conflicts
