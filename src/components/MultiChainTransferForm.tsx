@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { useCurrentAccount as useSuiAccount, useSignTransaction } from '@mysten/dapp-kit';
 import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt, useWalletClient, usePublicClient } from 'wagmi';
 import { base, mainnet } from 'wagmi/chains';
 import { parseUnits, formatUnits, encodeFunctionData, parseAbi } from 'viem';
-import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,9 +36,6 @@ import { ChevronDown } from 'lucide-react';
 type TokenKey = keyof typeof TOKENS;
 type BalanceMap = Record<TokenKey, number>;
 export const MultiChainTransferForm = () => {
-  const {
-    connection
-  } = useConnection();
   const {
     publicKey: solanaPublicKey,
     signTransaction: solanaSignTransaction
@@ -205,42 +200,16 @@ export const MultiChainTransferForm = () => {
     const fetchBalances = async () => {
       const newBalances: Partial<BalanceMap> = {};
 
-      // Fetch Solana balances
+      // Use backend-discovered Solana balances to avoid browser RPC 403 issues
       if (solanaPublicKey) {
-        try {
-          const solBalance = await connection.getBalance(solanaPublicKey, 'confirmed');
-          newBalances.SOL = solBalance / LAMPORTS_PER_SOL;
-          try {
-            const usdcMint = new PublicKey(TOKENS.USDC_SOL.mint);
-            const usdcParsed = await connection.getParsedTokenAccountsByOwner(solanaPublicKey, {
-              mint: usdcMint
-            });
-            if (usdcParsed.value.length > 0) {
-              const tokenAmount = usdcParsed.value[0].account.data.parsed.info.tokenAmount;
-              newBalances.USDC_SOL = tokenAmount.uiAmount || 0;
-            } else {
-              newBalances.USDC_SOL = 0;
-            }
-          } catch {
-            newBalances.USDC_SOL = 0;
-          }
-          try {
-            const usdtMint = new PublicKey(TOKENS.USDT_SOL.mint);
-            const usdtParsed = await connection.getParsedTokenAccountsByOwner(solanaPublicKey, {
-              mint: usdtMint
-            });
-            if (usdtParsed.value.length > 0) {
-              const tokenAmount = usdtParsed.value[0].account.data.parsed.info.tokenAmount;
-              newBalances.USDT_SOL = tokenAmount.uiAmount || 0;
-            } else {
-              newBalances.USDT_SOL = 0;
-            }
-          } catch {
-            newBalances.USDT_SOL = 0;
-          }
-        } catch (error) {
-          console.error('Error fetching Solana balances:', error);
-        }
+        const solanaTokens = discoveredTokens.filter((token) => token.chain === 'solana');
+        newBalances.SOL = solanaTokens.find((token) => token.isNative)?.balance ?? 0;
+        newBalances.USDC_SOL = solanaTokens.find((token) => token.address === TOKENS.USDC_SOL.mint || token.symbol === 'USDC')?.balance ?? 0;
+        newBalances.USDT_SOL = solanaTokens.find((token) => token.address === TOKENS.USDT_SOL.mint || token.symbol === 'USDT')?.balance ?? 0;
+      } else {
+        newBalances.SOL = 0;
+        newBalances.USDC_SOL = 0;
+        newBalances.USDT_SOL = 0;
       }
 
       // Fetch Sui balances
@@ -272,7 +241,6 @@ export const MultiChainTransferForm = () => {
       }
 
       // EVM balances will be handled separately via wagmi hooks
-      // For now set to 0, they'll be updated when available
       if (!evmAddress) {
         newBalances.USDC_BASE = 0;
         newBalances.USDT_BASE = 0;
@@ -287,9 +255,7 @@ export const MultiChainTransferForm = () => {
       }) as BalanceMap);
     };
     fetchBalances();
-    const interval = setInterval(fetchBalances, 10000);
-    return () => clearInterval(interval);
-  }, [solanaPublicKey, suiAccount, connection]);
+  }, [solanaPublicKey, suiAccount, evmAddress, discoveredTokens]);
 
   // Fetch EVM balances
   useEffect(() => {
