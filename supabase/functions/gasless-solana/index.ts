@@ -6,14 +6,14 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   Transaction,
-} from 'https://esm.sh/@solana/web3.js@1.98.4';
+} from '@solana/web3.js';
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
   getAssociatedTokenAddress,
   getOrCreateAssociatedTokenAccount,
   TOKEN_PROGRAM_ID,
-} from 'https://esm.sh/@solana/spl-token@0.4.14';
+} from '@solana/spl-token';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
