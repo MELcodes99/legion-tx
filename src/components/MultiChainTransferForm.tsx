@@ -45,15 +45,24 @@ const getFunctionErrorMessage = (payload: any, fallback: string) => {
 };
 
 const callEdgeFunction = async <T,>(name: string, body: unknown, fallback: string): Promise<T> => {
-  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  const authToken = accessToken || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  let response: Response;
+  try {
+    response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (_error) {
+    throw new Error(`${fallback}. Unable to reach the backend function.`);
+  }
 
   const payload = await response.json().catch(() => null);
   if (!response.ok) throw new Error(getFunctionErrorMessage(payload, fallback));
