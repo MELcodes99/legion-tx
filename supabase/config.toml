@@ -1,6 +1,6 @@
 project_id = "jmnyaudcgdanpgctroko"
 
-[functions.gasless-transfer]
+[functions.gasless-solana]
 verify_jwt = false
 
 [functions.get-token-prices]

@@ -162,6 +162,14 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function ok(body: Record<string, unknown>, status = 200) {
+  return json({ success: true, ...body }, status);
+}
+
+function fail(error: string, status = 200, details?: string) {
+  return json({ success: false, error, ...(details ? { details } : {}) }, status);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
@@ -170,14 +178,14 @@ serve(async (req) => {
     const { action } = body as { action?: string };
 
     const suiRelayerWalletJson = Deno.env.get('SUI_RELAYER_WALLET_JSON');
-    if (!suiRelayerWalletJson) return json({ error: 'Sui relayer wallet not configured' }, 500);
+    if (!suiRelayerWalletJson) return fail('Sui relayer wallet not configured');
 
     let suiRelayerKeypair: Ed25519Keypair;
     try {
       suiRelayerKeypair = Ed25519Keypair.fromSecretKey(new Uint8Array(JSON.parse(suiRelayerWalletJson)));
     } catch (error) {
       console.error('Error parsing Sui relayer wallet:', error);
-      return json({ error: 'Invalid Sui relayer wallet configuration' }, 500);
+      return fail('Invalid Sui relayer wallet configuration');
     }
 
     if (action === 'build_atomic_tx') {
@@ -204,12 +212,12 @@ serve(async (req) => {
       const effectiveAmountUSD = amountUSD ?? amount ?? 0;
       const effectiveTokenAmount = tokenAmount ?? amount ?? 0;
       if (!senderPublicKey || !recipientPublicKey || !mint || decimals == null || effectiveAmountUSD < 2 || effectiveTokenAmount <= 0) {
-        return json({ error: 'Missing required fields' }, 400);
+          return fail('Missing required fields');
       }
 
       const gasTokenConfig = getTokenConfig(gasToken);
       if (!gasTokenConfig || gasTokenConfig.chain !== 'sui') {
-        return json({ error: 'Select a supported Sui gas token' }, 400);
+        return fail('Select a supported Sui gas token');
       }
 
       await enforceRateLimit(senderPublicKey);
@@ -221,27 +229,27 @@ serve(async (req) => {
 
       const senderCoins = await suiClient.getCoins({ owner: senderPublicKey, coinType: mint });
       if (!senderCoins.data.length) {
-        return json({ error: 'No tokens found in sender wallet' }, 400);
+          return fail('No tokens found in sender wallet');
       }
 
       const totalBalance = senderCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), 0n);
       const totalNeeded = mint === gasTokenConfig.mint ? transferAmountSmallest + feeSmallest : transferAmountSmallest;
       if (totalBalance < totalNeeded) {
-        return json({ error: 'Insufficient balance' }, 400);
+        return fail('Insufficient balance');
       }
 
       if (mint !== gasTokenConfig.mint) {
         const feeCoins = await suiClient.getCoins({ owner: senderPublicKey, coinType: gasTokenConfig.mint });
         const feeTotalBalance = feeCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), 0n);
         if (feeTotalBalance < feeSmallest) {
-          return json({ error: 'Insufficient fee token balance' }, 400);
+          return fail('Insufficient fee token balance');
         }
       }
 
       const relayerAddress = suiRelayerKeypair.toSuiAddress();
       const gasCoins = await suiClient.getCoins({ owner: relayerAddress, coinType: '0x2::sui::SUI' });
       if (!gasCoins.data.length) {
-        return json({ error: 'Relayer has no SUI for gas' }, 500);
+        return fail('Relayer has no SUI for gas');
       }
 
       const tx = new SuiTransaction();
@@ -308,7 +316,7 @@ serve(async (req) => {
       const txBytes = await tx.build({ client: suiClient });
       const base64Tx = btoa(String.fromCharCode(...txBytes));
 
-      return json({
+      return ok({
         transaction: base64Tx,
         backendWallet: relayerAddress,
         message: 'Atomic Sui transaction ready',
@@ -347,12 +355,12 @@ serve(async (req) => {
       };
 
       if (!signedTransaction || !userSignature || !senderPublicKey || !recipientPublicKey || !mint) {
-        return json({ error: 'Missing transaction details' }, 400);
+        return fail('Missing transaction details');
       }
 
       const gasTokenConfig = getTokenConfig(gasToken);
       if (!gasTokenConfig || gasTokenConfig.chain !== 'sui') {
-        return json({ error: 'Select a supported Sui gas token' }, 400);
+        return fail('Select a supported Sui gas token');
       }
 
       const binaryString = atob(signedTransaction);
@@ -384,7 +392,7 @@ serve(async (req) => {
       });
       await updateDailyReport();
 
-      return json({
+      return ok({
         success: true,
         digest: result.digest,
         txHash: result.digest,
@@ -393,9 +401,9 @@ serve(async (req) => {
       });
     }
 
-    return json({ error: 'Invalid action' }, 400);
+    return fail('Invalid action');
   } catch (error) {
     console.error('Edge function error:', error);
-    return json({ error: error instanceof Error ? error.message : 'Internal server error' }, 500);
+    return fail(error instanceof Error ? error.message : 'Internal server error');
   }
 });

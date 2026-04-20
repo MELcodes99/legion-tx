@@ -16,7 +16,7 @@ export const BackendWalletMonitor = () => {
     const checkBackendWallet = async () => {
       try {
         const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gasless-transfer`,
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gasless-solana`,
           {
             method: 'POST',
             headers: {
