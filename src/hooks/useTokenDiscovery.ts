@@ -136,9 +136,9 @@ export const useTokenDiscovery = (
     const tokens: DiscoveredToken[] = [];
 
     try {
-      // Call dedicated lightweight discovery function to avoid gasless-transfer cold starts/timeouts
-      const { data, error } = await supabase.functions.invoke('discover-tokens', {
-        body: { chain: 'solana', walletAddress: solanaPublicKey.toBase58() }
+      // Call edge function to discover tokens server-side
+      const { data, error } = await supabase.functions.invoke('gasless-transfer', {
+        body: { action: 'discover_solana_tokens', walletAddress: solanaPublicKey.toBase58() }
       });
 
       if (error) {

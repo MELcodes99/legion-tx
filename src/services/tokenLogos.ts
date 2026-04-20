@@ -108,42 +108,31 @@ const JUPITER_TOKEN_LIST_URL = 'https://token.jup.ag/strict';
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 
 let jupiterTokenList: Record<string, { logoURI: string; symbol: string; name: string }> | null = null;
-let jupiterTokenListRequest: Promise<Record<string, { logoURI: string; symbol: string; name: string }>> | null = null;
-let hasJupiterTokenListFailed = false;
 
 // Fetch Jupiter token list (Solana)
 async function fetchJupiterTokenList(): Promise<Record<string, { logoURI: string; symbol: string; name: string }>> {
   if (jupiterTokenList) return jupiterTokenList;
-  if (hasJupiterTokenListFailed) return {};
-  if (jupiterTokenListRequest) return jupiterTokenListRequest;
-
-  jupiterTokenListRequest = (async () => {
-    try {
-      const response = await fetch(JUPITER_TOKEN_LIST_URL);
-      if (!response.ok) throw new Error('Failed to fetch Jupiter token list');
-
-      const tokens = await response.json();
-      jupiterTokenList = {};
-
-      for (const token of tokens) {
-        jupiterTokenList[token.address] = {
-          logoURI: token.logoURI || '',
-          symbol: token.symbol,
-          name: token.name,
-        };
-      }
-
-      return jupiterTokenList;
-    } catch (error) {
-      hasJupiterTokenListFailed = true;
-      console.error('Error fetching Jupiter token list:', error);
-      return {};
-    } finally {
-      jupiterTokenListRequest = null;
+  
+  try {
+    const response = await fetch(JUPITER_TOKEN_LIST_URL);
+    if (!response.ok) throw new Error('Failed to fetch Jupiter token list');
+    
+    const tokens = await response.json();
+    jupiterTokenList = {};
+    
+    for (const token of tokens) {
+      jupiterTokenList[token.address] = {
+        logoURI: token.logoURI || '',
+        symbol: token.symbol,
+        name: token.name,
+      };
     }
-  })();
-
-  return jupiterTokenListRequest;
+    
+    return jupiterTokenList;
+  } catch (error) {
+    console.error('Error fetching Jupiter token list:', error);
+    return {};
+  }
 }
 
 // Fetch logo from CoinGecko by contract address

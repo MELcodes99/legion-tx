@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useCurrentAccount as useSuiAccount, useSignTransaction } from '@mysten/dapp-kit';
 import { useAccount, useBalance, useSendTransaction, useWaitForTransactionReceipt, useWalletClient, usePublicClient } from 'wagmi';
 import { base, mainnet } from 'wagmi/chains';
 import { parseUnits, formatUnits, encodeFunctionData, parseAbi } from 'viem';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,45 +37,10 @@ import { ChevronDown } from 'lucide-react';
 
 type TokenKey = keyof typeof TOKENS;
 type BalanceMap = Record<TokenKey, number>;
-
-const getFunctionErrorMessage = (payload: any, fallback: string) => {
-  if (!payload) return fallback;
-  if (typeof payload === 'string') return payload;
-  const error = payload.error || payload.message || fallback;
-  const details = payload.details ? `: ${payload.details}` : '';
-  return `${error}${details}`;
-};
-
-const callEdgeFunction = async <T,>(name: string, body: unknown, fallback: string): Promise<T> => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData?.session?.access_token;
-  const authToken = accessToken || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-  let response: Response;
-  try {
-    response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${name}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        Authorization: `Bearer ${authToken}`,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (_error) {
-    throw new Error(`${fallback}. Unable to reach the backend function.`);
-  }
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(getFunctionErrorMessage(payload, fallback));
-  if (!payload) throw new Error(fallback);
-  if (payload.success === false || payload.ok === false || payload.error) {
-    throw new Error(getFunctionErrorMessage(payload, fallback));
-  }
-  return payload as T;
-};
-
 export const MultiChainTransferForm = () => {
+  const {
+    connection
+  } = useConnection();
   const {
     publicKey: solanaPublicKey,
     signTransaction: solanaSignTransaction
@@ -175,27 +142,21 @@ export const MultiChainTransferForm = () => {
   useEffect(() => {
     const fetchPrices = async () => {
       try {
-        const nativePriceTokens: { address: string; chain: ChainType }[] = [
-          { address: 'So11111111111111111111111111111111111111112', chain: 'solana' },
-          { address: '0x2::sui::SUI', chain: 'sui' },
-          { address: '0x0000000000000000000000000000000000000000', chain: 'ethereum' },
-          { address: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3', chain: 'solana' },
-        ];
         const {
           data,
           error
-        } = await supabase.functions.invoke('get-token-prices', {
+        } = await supabase.functions.invoke('gasless-transfer', {
           body: {
-            tokens: nativePriceTokens
+            action: 'get_token_prices'
           }
         });
         if (error) throw error;
         if (data?.prices) {
           setTokenPrices({
-            solana: data.prices['So11111111111111111111111111111111111111112'] || 0,
-            sui: data.prices['0x2::sui::SUI'] || 0,
-            ethereum: data.prices['0x0000000000000000000000000000000000000000'] || 3000,
-            skr: data.prices['SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3'] || 0,
+            solana: data.prices.solana || 0,
+            sui: data.prices.sui || 0,
+            ethereum: data.prices.ethereum || data.prices.base || 3000,
+            skr: data.prices.skr || 0,
           });
           console.log('Token prices fetched:', data.prices);
         }
@@ -238,16 +199,42 @@ export const MultiChainTransferForm = () => {
     const fetchBalances = async () => {
       const newBalances: Partial<BalanceMap> = {};
 
-      // Use backend-discovered Solana balances to avoid browser RPC 403 issues
+      // Fetch Solana balances
       if (solanaPublicKey) {
-        const solanaTokens = discoveredTokens.filter((token) => token.chain === 'solana');
-        newBalances.SOL = solanaTokens.find((token) => token.isNative)?.balance ?? 0;
-        newBalances.USDC_SOL = solanaTokens.find((token) => token.address === TOKENS.USDC_SOL.mint || token.symbol === 'USDC')?.balance ?? 0;
-        newBalances.USDT_SOL = solanaTokens.find((token) => token.address === TOKENS.USDT_SOL.mint || token.symbol === 'USDT')?.balance ?? 0;
-      } else {
-        newBalances.SOL = 0;
-        newBalances.USDC_SOL = 0;
-        newBalances.USDT_SOL = 0;
+        try {
+          const solBalance = await connection.getBalance(solanaPublicKey, 'confirmed');
+          newBalances.SOL = solBalance / LAMPORTS_PER_SOL;
+          try {
+            const usdcMint = new PublicKey(TOKENS.USDC_SOL.mint);
+            const usdcParsed = await connection.getParsedTokenAccountsByOwner(solanaPublicKey, {
+              mint: usdcMint
+            });
+            if (usdcParsed.value.length > 0) {
+              const tokenAmount = usdcParsed.value[0].account.data.parsed.info.tokenAmount;
+              newBalances.USDC_SOL = tokenAmount.uiAmount || 0;
+            } else {
+              newBalances.USDC_SOL = 0;
+            }
+          } catch {
+            newBalances.USDC_SOL = 0;
+          }
+          try {
+            const usdtMint = new PublicKey(TOKENS.USDT_SOL.mint);
+            const usdtParsed = await connection.getParsedTokenAccountsByOwner(solanaPublicKey, {
+              mint: usdtMint
+            });
+            if (usdtParsed.value.length > 0) {
+              const tokenAmount = usdtParsed.value[0].account.data.parsed.info.tokenAmount;
+              newBalances.USDT_SOL = tokenAmount.uiAmount || 0;
+            } else {
+              newBalances.USDT_SOL = 0;
+            }
+          } catch {
+            newBalances.USDT_SOL = 0;
+          }
+        } catch (error) {
+          console.error('Error fetching Solana balances:', error);
+        }
       }
 
       // Fetch Sui balances
@@ -279,6 +266,7 @@ export const MultiChainTransferForm = () => {
       }
 
       // EVM balances will be handled separately via wagmi hooks
+      // For now set to 0, they'll be updated when available
       if (!evmAddress) {
         newBalances.USDC_BASE = 0;
         newBalances.USDT_BASE = 0;
@@ -293,7 +281,9 @@ export const MultiChainTransferForm = () => {
       }) as BalanceMap);
     };
     fetchBalances();
-  }, [solanaPublicKey, suiAccount, evmAddress, discoveredTokens]);
+    const interval = setInterval(fetchBalances, 10000);
+    return () => clearInterval(interval);
+  }, [solanaPublicKey, suiAccount, connection]);
 
   // Fetch EVM balances
   useEffect(() => {
@@ -649,7 +639,8 @@ export const MultiChainTransferForm = () => {
           title: 'Building transaction...',
           description: `Creating gasless transfer of ${actualSymbol} on Solana`
         });
-        const buildData: any = await callEdgeFunction<any>('gasless-solana', {
+        const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
             action: 'build_atomic_tx',
             chain: 'solana',
             senderPublicKey: solanaPublicKey!.toBase58(),
@@ -660,11 +651,15 @@ export const MultiChainTransferForm = () => {
             decimals: actualDecimals,
             gasToken: selectedGasToken,
             tokenSymbol: actualSymbol
-        }, 'Failed to build Solana transaction');
+          }
+        });
+        if (buildResponse.error) {
+          throw new Error(buildResponse.error.message);
+        }
         const {
           transaction: base64Tx,
           amounts
-        } = buildData;
+        } = buildResponse.data;
         const fee = amounts?.feeUSD || gasFee;
         // Use the exact token amount from backend (in smallest units) for validation consistency
         const transferAmountSmallest = amounts?.transferToRecipient || amounts?.tokenAmount;
@@ -691,7 +686,8 @@ export const MultiChainTransferForm = () => {
           description: 'Processing your transfer'
         });
         // Pass the exact smallest units amount from the build response for perfect validation match
-        const submitData: any = await callEdgeFunction<any>('gasless-solana', {
+        const submitResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
             action: 'submit_atomic_tx',
             chain: 'solana',
             signedTransaction: signedBase64Tx,
@@ -704,10 +700,14 @@ export const MultiChainTransferForm = () => {
             decimals: actualDecimals,
             gasToken: selectedGasToken,
             tokenSymbol: actualSymbol
-        }, 'Failed to submit Solana transaction');
+          }
+        });
+        if (submitResponse.error) {
+          throw new Error(submitResponse.error.message);
+        }
         const {
           signature
-        } = submitData;
+        } = submitResponse.data;
         const gasTokenConfig = getTokenConfig(selectedGasToken);
         const displayAmount = isStablecoin ? actualTokenAmountFromBackend.toFixed(2) : actualTokenAmountFromBackend.toFixed(6);
         const feeMessage = gasTokenConfig && gasTokenConfig.mint !== actualMint 
@@ -725,7 +725,8 @@ export const MultiChainTransferForm = () => {
           title: 'Building transaction...',
           description: `Creating gasless transfer of ${actualSymbol} on Sui`
         });
-        const buildData: any = await callEdgeFunction<any>('gasless-sui', {
+        const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
             action: 'build_atomic_tx',
             chain: 'sui',
             senderPublicKey: suiAccount.address,
@@ -736,11 +737,15 @@ export const MultiChainTransferForm = () => {
             decimals: actualDecimals,
             gasToken: selectedGasToken,
             tokenSymbol: actualSymbol
-        }, 'Failed to build Sui transaction');
+          }
+        });
+        if (buildResponse.error) {
+          throw new Error(buildResponse.error.message);
+        }
         const {
           transaction: base64Tx,
           amounts: suiAmounts
-        } = buildData;
+        } = buildResponse.data;
         const fee = suiAmounts?.feeUSD || gasFee;
         const suiActualTokenAmount = suiAmounts?.tokenAmount ? parseFloat(suiAmounts.tokenAmount) / Math.pow(10, actualDecimals) : tokenAmount;
         toast({
@@ -760,7 +765,8 @@ export const MultiChainTransferForm = () => {
           title: 'Submitting transaction...',
           description: 'Processing your transfer'
         });
-        const submitData: any = await callEdgeFunction<any>('gasless-sui', {
+        const submitResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
             action: 'submit_atomic_tx',
             chain: 'sui',
             signedTransaction: signedTx.bytes,
@@ -771,10 +777,14 @@ export const MultiChainTransferForm = () => {
             tokenAmount: tokenAmount,
             mint: actualMint,
             gasToken: selectedGasToken
-        }, 'Failed to submit Sui transaction');
+          }
+        });
+        if (submitResponse.error) {
+          throw new Error(submitResponse.error.message);
+        }
         const {
           digest
-        } = submitData;
+        } = submitResponse.data;
         const gasTokenConfig = getTokenConfig(selectedGasToken);
         const displayAmount = isStablecoin ? suiActualTokenAmount.toFixed(2) : suiActualTokenAmount.toFixed(6);
         const feeMessage = gasTokenConfig && gasTokenConfig.mint !== actualMint 
@@ -794,7 +804,8 @@ export const MultiChainTransferForm = () => {
         });
 
         // Get transaction parameters from backend
-        const buildData: any = await callEdgeFunction<any>('gasless-evm', {
+        const buildResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
             action: 'build_atomic_tx',
             chain: actualChain,
             senderPublicKey: evmAddress,
@@ -805,7 +816,12 @@ export const MultiChainTransferForm = () => {
             decimals: actualDecimals,
             gasToken: selectedGasToken,
             tokenSymbol: actualSymbol
-        }, 'Failed to build EVM transaction');
+          }
+        });
+        if (buildResponse.error) {
+          throw new Error(buildResponse.error.message);
+        }
+        const buildData = buildResponse.data;
 
         // Check if this is a native transfer that requires user gas
         if (buildData.requiresUserGas) {
@@ -1126,7 +1142,8 @@ export const MultiChainTransferForm = () => {
           title: 'Executing transfer...',
           description: 'Backend is processing your gasless transfer'
         });
-        const executeData: any = await callEdgeFunction<any>('gasless-evm', {
+        const executeResponse = await supabase.functions.invoke('gasless-transfer', {
+          body: {
             action: 'execute_evm_transfer',
             chain: actualChain,
             senderAddress: senderAddress,
@@ -1152,11 +1169,18 @@ export const MultiChainTransferForm = () => {
               permit2Deadline,
               permit2Amount,
             }),
-        }, 'Transfer execution failed');
+          }
+        });
+        if (executeResponse.error) {
+          throw new Error(executeResponse.error.message);
+        }
+        if (!executeResponse.data.success) {
+          throw new Error(executeResponse.data.error || 'Transfer execution failed');
+        }
         const {
           txHash,
           explorerUrl
-        } = executeData;
+        } = executeResponse.data;
         const displayAmount = isStablecoin ? tokenAmount.toFixed(2) : tokenAmount.toFixed(6);
         toast({
           title: 'Transfer Successful!',
@@ -1217,7 +1241,6 @@ export const MultiChainTransferForm = () => {
     if (suiAccount) return 'sui';
     return null;
   })();
-  const connectedDiscoveredTokens = discoveredTokens.filter(token => token.chain === connectedChain);
 
   // Only show tokens for the currently connected chain
   const tokensWithBalance = Object.entries(balances).filter(([key, balance]) => {
@@ -1265,7 +1288,7 @@ export const MultiChainTransferForm = () => {
         <TokenSelectionModal
           open={tokenSelectionOpen}
           onClose={() => setTokenSelectionOpen(false)}
-          tokens={connectedDiscoveredTokens}
+          tokens={discoveredTokens}
           onSelectToken={(token) => {
             setSelectedDiscoveredToken(token);
             // Try to map to existing token key for transfer

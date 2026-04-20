@@ -4,6 +4,7 @@ import { MultiChainTransferForm } from "@/components/MultiChainTransferForm";
 import { FAQ } from "@/components/FAQ";
 import { Footer } from "@/components/Footer";
 import legionLogo from "@/assets/legion-logo.png";
+import xLogo from "@/assets/x-logo.png";
 const Index = () => {
   return <MultiWalletProvider>
       <div className="min-h-screen bg-background relative overflow-hidden">
