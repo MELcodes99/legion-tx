@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.search-tokens]
 verify_jwt = false
+
+[functions.discover-solana-tokens]
+verify_jwt = false
