@@ -1,6 +1,9 @@
 // Lightweight Solana token discovery via raw JSON-RPC.
 // No SDKs imported — keeps boot time low and avoids CPU-time-exceeded errors.
-import { corsHeaders } from '../_shared/cors.ts';
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 const RPC_ENDPOINTS = [
   'https://rpc.ankr.com/solana',
