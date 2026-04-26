@@ -15,9 +15,27 @@ import {
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
 } from 'https://esm.sh/@solana/spl-token@0.4.14';
-import { SuiClient } from 'npm:@mysten/sui@1.44.0/client';
-import { Transaction as SuiTransaction } from 'npm:@mysten/sui@1.44.0/transactions';
-import { Ed25519Keypair } from 'npm:@mysten/sui@1.44.0/keypairs/ed25519';
+// Sui SDK is loaded lazily inside the Sui code paths to keep cold-start CPU low.
+// Top-level import of @mysten/sui caused WORKER_RESOURCE_LIMIT crashes at boot.
+type SuiClient = any;
+type SuiTransaction = any;
+type Ed25519Keypair = any;
+let _suiSdk: { SuiClient: any; Transaction: any; Ed25519Keypair: any } | null = null;
+async function loadSuiSdk() {
+  if (!_suiSdk) {
+    const [client, txMod, kp] = await Promise.all([
+      import('npm:@mysten/sui@1.44.0/client'),
+      import('npm:@mysten/sui@1.44.0/transactions'),
+      import('npm:@mysten/sui@1.44.0/keypairs/ed25519'),
+    ]);
+    _suiSdk = {
+      SuiClient: (client as any).SuiClient,
+      Transaction: (txMod as any).Transaction,
+      Ed25519Keypair: (kp as any).Ed25519Keypair,
+    };
+  }
+  return _suiSdk!;
+}
 import { ethers } from 'https://esm.sh/ethers@6.13.1';
 
 const corsHeaders = {
