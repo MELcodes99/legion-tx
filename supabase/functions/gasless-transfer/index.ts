@@ -1,24 +1,51 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.79.0';
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  sendAndConfirmTransaction,
-} from 'https://esm.sh/@solana/web3.js@1.98.4';
-import {
-  getOrCreateAssociatedTokenAccount,
-  getAssociatedTokenAddress,
-  createTransferInstruction,
-  TOKEN_PROGRAM_ID,
-} from 'https://esm.sh/@solana/spl-token@0.4.14';
-import { SuiClient } from 'npm:@mysten/sui@1.44.0/client';
-import { Transaction as SuiTransaction } from 'npm:@mysten/sui@1.44.0/transactions';
-import { Ed25519Keypair } from 'npm:@mysten/sui@1.44.0/keypairs/ed25519';
-import { ethers } from 'https://esm.sh/ethers@6.13.1';
+
+// Heavy blockchain SDKs are imported lazily inside chain-specific branches
+// to keep cold-start CPU usage low and avoid WORKER_RESOURCE_LIMIT crashes.
+// Types only — no runtime cost — so we can keep references typed.
+type Connection = any;
+type Keypair = any;
+type PublicKey = any;
+type Transaction = any;
+type SystemProgram = any;
+const LAMPORTS_PER_SOL = 1_000_000_000;
+type SuiClient = any;
+type SuiTransaction = any;
+type Ed25519Keypair = any;
+type ethers = any;
+
+// Lazy-loaded SDK references (populated on first use per request)
+let _solanaWeb3: any = null;
+let _splToken: any = null;
+let _suiClient: any = null;
+let _suiTx: any = null;
+let _suiKeypair: any = null;
+let _ethers: any = null;
+
+async function loadSolana() {
+  if (!_solanaWeb3) {
+    _solanaWeb3 = await import('https://esm.sh/@solana/web3.js@1.98.4');
+    _splToken = await import('https://esm.sh/@solana/spl-token@0.4.14');
+  }
+  return { web3: _solanaWeb3, spl: _splToken };
+}
+
+async function loadSui() {
+  if (!_suiClient) {
+    _suiClient = await import('npm:@mysten/sui@1.44.0/client');
+    _suiTx = await import('npm:@mysten/sui@1.44.0/transactions');
+    _suiKeypair = await import('npm:@mysten/sui@1.44.0/keypairs/ed25519');
+  }
+  return { client: _suiClient, tx: _suiTx, keypair: _suiKeypair };
+}
+
+async function loadEthers() {
+  if (!_ethers) {
+    _ethers = await import('https://esm.sh/ethers@6.13.1');
+  }
+  return _ethers.ethers || _ethers;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
