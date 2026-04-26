@@ -718,20 +718,23 @@ serve(async (req) => {
     // Lazy-load ethers only for EVM actions.
     const ethers: any = _needsEvm ? await loadEthers() : { ZeroAddress: '0x0000000000000000000000000000000000000000' };
 
-    // Parse Solana private key (should be array of numbers as JSON string)
-    let backendWallet: Keypair;
-    try {
-      const privateKeyArray = JSON.parse(backendWalletPrivateKey);
-      backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
-      console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
-    } catch (error) {
-      console.error('Error parsing Solana backend wallet:', error);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Parse Solana private key (should be array of numbers as JSON string).
+    // Skipped for EVM-only actions to keep cold-start CPU low.
+    let backendWallet: any = null;
+    if (_needsSolana) {
+      try {
+        const privateKeyArray = JSON.parse(backendWalletPrivateKey);
+        backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
+        console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
+      } catch (error) {
+        console.error('Error parsing Solana backend wallet:', error);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Parse Sui relayer wallet if provided (lazy-loaded SDK)
