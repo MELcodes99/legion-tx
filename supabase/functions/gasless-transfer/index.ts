@@ -694,21 +694,29 @@ serve(async (req) => {
       );
     }
 
-    // Lazy-load Solana SDK + ethers for the rest of the request lifecycle.
-    // (Sui SDK is loaded inside the Sui-specific branches.)
-    const _sol = await loadSolanaSdk();
-    const Connection = _sol.Connection;
-    const Keypair = _sol.Keypair;
-    const PublicKey = _sol.PublicKey;
-    const Transaction = _sol.Transaction;
-    const SystemProgram = _sol.SystemProgram;
-    const LAMPORTS_PER_SOL = _sol.LAMPORTS_PER_SOL;
-    const sendAndConfirmTransaction = _sol.sendAndConfirmTransaction;
-    const getOrCreateAssociatedTokenAccount = _sol.getOrCreateAssociatedTokenAccount;
-    const getAssociatedTokenAddress = _sol.getAssociatedTokenAddress;
-    const createTransferInstruction = _sol.createTransferInstruction;
-    const TOKEN_PROGRAM_ID = _sol.TOKEN_PROGRAM_ID;
-    const ethers = await loadEthers();
+    // Determine which SDKs this action actually needs to avoid loading both
+    // @solana/web3.js + ethers in the same cold-start (which blows CPU budget).
+    const _needsEvm =
+      action === 'execute_evm_transfer' ||
+      action === 'check_evm_allowance';
+    const _needsSolana = !_needsEvm; // every other path uses Solana primitives
+
+    // Lazy-load Solana SDK (only when needed). The rest of the request uses
+    // these locals as if they were top-level imports.
+    const _sol = _needsSolana ? await loadSolanaSdk() : null as any;
+    const Connection = _sol?.Connection;
+    const Keypair = _sol?.Keypair;
+    const PublicKey = _sol?.PublicKey;
+    const Transaction = _sol?.Transaction;
+    const SystemProgram = _sol?.SystemProgram;
+    const LAMPORTS_PER_SOL = _sol?.LAMPORTS_PER_SOL;
+    const sendAndConfirmTransaction = _sol?.sendAndConfirmTransaction;
+    const getOrCreateAssociatedTokenAccount = _sol?.getOrCreateAssociatedTokenAccount;
+    const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
+    const createTransferInstruction = _sol?.createTransferInstruction;
+    const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
+    // Lazy-load ethers only for EVM actions.
+    const ethers: any = _needsEvm ? await loadEthers() : { ZeroAddress: '0x0000000000000000000000000000000000000000' };
 
     // Parse Solana private key (should be array of numbers as JSON string)
     let backendWallet: Keypair;
