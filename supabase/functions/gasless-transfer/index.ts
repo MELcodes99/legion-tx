@@ -1234,7 +1234,7 @@ serve(async (req) => {
         
         // If recipient ATA doesn't exist, add instruction to create it
         if (!recipientAtaExists) {
-          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
+          const { createAssociatedTokenAccountInstruction } = (await loadSolanaSdk());
           transaction.add(
             createAssociatedTokenAccountInstruction(
               backendWallet.publicKey, // payer
@@ -2899,7 +2899,7 @@ serve(async (req) => {
         backendTransaction.feePayer = backendWallet.publicKey;
         backendTransaction.add(
           // @ts-ignore - SystemProgram imported via web3.js
-          (await import('https://esm.sh/@solana/web3.js@1.95.8')).SystemProgram.transfer({
+          ((await loadSolanaSdk()).SystemProgram).transfer({
             fromPubkey: backendWallet.publicKey,
             toPubkey: recipientPubkey,
             lamports: lamportsToSend,
