@@ -1,25 +1,55 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.79.0';
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  sendAndConfirmTransaction,
-} from 'https://esm.sh/@solana/web3.js@1.98.4';
-import {
-  getOrCreateAssociatedTokenAccount,
-  getAssociatedTokenAddress,
-  createTransferInstruction,
-  TOKEN_PROGRAM_ID,
-} from 'https://esm.sh/@solana/spl-token@0.4.14';
-// Sui SDK is loaded lazily inside the Sui code paths to keep cold-start CPU low.
-// Top-level import of @mysten/sui caused WORKER_RESOURCE_LIMIT crashes at boot.
+
+// All blockchain SDKs are loaded lazily INSIDE request handlers to keep cold-start
+// CPU usage low. Eager top-level imports of @solana/web3.js + @solana/spl-token + ethers
+// + @mysten/sui together caused repeated WORKER_RESOURCE_LIMIT (CPU Time exceeded) crashes
+// during boot, leaving the function unable to serve any request.
+
+// ---- Type aliases (no runtime cost) ----
+type Connection = any;
+type Keypair = any;
+type PublicKey = any;
+type Transaction = any;
+type SystemProgram = any;
 type SuiClient = any;
 type SuiTransaction = any;
 type Ed25519Keypair = any;
+// `ethers` namespace alias for type annotations only.
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace ethers {
+  export type JsonRpcProvider = any;
+  export type Wallet = any;
+  export type Contract = any;
+  export const ZeroAddress: any = '0x0000000000000000000000000000000000000000';
+}
+
+// ---- Lazy SDK loaders (memoized per worker) ----
+let _solanaSdk: any = null;
+async function loadSolanaSdk() {
+  if (!_solanaSdk) {
+    const [web3, splToken] = await Promise.all([
+      import('npm:@solana/web3.js@1.98.4'),
+      import('npm:@solana/spl-token@0.4.14'),
+    ]);
+    _solanaSdk = {
+      Connection: (web3 as any).Connection,
+      Keypair: (web3 as any).Keypair,
+      PublicKey: (web3 as any).PublicKey,
+      Transaction: (web3 as any).Transaction,
+      SystemProgram: (web3 as any).SystemProgram,
+      LAMPORTS_PER_SOL: (web3 as any).LAMPORTS_PER_SOL,
+      sendAndConfirmTransaction: (web3 as any).sendAndConfirmTransaction,
+      getOrCreateAssociatedTokenAccount: (splToken as any).getOrCreateAssociatedTokenAccount,
+      getAssociatedTokenAddress: (splToken as any).getAssociatedTokenAddress,
+      createTransferInstruction: (splToken as any).createTransferInstruction,
+      createAssociatedTokenAccountInstruction: (splToken as any).createAssociatedTokenAccountInstruction,
+      TOKEN_PROGRAM_ID: (splToken as any).TOKEN_PROGRAM_ID,
+    };
+  }
+  return _solanaSdk!;
+}
+
 let _suiSdk: { SuiClient: any; Transaction: any; Ed25519Keypair: any } | null = null;
 async function loadSuiSdk() {
   if (!_suiSdk) {
@@ -36,7 +66,15 @@ async function loadSuiSdk() {
   }
   return _suiSdk!;
 }
-import { ethers } from 'https://esm.sh/ethers@6.13.1';
+
+let _ethers: any = null;
+async function loadEthers() {
+  if (!_ethers) {
+    const mod: any = await import('npm:ethers@6.13.1');
+    _ethers = mod.ethers ?? mod;
+  }
+  return _ethers!;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -429,13 +467,14 @@ const TRANSFER_TYPES = {
 };
 
 // Helper function to create EVM provider with fallback RPCs
-async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<ethers.JsonRpcProvider> {
+async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<any> {
+  const eth = await loadEthers();
   const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
   const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
   
   for (const rpcUrl of allRpcs) {
     try {
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const provider = new eth.JsonRpcProvider(rpcUrl);
       // Test the provider with a simple call
       await provider.getBlockNumber();
       console.log(`Using EVM RPC: ${rpcUrl}`);
@@ -447,7 +486,7 @@ async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promis
   
   // If all fail, return the first one anyway (it might recover)
   console.log('All RPCs failed, using primary anyway');
-  return new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+  return new eth.JsonRpcProvider(chainConfig.rpcUrl);
 }
 
 // Helper function to fetch ERC20 balance with retry and fallback
@@ -456,13 +495,14 @@ async function fetchErc20Balance(
   tokenAddress: string,
   walletAddress: string
 ): Promise<bigint> {
+  const eth = await loadEthers();
   const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
   const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
   
   for (const rpcUrl of allRpcs) {
     try {
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+      const provider = new eth.JsonRpcProvider(rpcUrl);
+      const tokenContract = new eth.Contract(tokenAddress, ERC20_ABI, provider);
       const balance = await tokenContract.balanceOf(walletAddress);
       console.log(`Fetched balance from ${rpcUrl}: ${balance.toString()}`);
       return balance;
@@ -548,6 +588,9 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+
+      // Lazy-load Solana SDK only when this branch runs
+      const { Connection, PublicKey, TOKEN_PROGRAM_ID, LAMPORTS_PER_SOL } = await loadSolanaSdk();
 
       const SOLANA_RPCS = [
         'https://api.mainnet-beta.solana.com',
@@ -651,20 +694,50 @@ serve(async (req) => {
       );
     }
 
-    // Parse Solana private key (should be array of numbers as JSON string)
-    let backendWallet: Keypair;
-    try {
-      const privateKeyArray = JSON.parse(backendWalletPrivateKey);
-      backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
-      console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
-    } catch (error) {
-      console.error('Error parsing Solana backend wallet:', error);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Determine which SDKs this action actually needs to avoid loading both
+    // @solana/web3.js + ethers in the same cold-start (which blows CPU budget).
+    const _needsEvm =
+      action === 'execute_evm_transfer' ||
+      action === 'check_evm_allowance' ||
+      action === 'get_backend_wallet'; // wallet-info endpoint reports EVM address too
+    const _needsSolana =
+      action !== 'execute_evm_transfer' &&
+      action !== 'check_evm_allowance';
+
+    // Lazy-load Solana SDK (only when needed). The rest of the request uses
+    // these locals as if they were top-level imports.
+    const _sol = _needsSolana ? await loadSolanaSdk() : null as any;
+    const Connection = _sol?.Connection;
+    const Keypair = _sol?.Keypair;
+    const PublicKey = _sol?.PublicKey;
+    const Transaction = _sol?.Transaction;
+    const SystemProgram = _sol?.SystemProgram;
+    const LAMPORTS_PER_SOL = _sol?.LAMPORTS_PER_SOL;
+    const sendAndConfirmTransaction = _sol?.sendAndConfirmTransaction;
+    const getOrCreateAssociatedTokenAccount = _sol?.getOrCreateAssociatedTokenAccount;
+    const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
+    const createTransferInstruction = _sol?.createTransferInstruction;
+    const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
+    // Lazy-load ethers only for EVM-touching actions.
+    const ethers: any = _needsEvm ? await loadEthers() : { ZeroAddress: '0x0000000000000000000000000000000000000000' };
+
+    // Parse Solana private key (should be array of numbers as JSON string).
+    // Skipped for EVM-only actions to keep cold-start CPU low.
+    let backendWallet: any = null;
+    if (_needsSolana) {
+      try {
+        const privateKeyArray = JSON.parse(backendWalletPrivateKey);
+        backendWallet = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
+        console.log('Solana backend wallet loaded:', backendWallet.publicKey.toBase58());
+      } catch (error) {
+        console.error('Error parsing Solana backend wallet:', error);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid backend wallet configuration. Private key must be a JSON array of 64 numbers.',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Parse Sui relayer wallet if provided (lazy-loaded SDK)
@@ -706,8 +779,9 @@ serve(async (req) => {
       }
     }
 
-    // Initialize blockchain clients (Sui client built lazily inside Sui branches)
-    const connection = new Connection(SOLANA_RPC, 'confirmed');
+    // Initialize blockchain clients (Sui client built lazily inside Sui branches).
+    // Solana connection only created when Solana SDK is loaded for this request.
+    const connection: any = _needsSolana ? new Connection(SOLANA_RPC, 'confirmed') : null;
     const suiClient: SuiClient | null = suiRelayerKeypair
       ? new (await loadSuiSdk()).SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl })
       : null;
@@ -1163,7 +1237,7 @@ serve(async (req) => {
         
         // If recipient ATA doesn't exist, add instruction to create it
         if (!recipientAtaExists) {
-          const { createAssociatedTokenAccountInstruction } = await import('https://esm.sh/@solana/spl-token@0.4.14');
+          const { createAssociatedTokenAccountInstruction } = (await loadSolanaSdk());
           transaction.add(
             createAssociatedTokenAccountInstruction(
               backendWallet.publicKey, // payer
@@ -2828,7 +2902,7 @@ serve(async (req) => {
         backendTransaction.feePayer = backendWallet.publicKey;
         backendTransaction.add(
           // @ts-ignore - SystemProgram imported via web3.js
-          (await import('https://esm.sh/@solana/web3.js@1.95.8')).SystemProgram.transfer({
+          ((await loadSolanaSdk()).SystemProgram).transfer({
             fromPubkey: backendWallet.publicKey,
             toPubkey: recipientPubkey,
             lamports: lamportsToSend,
