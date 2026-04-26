@@ -1299,7 +1299,7 @@ serve(async (req) => {
           const feeCoinType = feeTokenMint;
           
           // Query sender's coins for transfer
-          const senderCoins = await suiClient.getCoins({
+          const senderCoins = await suiClient!.getCoins({
             owner: senderPublicKey,
             coinType,
           });
@@ -1329,7 +1329,7 @@ serve(async (req) => {
           
           // If fee is in different token, check that balance too
           if (coinType !== feeCoinType) {
-            const feeCoins = await suiClient.getCoins({
+            const feeCoins = await suiClient!.getCoins({
               owner: senderPublicKey,
               coinType: feeCoinType,
             });
@@ -1348,7 +1348,7 @@ serve(async (req) => {
           
           // Get gas coins for relayer to pay network fees
           const relayerAddress = suiRelayerKeypair.toSuiAddress();
-          const gasCoins = await suiClient.getCoins({
+          const gasCoins = await suiClient!.getCoins({
             owner: relayerAddress,
             coinType: '0x2::sui::SUI',
           });
@@ -1420,7 +1420,7 @@ serve(async (req) => {
           
           // Handle fee payment if in different token
           if (coinType !== feeCoinType) {
-            const feeCoins = await suiClient.getCoins({
+            const feeCoins = await suiClient!.getCoins({
               owner: senderPublicKey,
               coinType: feeCoinType,
             });
@@ -1465,7 +1465,7 @@ serve(async (req) => {
           tx.setSender(senderPublicKey);
           
           // Build transaction bytes
-          const txBytes = await tx.build({ client: suiClient });
+          const txBytes = await tx.build({ client: suiClient! });
           const base64Tx = btoa(String.fromCharCode(...txBytes));
           
           return new Response(
@@ -2719,7 +2719,7 @@ serve(async (req) => {
           // Execute with both signatures: [userSignature, sponsorSignature]
           console.log('Executing gas-sponsored Sui transaction with dual signatures...');
           
-          const result = await suiClient.executeTransactionBlock({
+          const result = await suiClient!.executeTransactionBlock({
             transactionBlock: signedTransaction,
             signature: [userSignature, relayerSignature.signature],
             options: {
