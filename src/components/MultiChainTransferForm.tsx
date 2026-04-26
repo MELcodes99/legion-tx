@@ -138,14 +138,14 @@ export const MultiChainTransferForm = () => {
   };
   const availableTokens = getAvailableTokens();
 
-  // Fetch token prices from backend in real-time
+  // Fetch token prices from backend in real-time (lightweight prices function)
   useEffect(() => {
     const fetchPrices = async () => {
       try {
         const {
           data,
           error
-        } = await supabase.functions.invoke('gasless-transfer', {
+        } = await supabase.functions.invoke('get-token-prices', {
           body: {
             action: 'get_token_prices'
           }
@@ -165,7 +165,7 @@ export const MultiChainTransferForm = () => {
       }
     };
     fetchPrices();
-    // Fetch prices more frequently (every 30 seconds) for real-time accuracy
+    // Fetch prices every 30 seconds for real-time accuracy
     const interval = setInterval(fetchPrices, 30 * 1000);
     return () => clearInterval(interval);
   }, []);
