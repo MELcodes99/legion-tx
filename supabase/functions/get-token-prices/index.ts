@@ -158,14 +158,59 @@ async function fetchCoinGeckoPrices(geckoIds: string[]): Promise<Record<string, 
   return prices;
 }
 
+// Reasonable fallback values when upstream APIs fail
+const SUMMARY_FALLBACK = {
+  solana: 80,
+  sui: 0.85,
+  ethereum: 1850,
+  skr: 0.024,
+};
+
+// Lightweight handler that returns the prices the dashboard polls every 30s.
+// Shape mirrors the legacy `gasless-transfer?action=get_token_prices` response.
+async function handleSummary(): Promise<Response> {
+  const ids = ['solana', 'sui', 'ethereum', 'seeker-2'];
+  let geckoPrices: Record<string, number> = {};
+  try {
+    geckoPrices = await fetchCoinGeckoPrices(ids);
+  } catch (e) {
+    console.warn('Summary CoinGecko fetch failed:', e);
+  }
+
+  const solana = geckoPrices['solana'] ?? SUMMARY_FALLBACK.solana;
+  const sui = geckoPrices['sui'] ?? SUMMARY_FALLBACK.sui;
+  const ethereum = geckoPrices['ethereum'] ?? SUMMARY_FALLBACK.ethereum;
+  const skr = geckoPrices['seeker-2'] ?? SUMMARY_FALLBACK.skr;
+
+  return new Response(
+    JSON.stringify({
+      prices: {
+        solana,
+        sui,
+        ethereum,
+        base: ethereum,
+        skr,
+      },
+    }),
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { tokens } = await req.json();
-    
+    const body = await req.json().catch(() => ({}));
+
+    // Summary mode for dashboard price polling
+    if (body?.action === 'get_token_prices' || body?.summary === true) {
+      return await handleSummary();
+    }
+
+    const { tokens } = body as { tokens?: Array<{ address: string; chain: string }> };
+
     if (!tokens || !Array.isArray(tokens)) {
       return new Response(
         JSON.stringify({ error: 'Invalid tokens array' }),
