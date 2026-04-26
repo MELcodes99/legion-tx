@@ -698,8 +698,11 @@ serve(async (req) => {
     // @solana/web3.js + ethers in the same cold-start (which blows CPU budget).
     const _needsEvm =
       action === 'execute_evm_transfer' ||
-      action === 'check_evm_allowance';
-    const _needsSolana = !_needsEvm; // every other path uses Solana primitives
+      action === 'check_evm_allowance' ||
+      action === 'get_backend_wallet'; // wallet-info endpoint reports EVM address too
+    const _needsSolana =
+      action !== 'execute_evm_transfer' &&
+      action !== 'check_evm_allowance';
 
     // Lazy-load Solana SDK (only when needed). The rest of the request uses
     // these locals as if they were top-level imports.
@@ -715,7 +718,7 @@ serve(async (req) => {
     const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
     const createTransferInstruction = _sol?.createTransferInstruction;
     const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
-    // Lazy-load ethers only for EVM actions.
+    // Lazy-load ethers only for EVM-touching actions.
     const ethers: any = _needsEvm ? await loadEthers() : { ZeroAddress: '0x0000000000000000000000000000000000000000' };
 
     // Parse Solana private key (should be array of numbers as JSON string).
