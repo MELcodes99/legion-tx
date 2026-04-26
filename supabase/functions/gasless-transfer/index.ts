@@ -15,9 +15,27 @@ import {
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
 } from 'https://esm.sh/@solana/spl-token@0.4.14';
-import { SuiClient } from 'npm:@mysten/sui@1.44.0/client';
-import { Transaction as SuiTransaction } from 'npm:@mysten/sui@1.44.0/transactions';
-import { Ed25519Keypair } from 'npm:@mysten/sui@1.44.0/keypairs/ed25519';
+// Sui SDK is loaded lazily inside the Sui code paths to keep cold-start CPU low.
+// Top-level import of @mysten/sui caused WORKER_RESOURCE_LIMIT crashes at boot.
+type SuiClient = any;
+type SuiTransaction = any;
+type Ed25519Keypair = any;
+let _suiSdk: { SuiClient: any; Transaction: any; Ed25519Keypair: any } | null = null;
+async function loadSuiSdk() {
+  if (!_suiSdk) {
+    const [client, txMod, kp] = await Promise.all([
+      import('npm:@mysten/sui@1.44.0/client'),
+      import('npm:@mysten/sui@1.44.0/transactions'),
+      import('npm:@mysten/sui@1.44.0/keypairs/ed25519'),
+    ]);
+    _suiSdk = {
+      SuiClient: (client as any).SuiClient,
+      Transaction: (txMod as any).Transaction,
+      Ed25519Keypair: (kp as any).Ed25519Keypair,
+    };
+  }
+  return _suiSdk!;
+}
 import { ethers } from 'https://esm.sh/ethers@6.13.1';
 
 const corsHeaders = {
@@ -649,12 +667,13 @@ serve(async (req) => {
       );
     }
 
-    // Parse Sui relayer wallet if provided
+    // Parse Sui relayer wallet if provided (lazy-loaded SDK)
     let suiRelayerKeypair: Ed25519Keypair | null = null;
     if (suiRelayerWalletJson) {
       try {
+        const sui = await loadSuiSdk();
         const suiWalletData = JSON.parse(suiRelayerWalletJson);
-        suiRelayerKeypair = Ed25519Keypair.fromSecretKey(new Uint8Array(suiWalletData));
+        suiRelayerKeypair = sui.Ed25519Keypair.fromSecretKey(new Uint8Array(suiWalletData));
         console.log('Sui relayer wallet loaded:', suiRelayerKeypair.toSuiAddress());
       } catch (error) {
         console.error('Error parsing Sui relayer wallet:', error);
@@ -687,9 +706,11 @@ serve(async (req) => {
       }
     }
 
-    // Initialize blockchain clients
+    // Initialize blockchain clients (Sui client built lazily inside Sui branches)
     const connection = new Connection(SOLANA_RPC, 'confirmed');
-    const suiClient = new SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl });
+    const suiClient: SuiClient | null = suiRelayerKeypair
+      ? new (await loadSuiSdk()).SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl })
+      : null;
 
     // Action: Get backend wallet public key
     if (action === 'get_backend_wallet') {
@@ -1278,7 +1299,7 @@ serve(async (req) => {
           const feeCoinType = feeTokenMint;
           
           // Query sender's coins for transfer
-          const senderCoins = await suiClient.getCoins({
+          const senderCoins = await suiClient!.getCoins({
             owner: senderPublicKey,
             coinType,
           });
@@ -1291,7 +1312,7 @@ serve(async (req) => {
           }
           
           // Calculate total balance
-          const totalBalance = senderCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
+          const totalBalance = senderCoins.data.reduce((sum: bigint, coin: any) => sum + BigInt(coin.balance), BigInt(0));
           const totalNeeded = coinType === feeCoinType 
             ? transferAmountSmallest + feeSmallest 
             : transferAmountSmallest;
@@ -1308,11 +1329,11 @@ serve(async (req) => {
           
           // If fee is in different token, check that balance too
           if (coinType !== feeCoinType) {
-            const feeCoins = await suiClient.getCoins({
+            const feeCoins = await suiClient!.getCoins({
               owner: senderPublicKey,
               coinType: feeCoinType,
             });
-            const feeTotalBalance = feeCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
+            const feeTotalBalance = feeCoins.data.reduce((sum: bigint, coin: any) => sum + BigInt(coin.balance), BigInt(0));
             
             if (feeTotalBalance < feeSmallest) {
               return new Response(
@@ -1327,7 +1348,7 @@ serve(async (req) => {
           
           // Get gas coins for relayer to pay network fees
           const relayerAddress = suiRelayerKeypair.toSuiAddress();
-          const gasCoins = await suiClient.getCoins({
+          const gasCoins = await suiClient!.getCoins({
             owner: relayerAddress,
             coinType: '0x2::sui::SUI',
           });
@@ -1340,7 +1361,7 @@ serve(async (req) => {
           }
           
           // Build transaction
-          const tx = new SuiTransaction();
+          const tx = new (await loadSuiSdk()).Transaction();
           
           // Sort coins by balance (largest first) for efficient merging
           const sortedCoins = [...senderCoins.data].sort((a, b) => 
@@ -1399,7 +1420,7 @@ serve(async (req) => {
           
           // Handle fee payment if in different token
           if (coinType !== feeCoinType) {
-            const feeCoins = await suiClient.getCoins({
+            const feeCoins = await suiClient!.getCoins({
               owner: senderPublicKey,
               coinType: feeCoinType,
             });
@@ -1434,7 +1455,7 @@ serve(async (req) => {
           
           // Set gas payment from relayer
           tx.setGasOwner(relayerAddress);
-          tx.setGasPayment(gasCoins.data.slice(0, 1).map(c => ({
+          tx.setGasPayment(gasCoins.data.slice(0, 1).map((c: any) => ({
             objectId: c.coinObjectId,
             version: c.version,
             digest: c.digest,
@@ -1444,7 +1465,7 @@ serve(async (req) => {
           tx.setSender(senderPublicKey);
           
           // Build transaction bytes
-          const txBytes = await tx.build({ client: suiClient });
+          const txBytes = await tx.build({ client: suiClient! });
           const base64Tx = btoa(String.fromCharCode(...txBytes));
           
           return new Response(
@@ -2698,7 +2719,7 @@ serve(async (req) => {
           // Execute with both signatures: [userSignature, sponsorSignature]
           console.log('Executing gas-sponsored Sui transaction with dual signatures...');
           
-          const result = await suiClient.executeTransactionBlock({
+          const result = await suiClient!.executeTransactionBlock({
             transactionBlock: signedTransaction,
             signature: [userSignature, relayerSignature.signature],
             options: {
