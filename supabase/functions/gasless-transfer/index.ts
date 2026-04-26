@@ -29,22 +29,22 @@ let _solanaSdk: any = null;
 async function loadSolanaSdk() {
   if (!_solanaSdk) {
     const [web3, splToken] = await Promise.all([
-      import('https://esm.sh/@solana/web3.js@1.98.4'),
-      import('https://esm.sh/@solana/spl-token@0.4.14'),
+      import('npm:@solana/web3.js@1.98.4'),
+      import('npm:@solana/spl-token@0.4.14'),
     ]);
     _solanaSdk = {
-      Connection: web3.Connection,
-      Keypair: web3.Keypair,
-      PublicKey: web3.PublicKey,
-      Transaction: web3.Transaction,
-      SystemProgram: web3.SystemProgram,
-      LAMPORTS_PER_SOL: web3.LAMPORTS_PER_SOL,
-      sendAndConfirmTransaction: web3.sendAndConfirmTransaction,
-      getOrCreateAssociatedTokenAccount: splToken.getOrCreateAssociatedTokenAccount,
-      getAssociatedTokenAddress: splToken.getAssociatedTokenAddress,
-      createTransferInstruction: splToken.createTransferInstruction,
-      createAssociatedTokenAccountInstruction: splToken.createAssociatedTokenAccountInstruction,
-      TOKEN_PROGRAM_ID: splToken.TOKEN_PROGRAM_ID,
+      Connection: (web3 as any).Connection,
+      Keypair: (web3 as any).Keypair,
+      PublicKey: (web3 as any).PublicKey,
+      Transaction: (web3 as any).Transaction,
+      SystemProgram: (web3 as any).SystemProgram,
+      LAMPORTS_PER_SOL: (web3 as any).LAMPORTS_PER_SOL,
+      sendAndConfirmTransaction: (web3 as any).sendAndConfirmTransaction,
+      getOrCreateAssociatedTokenAccount: (splToken as any).getOrCreateAssociatedTokenAccount,
+      getAssociatedTokenAddress: (splToken as any).getAssociatedTokenAddress,
+      createTransferInstruction: (splToken as any).createTransferInstruction,
+      createAssociatedTokenAccountInstruction: (splToken as any).createAssociatedTokenAccountInstruction,
+      TOKEN_PROGRAM_ID: (splToken as any).TOKEN_PROGRAM_ID,
     };
   }
   return _solanaSdk!;
