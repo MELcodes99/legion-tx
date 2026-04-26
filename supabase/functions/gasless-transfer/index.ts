@@ -467,13 +467,14 @@ const TRANSFER_TYPES = {
 };
 
 // Helper function to create EVM provider with fallback RPCs
-async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<ethers.JsonRpcProvider> {
+async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promise<any> {
+  const eth = await loadEthers();
   const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
   const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
   
   for (const rpcUrl of allRpcs) {
     try {
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
+      const provider = new eth.JsonRpcProvider(rpcUrl);
       // Test the provider with a simple call
       await provider.getBlockNumber();
       console.log(`Using EVM RPC: ${rpcUrl}`);
@@ -485,7 +486,7 @@ async function createEvmProviderWithFallback(chain: 'base' | 'ethereum'): Promis
   
   // If all fail, return the first one anyway (it might recover)
   console.log('All RPCs failed, using primary anyway');
-  return new ethers.JsonRpcProvider(chainConfig.rpcUrl);
+  return new eth.JsonRpcProvider(chainConfig.rpcUrl);
 }
 
 // Helper function to fetch ERC20 balance with retry and fallback
@@ -494,13 +495,14 @@ async function fetchErc20Balance(
   tokenAddress: string,
   walletAddress: string
 ): Promise<bigint> {
+  const eth = await loadEthers();
   const chainConfig = chain === 'base' ? CHAIN_CONFIG.base : CHAIN_CONFIG.ethereum;
   const allRpcs = [chainConfig.rpcUrl, ...chainConfig.fallbackRpcs];
   
   for (const rpcUrl of allRpcs) {
     try {
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+      const provider = new eth.JsonRpcProvider(rpcUrl);
+      const tokenContract = new eth.Contract(tokenAddress, ERC20_ABI, provider);
       const balance = await tokenContract.balanceOf(walletAddress);
       console.log(`Fetched balance from ${rpcUrl}: ${balance.toString()}`);
       return balance;
