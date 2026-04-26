@@ -589,6 +589,9 @@ serve(async (req) => {
         );
       }
 
+      // Lazy-load Solana SDK only when this branch runs
+      const { Connection, PublicKey, TOKEN_PROGRAM_ID, LAMPORTS_PER_SOL } = await loadSolanaSdk();
+
       const SOLANA_RPCS = [
         'https://api.mainnet-beta.solana.com',
         'https://solana-rpc.publicnode.com',
