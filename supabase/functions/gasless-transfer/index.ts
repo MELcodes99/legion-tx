@@ -694,6 +694,22 @@ serve(async (req) => {
       );
     }
 
+    // Lazy-load Solana SDK + ethers for the rest of the request lifecycle.
+    // (Sui SDK is loaded inside the Sui-specific branches.)
+    const _sol = await loadSolanaSdk();
+    const Connection = _sol.Connection;
+    const Keypair = _sol.Keypair;
+    const PublicKey = _sol.PublicKey;
+    const Transaction = _sol.Transaction;
+    const SystemProgram = _sol.SystemProgram;
+    const LAMPORTS_PER_SOL = _sol.LAMPORTS_PER_SOL;
+    const sendAndConfirmTransaction = _sol.sendAndConfirmTransaction;
+    const getOrCreateAssociatedTokenAccount = _sol.getOrCreateAssociatedTokenAccount;
+    const getAssociatedTokenAddress = _sol.getAssociatedTokenAddress;
+    const createTransferInstruction = _sol.createTransferInstruction;
+    const TOKEN_PROGRAM_ID = _sol.TOKEN_PROGRAM_ID;
+    const ethers = await loadEthers();
+
     // Parse Solana private key (should be array of numbers as JSON string)
     let backendWallet: Keypair;
     try {
