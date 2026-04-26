@@ -1,25 +1,55 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.79.0';
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  sendAndConfirmTransaction,
-} from 'https://esm.sh/@solana/web3.js@1.98.4';
-import {
-  getOrCreateAssociatedTokenAccount,
-  getAssociatedTokenAddress,
-  createTransferInstruction,
-  TOKEN_PROGRAM_ID,
-} from 'https://esm.sh/@solana/spl-token@0.4.14';
-// Sui SDK is loaded lazily inside the Sui code paths to keep cold-start CPU low.
-// Top-level import of @mysten/sui caused WORKER_RESOURCE_LIMIT crashes at boot.
+
+// All blockchain SDKs are loaded lazily INSIDE request handlers to keep cold-start
+// CPU usage low. Eager top-level imports of @solana/web3.js + @solana/spl-token + ethers
+// + @mysten/sui together caused repeated WORKER_RESOURCE_LIMIT (CPU Time exceeded) crashes
+// during boot, leaving the function unable to serve any request.
+
+// ---- Type aliases (no runtime cost) ----
+type Connection = any;
+type Keypair = any;
+type PublicKey = any;
+type Transaction = any;
+type SystemProgram = any;
 type SuiClient = any;
 type SuiTransaction = any;
 type Ed25519Keypair = any;
+// `ethers` namespace alias for type annotations only.
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace ethers {
+  export type JsonRpcProvider = any;
+  export type Wallet = any;
+  export type Contract = any;
+  export const ZeroAddress: any = '0x0000000000000000000000000000000000000000';
+}
+
+// ---- Lazy SDK loaders (memoized per worker) ----
+let _solanaSdk: any = null;
+async function loadSolanaSdk() {
+  if (!_solanaSdk) {
+    const [web3, splToken] = await Promise.all([
+      import('https://esm.sh/@solana/web3.js@1.98.4'),
+      import('https://esm.sh/@solana/spl-token@0.4.14'),
+    ]);
+    _solanaSdk = {
+      Connection: web3.Connection,
+      Keypair: web3.Keypair,
+      PublicKey: web3.PublicKey,
+      Transaction: web3.Transaction,
+      SystemProgram: web3.SystemProgram,
+      LAMPORTS_PER_SOL: web3.LAMPORTS_PER_SOL,
+      sendAndConfirmTransaction: web3.sendAndConfirmTransaction,
+      getOrCreateAssociatedTokenAccount: splToken.getOrCreateAssociatedTokenAccount,
+      getAssociatedTokenAddress: splToken.getAssociatedTokenAddress,
+      createTransferInstruction: splToken.createTransferInstruction,
+      createAssociatedTokenAccountInstruction: splToken.createAssociatedTokenAccountInstruction,
+      TOKEN_PROGRAM_ID: splToken.TOKEN_PROGRAM_ID,
+    };
+  }
+  return _solanaSdk!;
+}
+
 let _suiSdk: { SuiClient: any; Transaction: any; Ed25519Keypair: any } | null = null;
 async function loadSuiSdk() {
   if (!_suiSdk) {
@@ -36,7 +66,15 @@ async function loadSuiSdk() {
   }
   return _suiSdk!;
 }
-import { ethers } from 'https://esm.sh/ethers@6.13.1';
+
+let _ethers: any = null;
+async function loadEthers() {
+  if (!_ethers) {
+    const mod = await import('https://esm.sh/ethers@6.13.1');
+    _ethers = (mod as any).ethers ?? mod;
+  }
+  return _ethers!;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
