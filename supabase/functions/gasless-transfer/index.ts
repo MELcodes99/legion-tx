@@ -1312,7 +1312,7 @@ serve(async (req) => {
           }
           
           // Calculate total balance
-          const totalBalance = senderCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
+          const totalBalance = senderCoins.data.reduce((sum: bigint, coin: any) => sum + BigInt(coin.balance), BigInt(0));
           const totalNeeded = coinType === feeCoinType 
             ? transferAmountSmallest + feeSmallest 
             : transferAmountSmallest;
@@ -1333,7 +1333,7 @@ serve(async (req) => {
               owner: senderPublicKey,
               coinType: feeCoinType,
             });
-            const feeTotalBalance = feeCoins.data.reduce((sum, coin) => sum + BigInt(coin.balance), BigInt(0));
+            const feeTotalBalance = feeCoins.data.reduce((sum: bigint, coin: any) => sum + BigInt(coin.balance), BigInt(0));
             
             if (feeTotalBalance < feeSmallest) {
               return new Response(
@@ -1361,7 +1361,7 @@ serve(async (req) => {
           }
           
           // Build transaction
-          const tx = new SuiTransaction();
+          const tx = new (await loadSuiSdk()).Transaction();
           
           // Sort coins by balance (largest first) for efficient merging
           const sortedCoins = [...senderCoins.data].sort((a, b) => 
@@ -1455,7 +1455,7 @@ serve(async (req) => {
           
           // Set gas payment from relayer
           tx.setGasOwner(relayerAddress);
-          tx.setGasPayment(gasCoins.data.slice(0, 1).map(c => ({
+          tx.setGasPayment(gasCoins.data.slice(0, 1).map((c: any) => ({
             objectId: c.coinObjectId,
             version: c.version,
             digest: c.digest,
