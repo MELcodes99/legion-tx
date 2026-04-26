@@ -70,8 +70,8 @@ async function loadSuiSdk() {
 let _ethers: any = null;
 async function loadEthers() {
   if (!_ethers) {
-    const mod = await import('https://esm.sh/ethers@6.13.1');
-    _ethers = (mod as any).ethers ?? mod;
+    const mod: any = await import('npm:ethers@6.13.1');
+    _ethers = mod.ethers ?? mod;
   }
   return _ethers!;
 }
