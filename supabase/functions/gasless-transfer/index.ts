@@ -776,8 +776,9 @@ serve(async (req) => {
       }
     }
 
-    // Initialize blockchain clients (Sui client built lazily inside Sui branches)
-    const connection = new Connection(SOLANA_RPC, 'confirmed');
+    // Initialize blockchain clients (Sui client built lazily inside Sui branches).
+    // Solana connection only created when Solana SDK is loaded for this request.
+    const connection: any = _needsSolana ? new Connection(SOLANA_RPC, 'confirmed') : null;
     const suiClient: SuiClient | null = suiRelayerKeypair
       ? new (await loadSuiSdk()).SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl })
       : null;
