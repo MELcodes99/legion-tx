@@ -667,12 +667,13 @@ serve(async (req) => {
       );
     }
 
-    // Parse Sui relayer wallet if provided
+    // Parse Sui relayer wallet if provided (lazy-loaded SDK)
     let suiRelayerKeypair: Ed25519Keypair | null = null;
     if (suiRelayerWalletJson) {
       try {
+        const sui = await loadSuiSdk();
         const suiWalletData = JSON.parse(suiRelayerWalletJson);
-        suiRelayerKeypair = Ed25519Keypair.fromSecretKey(new Uint8Array(suiWalletData));
+        suiRelayerKeypair = sui.Ed25519Keypair.fromSecretKey(new Uint8Array(suiWalletData));
         console.log('Sui relayer wallet loaded:', suiRelayerKeypair.toSuiAddress());
       } catch (error) {
         console.error('Error parsing Sui relayer wallet:', error);
@@ -705,9 +706,11 @@ serve(async (req) => {
       }
     }
 
-    // Initialize blockchain clients
+    // Initialize blockchain clients (Sui client built lazily inside Sui branches)
     const connection = new Connection(SOLANA_RPC, 'confirmed');
-    const suiClient = new SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl });
+    const suiClient: SuiClient | null = suiRelayerKeypair
+      ? new (await loadSuiSdk()).SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl })
+      : null;
 
     // Action: Get backend wallet public key
     if (action === 'get_backend_wallet') {
