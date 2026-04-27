@@ -1782,7 +1782,7 @@ serve(async (req) => {
               if (userPermit2Allowance >= totalNeeded) {
                 // User has approved Permit2, now get the nonce
                 const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, provider);
-                const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
+                const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmSpender);
                 permit2Nonce = BigInt(nonce);
                 supportsPermit2 = true;
                 
@@ -1812,7 +1812,7 @@ serve(async (req) => {
           
           if (!useSameToken && !isNativeGas) {
             const feeTokenContractInstance = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
-            feeTokenAllowance = await feeTokenContractInstance.allowance(senderPublicKey, evmBackendWallet.address);
+            feeTokenAllowance = await feeTokenContractInstance.allowance(senderPublicKey, evmSpender);
             const feePermitConfig = getPermitConfig(feeTokenAddress);
             
             // Check if fee token has Permit2 approval
