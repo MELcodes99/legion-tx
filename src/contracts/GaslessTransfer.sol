@@ -350,7 +350,8 @@ contract GaslessTransfer is ReentrancyGuard {
         );
     }
 
-
+    /**
+     * @notice Check current approval amount for a token
      * @param token The ERC20 token to check
      * @param owner The address to check approval for
      * @return allowance The current approval amount
