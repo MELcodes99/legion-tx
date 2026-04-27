@@ -696,13 +696,17 @@ serve(async (req) => {
 
     // Determine which SDKs this action actually needs to avoid loading both
     // @solana/web3.js + ethers in the same cold-start (which blows CPU budget).
+    const _bodyChain = (body as any)?.chain;
+    const _isEvmChain = _bodyChain === 'base' || _bodyChain === 'ethereum';
     const _needsEvm =
       action === 'execute_evm_transfer' ||
       action === 'check_evm_allowance' ||
-      action === 'get_backend_wallet'; // wallet-info endpoint reports EVM address too
+      action === 'get_backend_wallet' || // wallet-info endpoint reports EVM address too
+      (action === 'build_atomic_tx' && _isEvmChain);
     const _needsSolana =
       action !== 'execute_evm_transfer' &&
-      action !== 'check_evm_allowance';
+      action !== 'check_evm_allowance' &&
+      !(action === 'build_atomic_tx' && _isEvmChain);
 
     // Lazy-load Solana SDK (only when needed). The rest of the request uses
     // these locals as if they were top-level imports.
@@ -753,12 +757,14 @@ serve(async (req) => {
       }
     }
 
-    // Parse EVM backend wallet if provided
+    // Parse EVM backend wallet — only when ethers has actually been loaded.
+    // Otherwise `ethers.Wallet` is undefined (placeholder) and the catch swallows
+    // the failure, leaving the EVM branch returning "wallet not configured".
     let evmBackendWallet: ethers.Wallet | null = null;
-    if (evmBackendWalletPrivateKey) {
+    if (_needsEvm && evmBackendWalletPrivateKey) {
       try {
         let privateKeyHex: string;
-        
+
         // Check if it's a JSON array format (like Solana wallet)
         const trimmedKey = evmBackendWalletPrivateKey.trim();
         if (trimmedKey.startsWith('[')) {
@@ -771,7 +777,7 @@ serve(async (req) => {
           // Handle hex string format (with or without 0x prefix)
           privateKeyHex = trimmedKey.startsWith('0x') ? trimmedKey : `0x${trimmedKey}`;
         }
-        
+
         evmBackendWallet = new ethers.Wallet(privateKeyHex);
         console.log('EVM backend wallet loaded:', evmBackendWallet.address);
       } catch (error) {
