@@ -1869,6 +1869,11 @@ serve(async (req) => {
             JSON.stringify({
               success: true,
               backendWallet: evmBackendWallet.address,
+              // When useAtomicContract is true, the user's permit/Permit2 signature
+              // names this contract as the spender — enabling a single atomic on-chain tx.
+              spender: evmSpender,
+              gaslessContract: evmContractAddress,
+              useAtomicContract,
               chainId: chainConfig.chainId,
               transferAmount: transferAmountSmallest.toString(),
               feeAmount: feeAmountSmallest.toString(),
