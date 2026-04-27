@@ -1,104 +1,102 @@
-# Why gasless transactions are still broken
+## Three independent issues, three minimal fixes
 
-Direct test of the deployed function right now returns:
+I traced each problem to a specific cause. Solana and Sui paths are not touched.
 
+---
+
+### 1. Why Ethereum & Base gasless transfers fail
+
+**Root cause (confirmed by direct edge-function call):**
+
+In `supabase/functions/gasless-transfer/index.ts` (around lines 697–722), the action whitelist that decides whether to lazy-load `ethers` is:
+
+```ts
+const _needsEvm =
+  action === 'execute_evm_transfer' ||
+  action === 'check_evm_allowance' ||
+  action === 'get_backend_wallet';
 ```
-546 WORKER_RESOURCE_LIMIT — Function failed due to not having enough compute resources
-```
 
-Logs show a constant loop:
+`build_atomic_tx` is **missing** from that list. So when the frontend calls `build_atomic_tx` for chain `base`/`ethereum`:
 
-```
-booted (time: ~100ms)
-ERROR module "/utf-8-validate@6.0.6/denonext/package.json" not found
-ERROR module "/bufferutil@4.1.0/denonext/package.json" not found
-ERROR CPU Time exceeded
-shutdown
-```
+1. `ethers` stays as the placeholder `{ ZeroAddress: '0x...' }`.
+2. The unconditional EVM-wallet parse block (lines 757–780) runs `new ethers.Wallet(...)` → throws → `evmBackendWallet` stays `null`.
+3. The Base/Ethereum branch at line 1572 returns HTTP 500: **"EVM backend wallet not configured. Please configure EVM_BACKEND_WALLET_PRIVATE_KEY secret."**
+4. Frontend surfaces this as **"Failed to send a request to the edge function"**.
 
-The previous "minimal fix" only lazy-loaded the Sui SDK. `@solana/web3.js`, `@solana/spl-token`, and `ethers` are **still imported at the top** of `supabase/functions/gasless-transfer/index.ts` (2,877 lines). Loading all three SDKs at boot exceeds the worker's CPU budget — the function dies before any request handler runs. That's why every Send click on every chain returns "Failed to send a request to the edge function".
+I confirmed this by calling `gasless-transfer` directly with `action: build_atomic_tx, chain: base` — got the 500 above. The secret IS set, and `get_backend_wallet` correctly returns the EVM address `0x89AF…9bb1`. The bug is purely the missing whitelist entry.
 
-The minimal-fix approach has been tried and isn't enough. The router needs to be split.
+**Fix (one block, ~5 lines):**
 
-# Plan: split into chain-specific edge functions
+- Add `build_atomic_tx` (when `chain === 'base' || chain === 'ethereum'`) to `_needsEvm`.
+- Move the `evmBackendWallet` parse block to only run when `_needsEvm` is true (so it can't throw on Solana/Sui requests).
 
-This matches the architecture already documented in project memory (`distributed-gasless-transfer-router`).
+This change does not touch the Solana/Sui code paths at all — `_needsSolana` and the existing Solana/Sui branches stay byte-for-byte identical.
 
-## 1. Create three new lightweight edge functions
+After this fix:
+- USDC on Base + USDC on Ethereum → existing EIP-2612 permit flow works (gasless for user, backend pays gas).
+- USDT on Base → existing Permit2 flow works (gasless for user, backend pays gas).
+- USDT on Ethereum stays "Coming Soon" (already the case).
+- Native ETH / Base ETH stays explicitly rejected with the existing "use USDC/USDT for gasless" message — true single-tx atomic EVM requires deploying `src/contracts/GaslessTransfer.sol`, which is a separate task you can request when ready.
 
-Each one boots only the SDK it needs, so each stays well within the CPU budget.
+---
 
-- **`gasless-solana`** — handles `build_atomic_tx` and `submit_signed_tx` for Solana. Imports only `@solana/web3.js` and `@solana/spl-token`. Lifts the existing Solana logic out of the monolith verbatim (no behavior changes — Solana flow is frozen per project memory).
-- **`gasless-sui`** — handles Sui transfers. Imports only `@mysten/sui`. Lifts the existing Sui logic out verbatim (Sui flow is frozen per project memory).
-- **`gasless-evm`** — handles Base and Ethereum (USDC permit flow + USDT Permit2 on Base). Imports only `ethers`. Native ETH / Base ETH stays rejected with a clear "not yet supported" message because the `GaslessTransfer.sol` contract is not deployed.
+### 2. Why token prices look wrong
 
-Each function:
-- Uses the standard CORS headers on every response (success and error).
-- Returns structured JSON for validation errors (400) instead of letting boot failures surface as "Failed to fetch".
-- Has its own `verify_jwt = false` entry in `supabase/config.toml`.
-- Pins exact npm versions in `supabase/functions/deno.json` (no carets) per project memory.
+The `get-token-prices` summary endpoint (`handleSummary()` in `supabase/functions/get-token-prices/index.ts`) only calls CoinGecko's free public API for SOL, SUI, ETH, SKR. Two real problems:
 
-## 2. Turn `gasless-transfer` into a thin router
+- **CoinGecko has no `seeker-2` listing that returns reliably** → SKR almost always falls through to the hard-coded fallback `0.024`. That's why SKR is stale.
+- **CoinGecko free tier rate-limits aggressively** → on cold starts the response is sometimes empty, so SOL/SUI/ETH fall through to the `SUMMARY_FALLBACK` constants (80 / 0.85 / 1850), which look "wrong" until the next poll succeeds.
 
-Replace the 2,877-line monolith with a small router (~100 lines) that:
-- Reads the request body once.
-- Routes to the correct chain function via `supabase.functions.invoke()` based on `chain` (or `network`) field.
-- Forwards the response and CORS headers back to the client.
-- Keeps the existing `get_backend_wallet` / health action so deployed health checks return 200.
-- **No SDK imports at all** at the top level — guarantees boot.
+**Fix:**
 
-This preserves the existing public API the frontend already uses, so no frontend transfer code needs to change.
+- For **SKR**: query GeckoTerminal first (`api.geckoterminal.com/api/v2/networks/solana/tokens/<SKR_mint>`), fall back to DexScreener, then CoinGecko. This is the same pattern already used successfully for SKR in the per-token branch lower in the file.
+- For **SOL / SUI / ETH**: keep CoinGecko as the primary, but add a CoinPaprika fallback (free, no key, far higher rate limits) before falling back to constants. Also bump the constants to current realistic values so the absolute worst case is closer to reality.
+- Run the four lookups in parallel (`Promise.all`) so latency stays under the 30-second poll window.
 
-## 3. Preserve existing Solana and Sui transaction flows exactly
+No frontend changes — same response shape `{ prices: { solana, sui, ethereum, base, skr } }`.
 
-Project memory explicitly marks Solana and Sui logic as frozen. The split is a **lift-and-shift**:
-- Same `build_atomic_tx` / `submit_signed_tx` action names.
-- Same `transferAmountSmallest` handoff between build and submit (prevents the rounding mismatch you've hit before).
-- Same backend co-signing / single-transaction structure.
-- Same min $2 USD validation, full-balance epsilon tolerance, non-stable USD-value validation, and SKR $0.50 fixed gas fee.
+---
 
-## 4. EVM behavior — honest about the limitation
+### 3. Remove the search bar above the transfer form
 
-Without the deployed `GaslessTransfer.sol` contract, **truly atomic single-tx EVM transfers (deduct fee + transfer to recipient inside one on-chain transaction) are not possible.** The current EVM flow uses EIP-2612 permits (USDC) and Permit2 (USDT on Base) — the user signs off-chain, and the backend submits two `transferFrom` calls (one to recipient, one for the fee). That is gasless for the user, but it is **two on-chain transfers**, not one atomic contract call.
+In `src/pages/Index.tsx`:
+- Remove the `<TokenSearchBar />` block and its wrapping `<div className="px-2 mb-6 sm:mb-8">`.
+- Remove the `import { TokenSearchBar } from "@/components/TokenSearchBar"` line.
 
-In this plan I will:
-- Keep USDC gasless on Ethereum and Base (permit flow, backend pays gas, fee routed to backend wallet `0x89AF...`).
-- Keep USDT on Base gasless via Permit2.
-- Keep USDT on Ethereum marked "Coming Soon".
-- Reject native ETH / Base ETH gasless with a clean "not yet supported" message until the contract is deployed.
+The `TokenSearchBar.tsx` file itself is left in place (unused) so we don't risk breaking other imports.
 
-If you want true single-transaction atomic EVM transfers, you (or I, with your help compiling/deploying via Foundry/Remix) need to deploy `src/contracts/GaslessTransfer.sol` and give me the contract addresses for Ethereum and Base. That can be a separate follow-up — it does not block fixing the current 546 crash on Solana, Sui, and the existing EVM permit flow.
+---
 
-## 5. Validation before claiming "done"
+### Validation (before I say "done")
 
-After deploying the new functions I will, in this order:
+1. Direct call: `gasless-transfer` `get_backend_wallet` → 200 (regression check; already passing).
+2. Direct call: `gasless-transfer` `build_atomic_tx` for chain `base`, USDC → expect a structured response (either `{ domain, message, ... }` for the EIP-712 signing flow, or a clear validation error like "insufficient balance"), **NOT** the "EVM backend wallet not configured" 500.
+3. Direct call: `gasless-transfer` `build_atomic_tx` for chain `ethereum`, USDC → same expectation.
+4. Direct call: `gasless-transfer` `build_atomic_tx` for chain `solana`, USDC → identical response to before this change (Solana path unchanged).
+5. Direct call: `gasless-transfer` `build_atomic_tx` for chain `sui`, USDC → identical response to before (Sui path unchanged).
+6. Direct call: `get-token-prices` `{ action: 'get_token_prices' }` → SKR no longer shows `0.024`; SOL/SUI/ETH return real upstream values (not fallback constants).
+7. Preview UI: confirm the search bar is gone above the form; the form itself is unchanged.
+8. Preview UI: connect a Base wallet, click Send with USDC → reach the EIP-712 signature prompt instead of the "Failed to send a request" toast.
 
-1. Direct backend call: `gasless-solana` health → expect 200, no `CPU Time exceeded`.
-2. Direct backend call: `gasless-sui` health → expect 200.
-3. Direct backend call: `gasless-evm` health → expect 200.
-4. Direct backend call: `gasless-transfer` (router) `get_backend_wallet` → expect 200 with all chain backend addresses.
-5. Check `gasless-transfer` logs — confirm zero `WORKER_RESOURCE_LIMIT`, zero `bufferutil`, zero `utf-8-validate`, zero `CPU Time exceeded`.
-6. From the preview UI: connect a wallet and click Send on Solana, Sui, and Base → confirm we now reach the wallet-sign prompt instead of "Failed to send a request". Full on-chain completion still requires you to actually sign and have funded balances.
+I will only mark the task complete after steps 1–6 return the expected results in the deployed function.
 
-I will only say "done" once steps 1–5 pass and the UI reaches the sign prompt in step 6.
+---
 
-## 6. Files that will change
+### Files changed
 
-- **New:** `supabase/functions/gasless-solana/index.ts`
-- **New:** `supabase/functions/gasless-sui/index.ts`
-- **New:** `supabase/functions/gasless-evm/index.ts`
-- **Rewritten (router):** `supabase/functions/gasless-transfer/index.ts` (~2,877 lines → ~100 lines)
-- **Updated:** `supabase/functions/deno.json` (split SDK pins per function group)
-- **Updated:** `supabase/config.toml` (add `verify_jwt = false` for the three new functions)
-- **Untouched:** All frontend code. `MultiChainTransferForm.tsx` keeps calling `gasless-transfer` exactly as it does today.
+- `supabase/functions/gasless-transfer/index.ts` — small edit around lines 697–780 (whitelist + guard the EVM-wallet parse). Solana, Sui, all chain-specific branches untouched.
+- `supabase/functions/get-token-prices/index.ts` — rewrite `handleSummary()` to use GeckoTerminal for SKR and add a CoinPaprika fallback for SOL/SUI/ETH.
+- `src/pages/Index.tsx` — remove `TokenSearchBar` import + render.
 
-# Expected outcome
+### Files NOT changed
 
-- "Failed to send a request to the edge function" stops on all chains.
-- Solana and Sui gasless transfers reach build → user-sign → backend co-sign → submit (single atomic transaction, as they were designed).
-- Base USDC and USDC/Ethereum gasless transfers reach the permit-sign step and complete via the existing 2-call backend flow (gasless for the user, but not single-on-chain-tx until the EVM contract is deployed).
-- Native ETH / Base ETH return a clean unsupported message instead of a worker crash.
+- All Solana code in `gasless-transfer/index.ts` (per the project's "Solana/Sui logic frozen" rule).
+- All Sui code in `gasless-transfer/index.ts`.
+- `MultiChainTransferForm.tsx` (frontend transfer logic stays as-is).
+- `TokenSearchBar.tsx` (left in place but unused).
+- `supabase/config.toml` (no new functions added).
 
-<lov-actions>
-<lov-link url="https://docs.lovable.dev/tips-tricks/troubleshooting">Troubleshooting docs</lov-link>
-</lov-actions>
+### Out of scope (call this out separately if you want it)
+
+True **single on-chain transaction** atomic EVM transfers (deduct fee + send to recipient inside one tx) require deploying `src/contracts/GaslessTransfer.sol` to Ethereum and Base and giving me the addresses. The current EVM flow is gasless for the user but uses two backend-submitted `transferFrom` calls. Tell me when you want to deploy the contract and I'll wire it up.
