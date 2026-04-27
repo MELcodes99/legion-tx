@@ -68,10 +68,38 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/// @notice Minimal Permit2 ISignatureTransfer interface (Uniswap)
+interface ISignatureTransfer {
+    struct TokenPermissions {
+        address token;
+        uint256 amount;
+    }
+    struct PermitTransferFrom {
+        TokenPermissions permitted;
+        uint256 nonce;
+        uint256 deadline;
+    }
+    struct SignatureTransferDetails {
+        address to;
+        uint256 requestedAmount;
+    }
+    function permitTransferFrom(
+        PermitTransferFrom calldata permit,
+        SignatureTransferDetails calldata transferDetails,
+        address owner,
+        bytes calldata signature
+    ) external;
+}
 
 contract GaslessTransfer is ReentrancyGuard {
     using SafeERC20 for IERC20;
+
+    /// @notice Canonical Permit2 contract address (same on every chain)
+    ISignatureTransfer public constant PERMIT2 =
+        ISignatureTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
 
     /// @notice The backend wallet that can submit transactions and receives fees
     address public immutable backendWallet;
