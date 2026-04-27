@@ -282,14 +282,14 @@ const GASLESS_CONTRACT_ABI = [
   'event GaslessTransferExecuted(address indexed sender, address indexed receiver, address indexed tokenToSend, uint256 amount, address feeToken, uint256 feeAmount)',
 ];
 
-// Contract addresses are read from Lovable Cloud secrets so they are not hard-coded.
-// Set GASLESS_CONTRACT_BASE / GASLESS_CONTRACT_ETHEREUM after deploying the contract
-// (see scripts/deployGaslessContract.ts). When set, EVM transfers run as a SINGLE
+// GaslessTransfer contract addresses. When set, EVM transfers run as a SINGLE
 // atomic on-chain transaction (principal + fee in one tx, like Solana/Sui).
-// When unset, the function falls back to the previous Permit2 / direct-transferFrom paths.
+// Deployed contracts use EVM_BACKEND_WALLET_PRIVATE_KEY as the immutable
+// backendWallet (the only address allowed to call gaslessTransfer + the fee receiver).
+// Secrets override hardcoded values for redeployments.
 const GASLESS_CONTRACT_ADDRESSES: Record<string, string | null> = {
   ethereum: Deno.env.get('GASLESS_CONTRACT_ETHEREUM') || null,
-  base: Deno.env.get('GASLESS_CONTRACT_BASE') || null,
+  base: Deno.env.get('GASLESS_CONTRACT_BASE') || '0x26B12202bA77FbF9163607a69c5f2499a6Dbe122',
 };
 
 // USDC contract addresses that support EIP-2612 permit (gasless approvals)
