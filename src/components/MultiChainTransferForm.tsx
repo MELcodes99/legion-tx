@@ -1014,7 +1014,7 @@ export const MultiChainTransferForm = () => {
               primaryType: 'Permit',
               message: {
                 owner: senderAddress,
-                spender: backendWallet as `0x${string}`,
+                spender: evmSpender,
                 value: BigInt(permitValue),
                 nonce: BigInt(permitNonce),
                 deadline: BigInt(permitDeadline),
@@ -1075,7 +1075,7 @@ export const MultiChainTransferForm = () => {
                   token: tokenContract as `0x${string}`,
                   amount: BigInt(permit2Amount),
                 },
-                spender: backendWallet as `0x${string}`,
+                spender: evmSpender,
                 nonce: BigInt(permit2Nonce),
                 deadline: BigInt(permit2Deadline),
               },
