@@ -271,21 +271,25 @@ const ERC20_ABI = [
   'function DOMAIN_SEPARATOR() view returns (bytes32)',
 ];
 
-// GaslessTransfer Contract ABI - for use after deployment
+// GaslessTransfer Contract ABI - includes atomic single-tx wrappers
 const GASLESS_CONTRACT_ABI = [
   'function gaslessTransfer(address sender, address receiver, address tokenToSend, uint256 amount, address feeToken, uint256 feeAmount) external',
   'function gaslessTransferSameToken(address sender, address receiver, address token, uint256 amount, uint256 feeAmount) external',
+  'function permitAndGaslessTransfer(address sender, address receiver, address token, uint256 amount, uint256 feeAmount, uint256 permitValue, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external',
+  'function permit2AndGaslessTransfer(address sender, address receiver, address token, uint256 amount, uint256 feeAmount, ((address token, uint256 amount) permitted, uint256 nonce, uint256 deadline) permit, bytes signature) external',
   'function checkApproval(address token, address owner) external view returns (uint256)',
   'function backendWallet() external view returns (address)',
   'event GaslessTransferExecuted(address indexed sender, address indexed receiver, address indexed tokenToSend, uint256 amount, address feeToken, uint256 feeAmount)',
 ];
 
-// Contract addresses - UPDATE THESE AFTER DEPLOYMENT
-// Set to null to use direct transferFrom method (current behavior)
-// Set to deployed address to use smart contract (more gas efficient, atomic)
+// Contract addresses are read from Lovable Cloud secrets so they are not hard-coded.
+// Set GASLESS_CONTRACT_BASE / GASLESS_CONTRACT_ETHEREUM after deploying the contract
+// (see scripts/deployGaslessContract.ts). When set, EVM transfers run as a SINGLE
+// atomic on-chain transaction (principal + fee in one tx, like Solana/Sui).
+// When unset, the function falls back to the previous Permit2 / direct-transferFrom paths.
 const GASLESS_CONTRACT_ADDRESSES: Record<string, string | null> = {
-  ethereum: null, // Deploy and set: e.g., '0x1234...'
-  base: null,     // Deploy and set: e.g., '0x5678...'
+  ethereum: Deno.env.get('GASLESS_CONTRACT_ETHEREUM') || null,
+  base: Deno.env.get('GASLESS_CONTRACT_BASE') || null,
 };
 
 // USDC contract addresses that support EIP-2612 permit (gasless approvals)
@@ -1685,7 +1689,14 @@ serve(async (req) => {
             );
           }
           
-          const userAllowance = await tokenContract.allowance(senderPublicKey, evmBackendWallet.address);
+          // When the GaslessTransfer contract is deployed for this chain, the spender
+          // is the contract itself (so a single on-chain tx can pull + split atomically).
+          // Otherwise we fall back to the backend EOA as spender (legacy 2-tx flow).
+          const evmContractAddress = GASLESS_CONTRACT_ADDRESSES[chain];
+          const evmSpender = evmContractAddress || evmBackendWallet.address;
+          const useAtomicContract = !!evmContractAddress;
+
+          const userAllowance = await tokenContract.allowance(senderPublicKey, evmSpender);
           
           // Calculate total needed (transfer + fee if same token)
           const useSameToken = feeTokenAddress.toLowerCase() === mint.toLowerCase() || feeTokenAddress === 'native';
@@ -1771,7 +1782,7 @@ serve(async (req) => {
               if (userPermit2Allowance >= totalNeeded) {
                 // User has approved Permit2, now get the nonce
                 const permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, provider);
-                const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmBackendWallet.address);
+                const [, , nonce] = await permit2Contract.allowance(senderPublicKey, mint, evmSpender);
                 permit2Nonce = BigInt(nonce);
                 supportsPermit2 = true;
                 
@@ -1801,7 +1812,7 @@ serve(async (req) => {
           
           if (!useSameToken && !isNativeGas) {
             const feeTokenContractInstance = new ethers.Contract(feeTokenAddress, ERC20_ABI, provider);
-            feeTokenAllowance = await feeTokenContractInstance.allowance(senderPublicKey, evmBackendWallet.address);
+            feeTokenAllowance = await feeTokenContractInstance.allowance(senderPublicKey, evmSpender);
             const feePermitConfig = getPermitConfig(feeTokenAddress);
             
             // Check if fee token has Permit2 approval
@@ -1858,6 +1869,11 @@ serve(async (req) => {
             JSON.stringify({
               success: true,
               backendWallet: evmBackendWallet.address,
+              // When useAtomicContract is true, the user's permit/Permit2 signature
+              // names this contract as the spender — enabling a single atomic on-chain tx.
+              spender: evmSpender,
+              gaslessContract: evmContractAddress,
+              useAtomicContract,
               chainId: chainConfig.chainId,
               transferAmount: transferAmountSmallest.toString(),
               feeAmount: feeAmountSmallest.toString(),
@@ -2059,39 +2075,89 @@ serve(async (req) => {
         }
         
         // ========================================
-        // METHOD 1: Smart Contract (if deployed)
+        // METHOD 1: Smart Contract — TRUE atomic single-tx gasless transfer
+        // (matches Solana/Sui behavior: one on-chain tx, principal+fee, all-or-nothing)
         // ========================================
         if (useSmartContract && contractAddress) {
-          console.log('Using smart contract for atomic gasless transfer');
-          
+          console.log('Using GaslessTransfer contract for atomic single-tx gasless transfer:', contractAddress);
+
           const gaslessContract = new ethers.Contract(contractAddress, GASLESS_CONTRACT_ABI, backendSigner);
-          const useSameTokenForFee = feeToken === tokenContract || !feeToken || feeToken === 'native';
-          
-          if (useSameTokenForFee) {
-            // Use gaslessTransferSameToken for gas efficiency
-            console.log('Calling gaslessTransferSameToken on contract');
-            const tx = await gaslessContract.gaslessTransferSameToken(
+          const tokenInstance = new ethers.Contract(tokenContract!, ERC20_ABI, provider);
+
+          // Verify the user's permit/Permit2 signature targets the contract.
+          // The atomic wrappers do permit + transfer + fee in ONE on-chain tx.
+
+          if (permitSignature && permitDeadline && permitValue) {
+            // EIP-2612 path (USDC): permitAndGaslessTransfer does permit + split atomically
+            console.log('Calling permitAndGaslessTransfer (EIP-2612 atomic single-tx)');
+            const sig = ethers.Signature.from(permitSignature);
+            const tx = await gaslessContract.permitAndGaslessTransfer(
               senderAddress,
               recipientAddress,
               tokenContract,
               transferAmount,
-              feeAmount
+              feeAmount,
+              permitValue,
+              permitDeadline,
+              sig.v,
+              sig.r,
+              sig.s
             );
             txHash = tx.hash;
-            console.log('Smart contract transfer submitted:', txHash);
+            console.log('Atomic single-tx submitted:', txHash);
+            await tx.wait();
+            console.log('Atomic single-tx confirmed');
+          } else if (usePermit2 && permit2Signature && permit2Deadline && permit2Nonce) {
+            // Permit2 path (USDT on Base): permit2AndGaslessTransfer
+            console.log('Calling permit2AndGaslessTransfer (Permit2 atomic single-tx)');
+            const permitStruct = {
+              permitted: {
+                token: tokenContract,
+                amount: permit2Amount || (BigInt(transferAmount) + BigInt(feeAmount)).toString(),
+              },
+              nonce: permit2Nonce,
+              deadline: permit2Deadline,
+            };
+            const tx = await gaslessContract.permit2AndGaslessTransfer(
+              senderAddress,
+              recipientAddress,
+              tokenContract,
+              transferAmount,
+              feeAmount,
+              permitStruct,
+              permit2Signature
+            );
+            txHash = tx.hash;
+            console.log('Atomic single-tx (Permit2) submitted:', txHash);
+            await tx.wait();
+            console.log('Atomic single-tx (Permit2) confirmed');
           } else {
-            // Different tokens for transfer and fee
-            console.log('Calling gaslessTransfer on contract (different fee token)');
-            const tx = await gaslessContract.gaslessTransfer(
-              senderAddress,
-              recipientAddress,
-              tokenContract,
-              transferAmount,
-              feeToken,
-              feeAmount
-            );
-            txHash = tx.hash;
-            console.log('Smart contract transfer submitted:', txHash);
+            // No permit signed — fall back to assuming pre-existing allowance to the contract
+            const currentAllowance = await tokenInstance.allowance(senderAddress, contractAddress);
+            const totalNeeded = BigInt(transferAmount) + BigInt(feeAmount);
+            if (currentAllowance < totalNeeded) {
+              return new Response(
+                JSON.stringify({
+                  error: 'Insufficient allowance to gasless contract',
+                  details: `Need ${totalNeeded} but contract is approved for ${currentAllowance}. The frontend must sign a permit so the contract can pull tokens.`,
+                  spenderAddress: contractAddress,
+                }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            const useSameTokenForFee = feeToken === tokenContract || !feeToken || feeToken === 'native';
+            if (useSameTokenForFee) {
+              const tx = await gaslessContract.gaslessTransferSameToken(
+                senderAddress, recipientAddress, tokenContract, transferAmount, feeAmount
+              );
+              txHash = tx.hash;
+            } else {
+              const tx = await gaslessContract.gaslessTransfer(
+                senderAddress, recipientAddress, tokenContract, transferAmount, feeToken, feeAmount
+              );
+              txHash = tx.hash;
+            }
+            console.log('Atomic single-tx (pre-approved) submitted:', txHash);
           }
         }
         // ========================================
