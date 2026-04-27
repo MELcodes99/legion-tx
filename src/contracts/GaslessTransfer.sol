@@ -247,7 +247,110 @@ contract GaslessTransfer is ReentrancyGuard {
     }
 
     /**
-     * @notice Check if a user has approved this contract for a specific token
+     * @notice Atomic single-tx gasless transfer using EIP-2612 permit
+     * @dev Calls permit() then performs the principal+fee split inside ONE transaction.
+     *      The user signs an EIP-2612 permit naming THIS contract as spender; the
+     *      backend submits this single tx which atomically: (1) sets allowance via
+     *      permit, (2) moves principal sender→receiver, (3) moves fee sender→backend.
+     *      Either all three succeed or the whole transaction reverts.
+     */
+    function permitAndGaslessTransfer(
+        address sender,
+        address receiver,
+        IERC20 token,
+        uint256 amount,
+        uint256 feeAmount,
+        uint256 permitValue,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external onlyBackend nonReentrant {
+        if (sender == address(0) || receiver == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        // Set allowance gaslessly via EIP-2612 permit. Wrapped in try/catch so a
+        // pre-existing sufficient allowance (race condition) doesn't revert the tx.
+        try IERC20Permit(address(token)).permit(
+            sender,
+            address(this),
+            permitValue,
+            deadline,
+            v,
+            r,
+            s
+        ) {} catch {
+            // ignore — we'll fail below if allowance is actually insufficient
+        }
+
+        token.safeTransferFrom(sender, receiver, amount);
+        if (feeAmount > 0) {
+            token.safeTransferFrom(sender, backendWallet, feeAmount);
+            emit FeeCollected(sender, address(token), feeAmount);
+        }
+
+        emit GaslessTransferExecuted(
+            sender,
+            receiver,
+            address(token),
+            amount,
+            address(token),
+            feeAmount
+        );
+    }
+
+    /**
+     * @notice Atomic single-tx gasless transfer using Permit2 (Uniswap)
+     * @dev User signs a Permit2 PermitTransferFrom for the FULL amount (principal+fee)
+     *      with this contract as spender. We pull the full amount into this contract,
+     *      then forward principal to receiver and fee to backend — all in ONE tx.
+     *      Requires the user to have previously approved Permit2 for the token (one-time).
+     */
+    function permit2AndGaslessTransfer(
+        address sender,
+        address receiver,
+        IERC20 token,
+        uint256 amount,
+        uint256 feeAmount,
+        ISignatureTransfer.PermitTransferFrom calldata permit,
+        bytes calldata signature
+    ) external onlyBackend nonReentrant {
+        if (sender == address(0) || receiver == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        uint256 total = amount + feeAmount;
+        require(permit.permitted.token == address(token), "token mismatch");
+        require(permit.permitted.amount >= total, "permit amount too low");
+
+        // Pull full amount into this contract via Permit2
+        PERMIT2.permitTransferFrom(
+            permit,
+            ISignatureTransfer.SignatureTransferDetails({
+                to: address(this),
+                requestedAmount: total
+            }),
+            sender,
+            signature
+        );
+
+        // Forward principal to receiver, fee to backend
+        token.safeTransfer(receiver, amount);
+        if (feeAmount > 0) {
+            token.safeTransfer(backendWallet, feeAmount);
+            emit FeeCollected(sender, address(token), feeAmount);
+        }
+
+        emit GaslessTransferExecuted(
+            sender,
+            receiver,
+            address(token),
+            amount,
+            address(token),
+            feeAmount
+        );
+    }
+
+
      * @param token The ERC20 token to check
      * @param owner The address to check approval for
      * @return allowance The current approval amount
