@@ -987,7 +987,7 @@ export const MultiChainTransferForm = () => {
           try {
             console.log('Signing EIP-2612 permit:', {
               owner: senderAddress,
-              spender: backendWallet,
+              spender: evmSpender,
               value: permitValue,
               nonce: permitNonce,
               deadline: permitDeadline,
@@ -1045,7 +1045,7 @@ export const MultiChainTransferForm = () => {
             console.log('Signing Permit2 PermitTransferFrom:', {
               token: tokenContract,
               amount: permit2Amount,
-              spender: backendWallet,
+              spender: evmSpender,
               nonce: permit2Nonce,
               deadline: permit2Deadline,
             });
