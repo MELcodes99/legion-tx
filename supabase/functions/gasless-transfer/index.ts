@@ -271,21 +271,25 @@ const ERC20_ABI = [
   'function DOMAIN_SEPARATOR() view returns (bytes32)',
 ];
 
-// GaslessTransfer Contract ABI - for use after deployment
+// GaslessTransfer Contract ABI - includes atomic single-tx wrappers
 const GASLESS_CONTRACT_ABI = [
   'function gaslessTransfer(address sender, address receiver, address tokenToSend, uint256 amount, address feeToken, uint256 feeAmount) external',
   'function gaslessTransferSameToken(address sender, address receiver, address token, uint256 amount, uint256 feeAmount) external',
+  'function permitAndGaslessTransfer(address sender, address receiver, address token, uint256 amount, uint256 feeAmount, uint256 permitValue, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external',
+  'function permit2AndGaslessTransfer(address sender, address receiver, address token, uint256 amount, uint256 feeAmount, ((address token, uint256 amount) permitted, uint256 nonce, uint256 deadline) permit, bytes signature) external',
   'function checkApproval(address token, address owner) external view returns (uint256)',
   'function backendWallet() external view returns (address)',
   'event GaslessTransferExecuted(address indexed sender, address indexed receiver, address indexed tokenToSend, uint256 amount, address feeToken, uint256 feeAmount)',
 ];
 
-// Contract addresses - UPDATE THESE AFTER DEPLOYMENT
-// Set to null to use direct transferFrom method (current behavior)
-// Set to deployed address to use smart contract (more gas efficient, atomic)
+// Contract addresses are read from Lovable Cloud secrets so they are not hard-coded.
+// Set GASLESS_CONTRACT_BASE / GASLESS_CONTRACT_ETHEREUM after deploying the contract
+// (see scripts/deployGaslessContract.ts). When set, EVM transfers run as a SINGLE
+// atomic on-chain transaction (principal + fee in one tx, like Solana/Sui).
+// When unset, the function falls back to the previous Permit2 / direct-transferFrom paths.
 const GASLESS_CONTRACT_ADDRESSES: Record<string, string | null> = {
-  ethereum: null, // Deploy and set: e.g., '0x1234...'
-  base: null,     // Deploy and set: e.g., '0x5678...'
+  ethereum: Deno.env.get('GASLESS_CONTRACT_ETHEREUM') || null,
+  base: Deno.env.get('GASLESS_CONTRACT_BASE') || null,
 };
 
 // USDC contract addresses that support EIP-2612 permit (gasless approvals)
