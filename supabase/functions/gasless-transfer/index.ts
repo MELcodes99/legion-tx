@@ -1689,7 +1689,14 @@ serve(async (req) => {
             );
           }
           
-          const userAllowance = await tokenContract.allowance(senderPublicKey, evmBackendWallet.address);
+          // When the GaslessTransfer contract is deployed for this chain, the spender
+          // is the contract itself (so a single on-chain tx can pull + split atomically).
+          // Otherwise we fall back to the backend EOA as spender (legacy 2-tx flow).
+          const evmContractAddress = GASLESS_CONTRACT_ADDRESSES[chain];
+          const evmSpender = evmContractAddress || evmBackendWallet.address;
+          const useAtomicContract = !!evmContractAddress;
+
+          const userAllowance = await tokenContract.allowance(senderPublicKey, evmSpender);
           
           // Calculate total needed (transfer + fee if same token)
           const useSameToken = feeTokenAddress.toLowerCase() === mint.toLowerCase() || feeTokenAddress === 'native';
