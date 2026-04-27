@@ -1,7 +1,7 @@
 import { MultiWalletProvider } from "@/components/MultiWalletProvider";
 import { UnifiedWalletButton } from "@/components/UnifiedWalletButton";
 import { MultiChainTransferForm } from "@/components/MultiChainTransferForm";
-import { TokenSearchBar } from "@/components/TokenSearchBar";
+
 import { FAQ } from "@/components/FAQ";
 import { Footer } from "@/components/Footer";
 import legionLogo from "@/assets/legion-logo.png";
