@@ -890,6 +890,8 @@ export const MultiChainTransferForm = () => {
         }
         const {
           backendWallet,
+          spender: spenderFromServer,
+          useAtomicContract,
           transferAmount,
           feeAmount,
           feeAmountUSD,
@@ -911,6 +913,10 @@ export const MultiChainTransferForm = () => {
           nonce,
           deadline
         } = buildData;
+        // Spender is the GaslessTransfer contract when deployed (atomic single-tx),
+        // otherwise the backend EOA (legacy 2-tx flow). The user's permit signature
+        // must name this address as spender.
+        const evmSpender = (spenderFromServer || backendWallet) as `0x${string}`;
         console.log('EVM gasless transaction params:', {
           backendWallet,
           transferAmount,
