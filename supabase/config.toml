@@ -11,6 +11,3 @@ verify_jwt = false
 
 [functions.discover-solana-tokens]
 verify_jwt = false
-
-[functions.deploy-gasless-contract]
-verify_jwt = false

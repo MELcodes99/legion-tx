@@ -158,116 +158,29 @@ async function fetchCoinGeckoPrices(geckoIds: string[]): Promise<Record<string, 
   return prices;
 }
 
-// Reasonable fallback values when ALL upstream APIs fail
+// Reasonable fallback values when upstream APIs fail
 const SUMMARY_FALLBACK = {
-  solana: 150,
-  sui: 2.8,
-  ethereum: 3500,
+  solana: 80,
+  sui: 0.85,
+  ethereum: 1850,
   skr: 0.024,
 };
 
-const SKR_MINT = 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3';
-
-// Fetch a single CoinGecko id with a tight timeout. Returns null on any failure.
-async function fetchGeckoOne(id: string): Promise<number | null> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
-      { headers: { Accept: 'application/json' }, signal: ctrl.signal }
-    );
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const v = data?.[id]?.usd;
-    return typeof v === 'number' && v > 0 ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-// CoinPaprika fallback (no key, generous rate limits).
-const PAPRIKA_IDS: Record<string, string> = {
-  solana: 'sol-solana',
-  sui: 'sui-sui',
-  ethereum: 'eth-ethereum',
-};
-async function fetchPaprikaOne(symbol: 'solana' | 'sui' | 'ethereum'): Promise<number | null> {
-  try {
-    const id = PAPRIKA_IDS[symbol];
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(`https://api.coinpaprika.com/v1/tickers/${id}`, {
-      headers: { Accept: 'application/json' },
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const v = data?.quotes?.USD?.price;
-    return typeof v === 'number' && v > 0 ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-// SKR is a Solana SPL token — use on-chain price sources.
-async function fetchSkrPrice(): Promise<number | null> {
-  // 1. GeckoTerminal (most accurate for on-chain SPL prices)
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(
-      `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${SKR_MINT}`,
-      { headers: { Accept: 'application/json' }, signal: ctrl.signal }
-    );
-    clearTimeout(timer);
-    if (res.ok) {
-      const data = await res.json();
-      const p = parseFloat(data?.data?.attributes?.price_usd);
-      if (Number.isFinite(p) && p > 0) return p;
-    }
-  } catch {}
-  // 2. DexScreener fallback
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(
-      `https://api.dexscreener.com/latest/dex/tokens/${SKR_MINT}`,
-      { headers: { Accept: 'application/json' }, signal: ctrl.signal }
-    );
-    clearTimeout(timer);
-    if (res.ok) {
-      const data = await res.json();
-      const best = (data?.pairs || [])
-        .filter((p: any) => p.chainId === 'solana' && p.priceUsd)
-        .sort((a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
-      const p = best ? parseFloat(best.priceUsd) : NaN;
-      if (Number.isFinite(p) && p > 0) return p;
-    }
-  } catch {}
-  // 3. CoinGecko (seeker-2) last resort
-  return await fetchGeckoOne('seeker-2');
-}
-
-async function fetchPriceWithFallback(symbol: 'solana' | 'sui' | 'ethereum', geckoId: string): Promise<number> {
-  const gecko = await fetchGeckoOne(geckoId);
-  if (gecko !== null) return gecko;
-  const paprika = await fetchPaprikaOne(symbol);
-  if (paprika !== null) return paprika;
-  return SUMMARY_FALLBACK[symbol];
-}
-
 // Lightweight handler that returns the prices the dashboard polls every 30s.
+// Shape mirrors the legacy `gasless-transfer?action=get_token_prices` response.
 async function handleSummary(): Promise<Response> {
-  const [solana, sui, ethereum, skrLive] = await Promise.all([
-    fetchPriceWithFallback('solana', 'solana'),
-    fetchPriceWithFallback('sui', 'sui'),
-    fetchPriceWithFallback('ethereum', 'ethereum'),
-    fetchSkrPrice(),
-  ]);
-  const skr = skrLive ?? SUMMARY_FALLBACK.skr;
+  const ids = ['solana', 'sui', 'ethereum', 'seeker-2'];
+  let geckoPrices: Record<string, number> = {};
+  try {
+    geckoPrices = await fetchCoinGeckoPrices(ids);
+  } catch (e) {
+    console.warn('Summary CoinGecko fetch failed:', e);
+  }
+
+  const solana = geckoPrices['solana'] ?? SUMMARY_FALLBACK.solana;
+  const sui = geckoPrices['sui'] ?? SUMMARY_FALLBACK.sui;
+  const ethereum = geckoPrices['ethereum'] ?? SUMMARY_FALLBACK.ethereum;
+  const skr = geckoPrices['seeker-2'] ?? SUMMARY_FALLBACK.skr;
 
   return new Response(
     JSON.stringify({

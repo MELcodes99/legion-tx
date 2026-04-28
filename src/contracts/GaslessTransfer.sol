@@ -68,38 +68,10 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-
-/// @notice Minimal Permit2 ISignatureTransfer interface (Uniswap)
-interface ISignatureTransfer {
-    struct TokenPermissions {
-        address token;
-        uint256 amount;
-    }
-    struct PermitTransferFrom {
-        TokenPermissions permitted;
-        uint256 nonce;
-        uint256 deadline;
-    }
-    struct SignatureTransferDetails {
-        address to;
-        uint256 requestedAmount;
-    }
-    function permitTransferFrom(
-        PermitTransferFrom calldata permit,
-        SignatureTransferDetails calldata transferDetails,
-        address owner,
-        bytes calldata signature
-    ) external;
-}
 
 contract GaslessTransfer is ReentrancyGuard {
     using SafeERC20 for IERC20;
-
-    /// @notice Canonical Permit2 contract address (same on every chain)
-    ISignatureTransfer public constant PERMIT2 =
-        ISignatureTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
 
     /// @notice The backend wallet that can submit transactions and receives fees
     address public immutable backendWallet;
@@ -247,111 +219,7 @@ contract GaslessTransfer is ReentrancyGuard {
     }
 
     /**
-     * @notice Atomic single-tx gasless transfer using EIP-2612 permit
-     * @dev Calls permit() then performs the principal+fee split inside ONE transaction.
-     *      The user signs an EIP-2612 permit naming THIS contract as spender; the
-     *      backend submits this single tx which atomically: (1) sets allowance via
-     *      permit, (2) moves principal sender→receiver, (3) moves fee sender→backend.
-     *      Either all three succeed or the whole transaction reverts.
-     */
-    function permitAndGaslessTransfer(
-        address sender,
-        address receiver,
-        IERC20 token,
-        uint256 amount,
-        uint256 feeAmount,
-        uint256 permitValue,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external onlyBackend nonReentrant {
-        if (sender == address(0) || receiver == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAmount();
-
-        // Set allowance gaslessly via EIP-2612 permit. Wrapped in try/catch so a
-        // pre-existing sufficient allowance (race condition) doesn't revert the tx.
-        try IERC20Permit(address(token)).permit(
-            sender,
-            address(this),
-            permitValue,
-            deadline,
-            v,
-            r,
-            s
-        ) {} catch {
-            // ignore — we'll fail below if allowance is actually insufficient
-        }
-
-        token.safeTransferFrom(sender, receiver, amount);
-        if (feeAmount > 0) {
-            token.safeTransferFrom(sender, backendWallet, feeAmount);
-            emit FeeCollected(sender, address(token), feeAmount);
-        }
-
-        emit GaslessTransferExecuted(
-            sender,
-            receiver,
-            address(token),
-            amount,
-            address(token),
-            feeAmount
-        );
-    }
-
-    /**
-     * @notice Atomic single-tx gasless transfer using Permit2 (Uniswap)
-     * @dev User signs a Permit2 PermitTransferFrom for the FULL amount (principal+fee)
-     *      with this contract as spender. We pull the full amount into this contract,
-     *      then forward principal to receiver and fee to backend — all in ONE tx.
-     *      Requires the user to have previously approved Permit2 for the token (one-time).
-     */
-    function permit2AndGaslessTransfer(
-        address sender,
-        address receiver,
-        IERC20 token,
-        uint256 amount,
-        uint256 feeAmount,
-        ISignatureTransfer.PermitTransferFrom calldata permit,
-        bytes calldata signature
-    ) external onlyBackend nonReentrant {
-        if (sender == address(0) || receiver == address(0)) revert ZeroAddress();
-        if (amount == 0) revert ZeroAmount();
-
-        uint256 total = amount + feeAmount;
-        require(permit.permitted.token == address(token), "token mismatch");
-        require(permit.permitted.amount >= total, "permit amount too low");
-
-        // Pull full amount into this contract via Permit2
-        PERMIT2.permitTransferFrom(
-            permit,
-            ISignatureTransfer.SignatureTransferDetails({
-                to: address(this),
-                requestedAmount: total
-            }),
-            sender,
-            signature
-        );
-
-        // Forward principal to receiver, fee to backend
-        token.safeTransfer(receiver, amount);
-        if (feeAmount > 0) {
-            token.safeTransfer(backendWallet, feeAmount);
-            emit FeeCollected(sender, address(token), feeAmount);
-        }
-
-        emit GaslessTransferExecuted(
-            sender,
-            receiver,
-            address(token),
-            amount,
-            address(token),
-            feeAmount
-        );
-    }
-
-    /**
-     * @notice Check current approval amount for a token
+     * @notice Check if a user has approved this contract for a specific token
      * @param token The ERC20 token to check
      * @param owner The address to check approval for
      * @return allowance The current approval amount

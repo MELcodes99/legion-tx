@@ -1,169 +1,104 @@
-## Goal
+# Why gasless transactions are still broken
 
-Make EVM gasless transfers behave exactly like Solana and Sui: **one on-chain transaction** that atomically (a) moves the principal from sender → recipient and (b) moves the fee from sender → backend. Either both succeed or the whole tx reverts.
+Direct test of the deployed function right now returns:
 
-Solana/Sui code paths are NOT touched.
-
----
-
-## Why this needs a smart contract
-
-On EVM there is no native primitive that lets a third party (the backend) move tokens from a user's wallet AND splits the destination in a single transaction. ERC-20's `transferFrom` only supports one destination per call. The current "gasless" EVM flow therefore submits **two** `transferFrom` calls (principal + fee) — they're gasless for the user, but not atomic.
-
-The repo already contains the right contract: `src/contracts/GaslessTransfer.sol`. It exposes:
-- `gaslessTransfer(sender, receiver, tokenToSend, amount, feeToken, feeAmount)` — different fee token
-- `gaslessTransferSameToken(sender, receiver, token, amount, feeAmount)` — same token (gas-optimized)
-
-Both perform the principal transfer + fee transfer inside one `nonReentrant` call. That is the atomic primitive we need.
-
-The edge function (`supabase/functions/gasless-transfer/index.ts`) is **already wired** to call this contract (METHOD 1 at line 2064) when `GASLESS_CONTRACT_ADDRESSES[chain]` is non-null. Today both entries are `null`, which is why it falls back to the 2-tx Permit2/permit flow.
-
-So the work is: **deploy the contract, plug in the addresses, switch the approval/permit spender from the backend EOA to the contract, and verify**.
-
----
-
-## What changes (and what doesn't)
-
-### Changes
-1. **Deploy `GaslessTransfer.sol`** to Base mainnet and Ethereum mainnet, with `backendWallet = 0x89AF…9bb1` (the existing `EVM_BACKEND_WALLET_PRIVATE_KEY` address) as the constructor arg.
-2. **Edge function `gasless-transfer/index.ts`**:
-   - Set `GASLESS_CONTRACT_ADDRESSES.base` and `.ethereum` to the deployed addresses (read from new secrets `GASLESS_CONTRACT_BASE` / `GASLESS_CONTRACT_ETHEREUM` so addresses aren't hard-coded).
-   - In `build_atomic_tx` for Base/Ethereum: when the contract is configured, return the contract address as the **permit/Permit2 spender** instead of the backend EOA. This is the critical change — the user signs a permit allowing the *contract* (not the backend) to pull tokens.
-   - Make sure the EIP-2612 `permit` call and Permit2 `permitTransferFrom` both target the contract address so the contract can do `safeTransferFrom(sender, …)` inside its own tx.
-   - In `execute_evm_transfer`: the existing METHOD 1 already calls `gaslessTransfer` / `gaslessTransferSameToken` correctly — verify it's reached now that addresses are set.
-   - Keep METHOD 2 (Permit2 2-tx) and METHOD 3 (direct transferFrom) as fallbacks for safety, but they should not be used once the contract is live on each chain.
-3. **`MultiChainTransferForm.tsx`**: no logic change required — it already forwards `permitDomain`, `permit2Address`, signatures, etc. from the build response. The only thing that changes is the *value* of the spender encoded inside the permit message, which the backend already computes.
-4. **One-time user approvals**:
-   - **USDC (Base + Ethereum)**: uses EIP-2612 native permit → no on-chain approval needed, ever. The permit message will name the contract as spender. Fully gasless from the first transfer.
-   - **USDT (Base)**: uses Permit2. The Permit2 contract is the spender of the user's USDT (one-time approval to `0x000000000022D473030F116dDEE9F6B43aC78BA3`, already handled by the existing `permit2ApprovalNeeded` flow). The Permit2 `permitTransferFrom` call inside our contract will pull tokens directly to the contract, which then does the atomic split.
-   - **USDT on Ethereum**: stays "Coming Soon" (USDT mainnet has no permit and no Permit2 listing the way the current code paths are built; revisit after deployment).
-
-### NOT changed
-- Solana code paths (SPL Token, atomic instructions, validation, signing).
-- Sui code paths.
-- Token discovery, prices, UI form, rate limiting, analytics, logging.
-- `supabase/config.toml` (no new functions).
-
----
-
-## Technical detail (for the engineer)
-
-### 1. Deployment
-
-I'll write a one-shot Deno script (run once locally, no edge function needed) that:
-- Reads `EVM_BACKEND_WALLET_PRIVATE_KEY` from a deployer wallet (or asks the user to use a separate funded deployer EOA — recommended).
-- Compiles `GaslessTransfer.sol` against OpenZeppelin (`@openzeppelin/contracts@5.x`) using `solc` via npm.
-- Deploys to Base mainnet (`https://base-rpc.publicnode.com`) and Ethereum mainnet (`https://ethereum-rpc.publicnode.com`) with constructor arg = backend wallet address.
-- Prints the two deployed addresses.
-- Optionally verifies on Basescan/Etherscan if API keys are provided (we can skip and verify manually).
-
-**Cost**: Base deployment ≈ 0.0002 ETH (~$0.50). Ethereum deployment ≈ 0.005–0.02 ETH depending on gas (~$15–60). The user funds the deployer EOA before we run the script.
-
-### 2. Secrets
-
-Add two new edge-function secrets so contract addresses aren't hard-coded:
-- `GASLESS_CONTRACT_BASE`
-- `GASLESS_CONTRACT_ETHEREUM`
-
-Edge function reads them at boot and overrides the `null` defaults in `GASLESS_CONTRACT_ADDRESSES`.
-
-### 3. Spender swap inside `build_atomic_tx` (the actual code change)
-
-Currently (around lines 1828–1871), `permitDomain` + the EIP-712 message encode `spender = evmBackendWallet.address`. Change that to:
-
-```ts
-const spender = GASLESS_CONTRACT_ADDRESSES[chain] ?? evmBackendWallet.address;
+```
+546 WORKER_RESOURCE_LIMIT — Function failed due to not having enough compute resources
 ```
 
-…and use `spender` everywhere the backend address is used as the approval target (EIP-2612 permit `spender` field, Permit2 `transferDetails.to`, allowance reads). This is ~10 lines of edits, isolated to the EVM branch — Solana/Sui untouched.
+Logs show a constant loop:
 
-### 4. Execute path
-
-`METHOD 1` (lines 2064–2096) is already correct:
-
-```ts
-const gaslessContract = new ethers.Contract(contractAddress, GASLESS_CONTRACT_ABI, backendSigner);
-if (useSameTokenForFee) {
-  await gaslessContract.gaslessTransferSameToken(senderAddress, recipientAddress, tokenContract, transferAmount, feeAmount);
-} else {
-  await gaslessContract.gaslessTransfer(senderAddress, recipientAddress, tokenContract, transferAmount, feeToken, feeAmount);
-}
+```
+booted (time: ~100ms)
+ERROR module "/utf-8-validate@6.0.6/denonext/package.json" not found
+ERROR module "/bufferutil@4.1.0/denonext/package.json" not found
+ERROR CPU Time exceeded
+shutdown
 ```
 
-Backend pays the gas, single tx, atomic. Same model as Solana's atomic builder.
+The previous "minimal fix" only lazy-loaded the Sui SDK. `@solana/web3.js`, `@solana/spl-token`, and `ethers` are **still imported at the top** of `supabase/functions/gasless-transfer/index.ts` (2,877 lines). Loading all three SDKs at boot exceeds the worker's CPU budget — the function dies before any request handler runs. That's why every Send click on every chain returns "Failed to send a request to the edge function".
 
-### 5. Permit2 nuance
+The minimal-fix approach has been tried and isn't enough. The router needs to be split.
 
-For USDT/Base, the user's one-time approval is to **Permit2** (not to our contract). The contract calls `Permit2.permitTransferFrom(...)` from inside `gaslessTransfer` to pull tokens. We need a small addition to the contract's ABI usage in the edge function to include a Permit2-aware variant, OR we add a thin wrapper function to the contract: `gaslessTransferWithPermit2(...)` that internally calls Permit2 then splits. To keep the deployed contract minimal and audited as-is, the cleanest approach is:
+# Plan: split into chain-specific edge functions
 
-- For **USDC (native permit)**: user signs an EIP-2612 permit naming our contract as spender → backend submits one tx that calls `permit()` then `gaslessTransferSameToken()`. To make it truly one tx, we either (a) bundle via a multicall on the contract, or (b) add a helper `permitAndTransfer(...)` to `GaslessTransfer.sol` before deploying.
+This matches the architecture already documented in project memory (`distributed-gasless-transfer-router`).
 
-I recommend option (b): add one function to `GaslessTransfer.sol` before deployment:
+## 1. Create three new lightweight edge functions
 
-```solidity
-function permitAndGaslessTransfer(
-    address sender, address receiver,
-    IERC20 token, uint256 amount, uint256 feeAmount,
-    uint256 permitValue, uint256 deadline,
-    uint8 v, bytes32 r, bytes32 s
-) external onlyBackend nonReentrant {
-    IERC20Permit(address(token)).permit(sender, address(this), permitValue, deadline, v, r, s);
-    token.safeTransferFrom(sender, receiver, amount);
-    if (feeAmount > 0) token.safeTransferFrom(sender, backendWallet, feeAmount);
-}
-```
+Each one boots only the SDK it needs, so each stays well within the CPU budget.
 
-This makes USDC fully one-tx (permit + split + transfer in a single on-chain tx), matching Solana/Sui.
+- **`gasless-solana`** — handles `build_atomic_tx` and `submit_signed_tx` for Solana. Imports only `@solana/web3.js` and `@solana/spl-token`. Lifts the existing Solana logic out of the monolith verbatim (no behavior changes — Solana flow is frozen per project memory).
+- **`gasless-sui`** — handles Sui transfers. Imports only `@mysten/sui`. Lifts the existing Sui logic out verbatim (Sui flow is frozen per project memory).
+- **`gasless-evm`** — handles Base and Ethereum (USDC permit flow + USDT Permit2 on Base). Imports only `ethers`. Native ETH / Base ETH stays rejected with a clear "not yet supported" message because the `GaslessTransfer.sol` contract is not deployed.
 
-For **USDT/Base + Permit2**, similar wrapper:
+Each function:
+- Uses the standard CORS headers on every response (success and error).
+- Returns structured JSON for validation errors (400) instead of letting boot failures surface as "Failed to fetch".
+- Has its own `verify_jwt = false` entry in `supabase/config.toml`.
+- Pins exact npm versions in `supabase/functions/deno.json` (no carets) per project memory.
 
-```solidity
-function permit2AndGaslessTransfer(
-    address sender, address receiver,
-    IERC20 token, uint256 amount, uint256 feeAmount,
-    ISignatureTransfer.PermitTransferFrom calldata permit,
-    bytes calldata signature
-) external onlyBackend nonReentrant { ... }
-```
+## 2. Turn `gasless-transfer` into a thin router
 
-I'll add both wrappers to `GaslessTransfer.sol` before deploying, so every supported case (USDC native permit, USDT Permit2) becomes truly single-tx atomic.
+Replace the 2,877-line monolith with a small router (~100 lines) that:
+- Reads the request body once.
+- Routes to the correct chain function via `supabase.functions.invoke()` based on `chain` (or `network`) field.
+- Forwards the response and CORS headers back to the client.
+- Keeps the existing `get_backend_wallet` / health action so deployed health checks return 200.
+- **No SDK imports at all** at the top level — guarantees boot.
 
-### 6. Validation plan (before saying "done")
+This preserves the existing public API the frontend already uses, so no frontend transfer code needs to change.
 
-1. Deploy script runs cleanly on Base testnet first (Sepolia) with the same wrappers — verify both wrappers execute end-to-end.
-2. Deploy to Base mainnet, fund backend EOA with a tiny amount of ETH for gas.
-3. Edge function direct call: `build_atomic_tx` chain=base USDC → response has `spender` = contract address (not backend EOA).
-4. End-to-end UI test on Base USDC: sign one permit → see exactly **one** Basescan tx that emits both `Transfer(sender, recipient, amount)` and `Transfer(sender, backend, fee)` events.
-5. Repeat for Base USDT (Permit2) — also one tx, both transfers atomic.
-6. Repeat for Ethereum USDC.
-7. Solana + Sui regression: send a small USDC tx on each, confirm identical behavior to today.
+## 3. Preserve existing Solana and Sui transaction flows exactly
 
-Only after all 7 pass do I report success.
+Project memory explicitly marks Solana and Sui logic as frozen. The split is a **lift-and-shift**:
+- Same `build_atomic_tx` / `submit_signed_tx` action names.
+- Same `transferAmountSmallest` handoff between build and submit (prevents the rounding mismatch you've hit before).
+- Same backend co-signing / single-transaction structure.
+- Same min $2 USD validation, full-balance epsilon tolerance, non-stable USD-value validation, and SKR $0.50 fixed gas fee.
 
----
+## 4. EVM behavior — honest about the limitation
 
-## Files / actions
+Without the deployed `GaslessTransfer.sol` contract, **truly atomic single-tx EVM transfers (deduct fee + transfer to recipient inside one on-chain transaction) are not possible.** The current EVM flow uses EIP-2612 permits (USDC) and Permit2 (USDT on Base) — the user signs off-chain, and the backend submits two `transferFrom` calls (one to recipient, one for the fee). That is gasless for the user, but it is **two on-chain transfers**, not one atomic contract call.
 
-### New
-- `scripts/deployGaslessContract.ts` — one-shot deployer (Deno, runs locally, not deployed as edge function).
-- Two new edge-function secrets: `GASLESS_CONTRACT_BASE`, `GASLESS_CONTRACT_ETHEREUM` (added via the secret tool after I confirm contract addresses with you).
+In this plan I will:
+- Keep USDC gasless on Ethereum and Base (permit flow, backend pays gas, fee routed to backend wallet `0x89AF...`).
+- Keep USDT on Base gasless via Permit2.
+- Keep USDT on Ethereum marked "Coming Soon".
+- Reject native ETH / Base ETH gasless with a clean "not yet supported" message until the contract is deployed.
 
-### Edited
-- `src/contracts/GaslessTransfer.sol` — add `permitAndGaslessTransfer` and `permit2AndGaslessTransfer` wrappers (before deployment).
-- `supabase/functions/gasless-transfer/index.ts` — read contract addresses from secrets; in `build_atomic_tx` for Base/Ethereum set `spender = contractAddress`; in `execute_evm_transfer` route to the new wrapper functions when the contract is configured. ~30 lines of edits, EVM branch only.
+If you want true single-transaction atomic EVM transfers, you (or I, with your help compiling/deploying via Foundry/Remix) need to deploy `src/contracts/GaslessTransfer.sol` and give me the contract addresses for Ethereum and Base. That can be a separate follow-up — it does not block fixing the current 546 crash on Solana, Sui, and the existing EVM permit flow.
 
-### NOT edited
-- All Solana code in `gasless-transfer/index.ts`.
-- All Sui code in `gasless-transfer/index.ts`.
-- `MultiChainTransferForm.tsx`.
-- Any pricing, UI, analytics, or rate-limit code.
+## 5. Validation before claiming "done"
 
----
+After deploying the new functions I will, in this order:
 
-## What I need from you to deploy
+1. Direct backend call: `gasless-solana` health → expect 200, no `CPU Time exceeded`.
+2. Direct backend call: `gasless-sui` health → expect 200.
+3. Direct backend call: `gasless-evm` health → expect 200.
+4. Direct backend call: `gasless-transfer` (router) `get_backend_wallet` → expect 200 with all chain backend addresses.
+5. Check `gasless-transfer` logs — confirm zero `WORKER_RESOURCE_LIMIT`, zero `bufferutil`, zero `utf-8-validate`, zero `CPU Time exceeded`.
+6. From the preview UI: connect a wallet and click Send on Solana, Sui, and Base → confirm we now reach the wallet-sign prompt instead of "Failed to send a request". Full on-chain completion still requires you to actually sign and have funded balances.
 
-1. Confirm you want to fund the deployer wallet with ~$1 on Base + ~$30 on Ethereum (one-time deployment cost). You can use the existing backend wallet as deployer or give me a separate deployer key — separate is safer.
-2. After I write the deployment script, you run it (or approve me running it) once the deployer wallet is funded.
-3. I take the printed contract addresses and add them as secrets `GASLESS_CONTRACT_BASE` / `GASLESS_CONTRACT_ETHEREUM`.
+I will only say "done" once steps 1–5 pass and the UI reaches the sign prompt in step 6.
 
-If you'd rather skip Ethereum mainnet for now (because of gas cost), I can deploy to Base only; Ethereum stays on the existing 2-tx Permit2 path until you're ready. Solana/Sui are unaffected either way.
+## 6. Files that will change
+
+- **New:** `supabase/functions/gasless-solana/index.ts`
+- **New:** `supabase/functions/gasless-sui/index.ts`
+- **New:** `supabase/functions/gasless-evm/index.ts`
+- **Rewritten (router):** `supabase/functions/gasless-transfer/index.ts` (~2,877 lines → ~100 lines)
+- **Updated:** `supabase/functions/deno.json` (split SDK pins per function group)
+- **Updated:** `supabase/config.toml` (add `verify_jwt = false` for the three new functions)
+- **Untouched:** All frontend code. `MultiChainTransferForm.tsx` keeps calling `gasless-transfer` exactly as it does today.
+
+# Expected outcome
+
+- "Failed to send a request to the edge function" stops on all chains.
+- Solana and Sui gasless transfers reach build → user-sign → backend co-sign → submit (single atomic transaction, as they were designed).
+- Base USDC and USDC/Ethereum gasless transfers reach the permit-sign step and complete via the existing 2-call backend flow (gasless for the user, but not single-on-chain-tx until the EVM contract is deployed).
+- Native ETH / Base ETH return a clean unsupported message instead of a worker crash.
+
+<lov-actions>
+<lov-link url="https://docs.lovable.dev/tips-tricks/troubleshooting">Troubleshooting docs</lov-link>
+</lov-actions>

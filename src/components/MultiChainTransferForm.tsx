@@ -890,8 +890,6 @@ export const MultiChainTransferForm = () => {
         }
         const {
           backendWallet,
-          spender: spenderFromServer,
-          useAtomicContract,
           transferAmount,
           feeAmount,
           feeAmountUSD,
@@ -913,10 +911,6 @@ export const MultiChainTransferForm = () => {
           nonce,
           deadline
         } = buildData;
-        // Spender is the GaslessTransfer contract when deployed (atomic single-tx),
-        // otherwise the backend EOA (legacy 2-tx flow). The user's permit signature
-        // must name this address as spender.
-        const evmSpender = (spenderFromServer || backendWallet) as `0x${string}`;
         console.log('EVM gasless transaction params:', {
           backendWallet,
           transferAmount,
@@ -987,7 +981,7 @@ export const MultiChainTransferForm = () => {
           try {
             console.log('Signing EIP-2612 permit:', {
               owner: senderAddress,
-              spender: evmSpender,
+              spender: backendWallet,
               value: permitValue,
               nonce: permitNonce,
               deadline: permitDeadline,
@@ -1014,7 +1008,7 @@ export const MultiChainTransferForm = () => {
               primaryType: 'Permit',
               message: {
                 owner: senderAddress,
-                spender: evmSpender,
+                spender: backendWallet as `0x${string}`,
                 value: BigInt(permitValue),
                 nonce: BigInt(permitNonce),
                 deadline: BigInt(permitDeadline),
@@ -1045,7 +1039,7 @@ export const MultiChainTransferForm = () => {
             console.log('Signing Permit2 PermitTransferFrom:', {
               token: tokenContract,
               amount: permit2Amount,
-              spender: evmSpender,
+              spender: backendWallet,
               nonce: permit2Nonce,
               deadline: permit2Deadline,
             });
@@ -1075,7 +1069,7 @@ export const MultiChainTransferForm = () => {
                   token: tokenContract as `0x${string}`,
                   amount: BigInt(permit2Amount),
                 },
-                spender: evmSpender,
+                spender: backendWallet as `0x${string}`,
                 nonce: BigInt(permit2Nonce),
                 deadline: BigInt(permit2Deadline),
               },
