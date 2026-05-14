@@ -24,6 +24,7 @@ const KNOWN_TOKEN_IDS: Record<string, string> = {
   'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn': 'pump-fun', // PUMP
   'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2': 'monad-protocol', // MON - monad-protocol is the correct CoinGecko ID
   'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3': 'seeker-2', // SKR - Seeker token
+  '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ': 'usd-coin', // USDF - stablecoin pegged to $1
   
   // Sui
   '0x2::sui::SUI': 'sui',
@@ -51,6 +52,7 @@ const KNOWN_TOKEN_IDS: Record<string, string> = {
 const STABLECOINS = new Set([
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC Solana
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT Solana
+  '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ', // USDF Solana
   '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC ETH
   '0xdAC17F958D2ee523a2206206994597C13D831ec7', // USDT ETH
   '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC Base
