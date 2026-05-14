@@ -199,6 +199,7 @@ const CHAIN_CONFIG = {
       'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v': { name: 'USDC', decimals: 6 },
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
       'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3': { name: 'SKR', decimals: 6 },
+      '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ': { name: 'USDF', decimals: 6 },
     }
   },
   sui: {
@@ -431,6 +432,7 @@ function getTokenConfig(tokenKey: string) {
     'USDT_SOL': { mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol: 'USDT', decimals: 6, chain: 'solana', isNative: false },
     'SOL': { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', decimals: 9, chain: 'solana', isNative: true },
     'SKR_SOL': { mint: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3', symbol: 'SKR', decimals: 6, chain: 'solana', isNative: false },
+    'USDF_SOL': { mint: '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ', symbol: 'USDF', decimals: 6, chain: 'solana', isNative: false },
     'USDC_SUI': { mint: '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC', symbol: 'USDC', decimals: 6, chain: 'sui', isNative: false },
     'USDT_SUI': { mint: '0x375f70cf2ae4c00bf37117d0c85a2c71545e6ee05c4a5c7d282cd66a4504b068::usdt::USDT', symbol: 'USDT', decimals: 6, chain: 'sui', isNative: false },
     'SUI': { mint: '0x2::sui::SUI', symbol: 'SUI', decimals: 9, chain: 'sui', isNative: true },
@@ -1004,7 +1006,7 @@ serve(async (req) => {
         const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
         if (feeTokenInfo) {
           // Map token name to CoinGecko ID
-          if (feeTokenInfo.name === 'USDC') {
+          if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF') {
             feeTokenSymbol = 'usd-coin';
           } else if (feeTokenInfo.name === 'USDT') {
             feeTokenSymbol = 'tether';

@@ -29,6 +29,7 @@ import suiLogo from '@/assets/sui-logo.png';
 import baseLogo from '@/assets/base-logo.jpeg';
 import ethLogo from '@/assets/eth-logo.jpeg';
 import skrLogo from '@/assets/skr-logo.jpeg';
+import usdfLogo from '@/assets/usdf-logo.jpeg';
 import { SuiClient } from '@mysten/sui/client';
 import { Transaction as SuiTransaction } from '@mysten/sui/transactions';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -1212,6 +1213,7 @@ export const MultiChainTransferForm = () => {
     if (symbol === 'SOL') return solanaLogo;
     if (symbol === 'SUI') return suiLogo;
     if (symbol === 'SKR') return skrLogo;
+    if (symbol === 'USDF') return usdfLogo;
     if (symbol === 'ETH') {
       return token.chain === 'base' ? baseLogo : ethLogo;
     }
@@ -1485,7 +1487,7 @@ export const MultiChainTransferForm = () => {
               const getTokenAmount = () => {
                 if (!tokenConfig) return 0;
                 // For stablecoins (USDC/USDT), 1:1 with USD
-                if (tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT') {
+                if (tokenConfig.symbol === 'USDC' || tokenConfig.symbol === 'USDT' || tokenConfig.symbol === 'USDF') {
                   return amountUsd;
                 }
                 // For native tokens, use real-time prices
@@ -1506,7 +1508,7 @@ export const MultiChainTransferForm = () => {
               const getGasFeeInTokens = () => {
                 if (!selectedGasTokenConfig) return gasFee;
                 // For stablecoins, fee is in USD
-                if (selectedGasTokenConfig.symbol === 'USDC' || selectedGasTokenConfig.symbol === 'USDT') {
+                if (selectedGasTokenConfig.symbol === 'USDC' || selectedGasTokenConfig.symbol === 'USDT' || selectedGasTokenConfig.symbol === 'USDF') {
                   return gasFee;
                 }
                 // For SKR token, use SKR price
@@ -1526,8 +1528,8 @@ export const MultiChainTransferForm = () => {
               const gasFeeTokens = getGasFeeInTokens();
               const tokenSymbol = tokenConfig?.symbol || 'tokens';
               const gasSymbol = selectedGasTokenConfig?.symbol || 'tokens';
-              const isStablecoin = tokenSymbol === 'USDC' || tokenSymbol === 'USDT';
-              const isGasStablecoin = gasSymbol === 'USDC' || gasSymbol === 'USDT';
+              const isStablecoin = tokenSymbol === 'USDC' || tokenSymbol === 'USDT' || tokenSymbol === 'USDF';
+              const isGasStablecoin = gasSymbol === 'USDC' || gasSymbol === 'USDT' || gasSymbol === 'USDF';
               
               return (
                 <div className="rounded-lg bg-secondary/30 p-3 space-y-1.5 text-sm">

@@ -49,6 +49,15 @@ export const TOKENS: Record<string, TokenConfig> = {
     gasFee: 0.50,
     isNative: false,
   },
+  'USDF_SOL': {
+    name: 'USDF',
+    symbol: 'USDF',
+    mint: '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ',
+    decimals: 6,
+    chain: 'solana',
+    gasFee: 0.50,
+    isNative: false,
+  },
   
   // Sui tokens
   'USDC_SUI': {
