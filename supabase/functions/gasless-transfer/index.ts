@@ -1003,7 +1003,6 @@ serve(async (req) => {
           const recipientPk = new PublicKey(recipientPublicKey);
           const mintPk = new PublicKey(mint);
           const isNativeSolTransfer = mint === WRAPPED_SOL_MINT && tokenSymbol === 'SOL';
-          const transferTokenProgramId = await getSolanaTokenProgramId(connection, mintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
 
         // CRITICAL: Use FIXED FEE model with token price conversion
         // Solana transfers: $0.50 fee (converted to token amount based on current price)
