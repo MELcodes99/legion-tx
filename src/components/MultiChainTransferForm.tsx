@@ -1356,7 +1356,7 @@ export const MultiChainTransferForm = () => {
         <TokenSelectionModal
           open={tokenSelectionOpen}
           onClose={() => setTokenSelectionOpen(false)}
-          tokens={discoveredTokens}
+          tokens={connectedChain ? discoveredTokens.filter(t => t.chain === connectedChain) : discoveredTokens}
           onSelectToken={(token) => {
             setSelectedDiscoveredToken(token);
             // Try to map to existing token key for transfer

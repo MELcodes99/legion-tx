@@ -2765,37 +2765,44 @@ serve(async (req) => {
           const confirmed = true;
 
 
-
-          const balanceLamports = await connection.getBalance(backendWallet.publicKey);
-
-          // Get token symbol for logging
+          // Defer post-tx work (balance check, logging, daily report) so the
+          // frontend gets the success response immediately. The transaction is
+          // already broadcast — these are bookkeeping operations only.
           const logTokenInfo = ALLOWED_TOKENS[mint as keyof typeof ALLOWED_TOKENS];
           const logTokenSymbol = logTokenInfo?.name || mint || 'UNKNOWN';
           const logGasTokenInfo = gasToken ? getTokenConfig(gasToken) : null;
           const logGasTokenSymbol = logGasTokenInfo ? logGasTokenInfo.symbol : logTokenSymbol;
 
-          // Log successful transaction
-          await logTransaction({
-            sender_address: senderPublicKey || '',
-            receiver_address: recipientPublicKey || '',
-            amount: effectiveAmount || 0,
-            token_sent: logTokenSymbol,
-            gas_token: logGasTokenSymbol,
-            chain: 'solana',
-            status: 'success',
-            tx_hash: signature,
-            gas_fee_amount: feeAmount,
-            gas_fee_usd: feeAmountUSD,
-          });
+          const deferredWork = (async () => {
+            try {
+              await logTransaction({
+                sender_address: senderPublicKey || '',
+                receiver_address: recipientPublicKey || '',
+                amount: effectiveAmount || 0,
+                token_sent: logTokenSymbol,
+                gas_token: logGasTokenSymbol,
+                chain: 'solana',
+                status: 'success',
+                tx_hash: signature,
+                gas_fee_amount: feeAmount,
+                gas_fee_usd: feeAmountUSD,
+              });
+              await updateDailyReport();
+            } catch (e) {
+              console.error('Deferred post-tx work failed:', e);
+            }
+          })();
 
-          // Update daily report
-          await updateDailyReport();
+          // @ts-ignore - EdgeRuntime is available in Supabase edge functions
+          if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+            // @ts-ignore
+            EdgeRuntime.waitUntil(deferredWork);
+          }
 
           return new Response(
             JSON.stringify({
               success: true,
               signature: signature,
-              backendWalletBalance: balanceLamports / LAMPORTS_PER_SOL,
               message: 'Gasless atomic transfer completed successfully',
             }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
