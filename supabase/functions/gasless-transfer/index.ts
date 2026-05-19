@@ -2642,16 +2642,27 @@ serve(async (req) => {
           console.log('- Transfer amount (sender → recipient):', transferAmountSmallest.toString());
           console.log('- Fee amount (sender → backend in gas token):', feeSmallest.toString(), `($${feeAmountUSD})`);
           console.log('- Transfer token ATAs:', {
-            sender: senderTransferAta.toBase58(),
-            recipient: recipientTransferAta.toBase58(),
+            sender: senderTransferAta?.toBase58() || senderPk.toBase58(),
+            recipient: recipientTransferAta?.toBase58() || recipientPk.toBase58(),
           });
           console.log('- Gas token ATAs:', {
-            sender: senderGasAta.toBase58(),
-            backend: backendGasAta.toBase58(),
+            sender: senderGasAta?.toBase58() || senderPk.toBase58(),
+            backend: backendGasAta?.toBase58() || backendWallet.publicKey.toBase58(),
           });
 
           for (let i = 0; i < instructions.length; i++) {
             const instruction = instructions[i];
+            if (instruction.programId.equals(SystemProgram.programId)) {
+              const decoded = SystemInstruction.decodeTransfer(instruction);
+              const lamports = BigInt(decoded.lamports.toString());
+              if (isNativeSolTransfer && decoded.fromPubkey.equals(senderPk) && decoded.toPubkey.equals(recipientPk) && lamports === transferAmountSmallest) {
+                validTransfer = true;
+              }
+              if (isNativeSolFee && decoded.fromPubkey.equals(senderPk) && decoded.toPubkey.equals(backendWallet.publicKey) && lamports === feeSmallest) {
+                validFeePayment = true;
+              }
+              continue;
+            }
             
             // Skip ATA creation/system instructions; validate SPL Token and Token-2022 transfers only.
             if (!instruction.programId.equals(TOKEN_PROGRAM_ID) && !instruction.programId.equals(TOKEN_2022_PROGRAM_ID)) {
