@@ -1262,13 +1262,17 @@ export const MultiChainTransferForm = () => {
     } catch (err) {
       console.error('Transfer error:', err);
       const errorMessage = err instanceof Error ? err.message : 'Transfer failed';
-      setError(errorMessage);
-      toast({
-        title: 'Transfer failed',
-        description: errorMessage,
-        variant: 'destructive'
-      });
+      // If we already showed the optimistic success toast, don't flip back to an error
+      if (!loadingCapped) {
+        setError(errorMessage);
+        toast({
+          title: 'Transfer failed',
+          description: errorMessage,
+          variant: 'destructive'
+        });
+      }
     } finally {
+      window.clearTimeout(loadingCapTimer);
       setIsLoading(false);
     }
   };
