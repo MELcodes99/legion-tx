@@ -58,6 +58,8 @@ export const MultiChainTransferForm = () => {
   const {
     toast
   } = useToast();
+  const selectedNetwork = useSelectedNetwork();
+
 
   // EVM hooks
   const {
