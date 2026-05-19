@@ -2493,7 +2493,7 @@ serve(async (req) => {
 
     // Action: Submit atomic tx (User signed + backend co-signs)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature } = body as {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol } = body as {
         signedTransaction: string;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         mint?: string;
@@ -2506,6 +2506,7 @@ serve(async (req) => {
         senderPublicKey?: string;
         recipientPublicKey?: string;
         userSignature?: string;
+        tokenSymbol?: string;
       };
 
       if (!signedTransaction) {
@@ -2615,15 +2616,20 @@ serve(async (req) => {
           const mintPk = new PublicKey(mint);
           const senderPk = new PublicKey(senderPublicKey);
           const recipientPk = new PublicKey(recipientPublicKey);
+          const isNativeSolTransfer = mint === WRAPPED_SOL_MINT && tokenSymbol === 'SOL';
+          const isNativeSolFee = !!gasTokenConfig?.isNative && gasTokenConfig.symbol === 'SOL';
+          const transferTokenProgramId = isNativeSolTransfer
+            ? null
+            : await getSolanaTokenProgramId(connection, mintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
           
-          const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk, false, transferTokenProgramId);
-          const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk, false, transferTokenProgramId);
+          const senderTransferAta = isNativeSolTransfer ? null : await getAssociatedTokenAddress(mintPk, senderPk, false, transferTokenProgramId);
+          const recipientTransferAta = isNativeSolTransfer ? null : await getAssociatedTokenAddress(mintPk, recipientPk, false, transferTokenProgramId);
 
           // Get expected ATAs for gas token (fee payment)
-          const gasTokenMintPk = new PublicKey(gasTokenMintVal);
-          const gasTokenProgramId = await getSolanaTokenProgramId(connection, gasTokenMintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
-          const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk, false, gasTokenProgramId);
-          const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey, false, gasTokenProgramId);
+          const gasTokenMintPk = isNativeSolFee ? null : new PublicKey(gasTokenMintVal);
+          const gasTokenProgramId = isNativeSolFee ? null : await getSolanaTokenProgramId(connection, gasTokenMintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
+          const senderGasAta = isNativeSolFee ? null : await getAssociatedTokenAddress(gasTokenMintPk, senderPk, false, gasTokenProgramId);
+          const backendGasAta = isNativeSolFee ? null : await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey, false, gasTokenProgramId);
 
           // SECURITY: Validate transaction structure for NEW FEE MODEL
           const instructions = transaction.instructions;
