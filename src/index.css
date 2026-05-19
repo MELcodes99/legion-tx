@@ -2,86 +2,77 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Legion design system — premium fintech dark surfaces.
+   All colors are HSL. */
 
 @layer base {
   :root {
-    --background: 0 0% 5%;
-    --foreground: 280 10% 98%;
+    /* Surfaces */
+    --background: 225 16% 5%;        /* #0A0B0F */
+    --foreground: 0 0% 100%;          /* #FFFFFF */
 
-    --card: 260 30% 8%;
-    --card-foreground: 280 10% 98%;
+    --card: 222 14% 8%;               /* #111318 */
+    --card-foreground: 0 0% 100%;
 
-    --popover: 260 30% 8%;
-    --popover-foreground: 280 10% 98%;
+    --popover: 222 14% 9%;
+    --popover-foreground: 0 0% 100%;
 
-    --primary: 280 100% 60%;
+    /* Brand — refined purple/indigo, preserved identity */
+    --primary: 252 60% 56%;           /* #6E56CF */
     --primary-foreground: 0 0% 100%;
+    --primary-glow: 244 75% 59%;      /* #4F46E5 */
 
-    --secondary: 195 100% 50%;
-    --secondary-foreground: 0 0% 100%;
+    --secondary: 222 16% 12%;         /* #171A21 */
+    --secondary-foreground: 220 13% 88%;
 
-    --muted: 260 20% 15%;
-    --muted-foreground: 280 10% 60%;
+    --muted: 222 14% 11%;
+    --muted-foreground: 220 12% 60%;  /* #8B93A7 */
 
-    --accent: 195 100% 50%;
+    --accent: 244 75% 59%;            /* #4F46E5 */
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 280 10% 98%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 280 40% 20%;
-    --input: 260 30% 12%;
-    --ring: 280 100% 60%;
+    --border: 220 10% 18%;            /* rgba(255,255,255,0.06)-feel */
+    --input: 222 14% 10%;
+    --ring: 252 60% 56%;
 
-    --radius: 0.75rem;
+    --radius: 0.875rem;
 
-    /* Neon gradients */
-    --gradient-primary: linear-gradient(135deg, hsl(280 100% 60%) 0%, hsl(195 100% 50%) 100%);
-    --gradient-card: linear-gradient(135deg, hsl(260 30% 8% / 0.9) 0%, hsl(260 30% 10% / 0.7) 100%);
-    --gradient-glow: radial-gradient(circle at 50% 0%, hsl(280 100% 60% / 0.2) 0%, transparent 70%);
-    
-    /* Animations */
-    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    
-    /* Neon shadows */
-    --shadow-glow: 0 0 40px hsl(280 100% 60% / 0.4), 0 0 20px hsl(195 100% 50% / 0.3);
-    --shadow-glow-subtle: 0 0 15px hsl(280 100% 60% / 0.15), 0 0 8px hsl(195 100% 50% / 0.1);
-    --shadow-card: 0 10px 50px -10px hsl(280 100% 60% / 0.3);
-    --shadow-neon-purple: 0 0 30px hsl(280 100% 60% / 0.6), 0 0 60px hsl(280 100% 60% / 0.3);
-    --shadow-neon-blue: 0 0 30px hsl(195 100% 50% / 0.6), 0 0 60px hsl(195 100% 50% / 0.3);
+    /* Subtle gradients (reserved for CTAs / accents) */
+    --gradient-primary: linear-gradient(135deg, hsl(252 60% 56%) 0%, hsl(244 75% 59%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(222 14% 9%) 0%, hsl(225 16% 6%) 100%);
+    --gradient-radial-soft: radial-gradient(60% 50% at 50% 0%, hsl(252 60% 56% / 0.10) 0%, transparent 70%);
+
+    /* Realistic depth shadows */
+    --shadow-sm: 0 1px 1px rgba(0,0,0,.35);
+    --shadow-md: 0 1px 1px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.28);
+    --shadow-lg: 0 1px 2px rgba(0,0,0,.4), 0 20px 50px -20px rgba(0,0,0,.5);
+
+    --transition-smooth: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .dark {
-    --background: 0 0% 5%;
-    --foreground: 280 10% 98%;
-
-    --card: 260 30% 8%;
-    --card-foreground: 280 10% 98%;
-
-    --popover: 260 30% 8%;
-    --popover-foreground: 280 10% 98%;
-
-    --primary: 280 100% 60%;
+    --background: 225 16% 5%;
+    --foreground: 0 0% 100%;
+    --card: 222 14% 8%;
+    --card-foreground: 0 0% 100%;
+    --popover: 222 14% 9%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 252 60% 56%;
     --primary-foreground: 0 0% 100%;
-
-    --secondary: 195 100% 50%;
-    --secondary-foreground: 0 0% 100%;
-
-    --muted: 260 20% 15%;
-    --muted-foreground: 280 10% 60%;
-
-    --accent: 195 100% 50%;
+    --secondary: 222 16% 12%;
+    --secondary-foreground: 220 13% 88%;
+    --muted: 222 14% 11%;
+    --muted-foreground: 220 12% 60%;
+    --accent: 244 75% 59%;
     --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 280 10% 98%;
-
-    --border: 280 40% 20%;
-    --input: 260 30% 12%;
-    --ring: 280 100% 60%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 10% 18%;
+    --input: 222 14% 10%;
+    --ring: 252 60% 56%;
   }
 }
 
@@ -90,77 +81,96 @@ All colors MUST be HSL.
     @apply border-border;
   }
 
+  html {
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.005em;
   }
-  
-  /* Mobile optimizations */
+
+  /* Force Inter even where component code requests serif/mono display fonts */
+  .font-serif, .font-mono {
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif !important;
+    letter-spacing: -0.01em;
+  }
+
+  /* Subtle ambient app background — matte, no bloom */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(60% 40% at 50% -10%, hsl(252 60% 56% / 0.08), transparent 70%),
+      radial-gradient(40% 30% at 90% 10%, hsl(244 75% 59% / 0.05), transparent 70%),
+      linear-gradient(180deg, hsl(225 16% 5%) 0%, hsl(225 16% 4%) 100%);
+    z-index: 0;
+  }
+
+  /* Faint grid overlay */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
+    z-index: 0;
+  }
+
   @media (max-width: 640px) {
-    * {
-      -webkit-tap-highlight-color: transparent;
-    }
+    * { -webkit-tap-highlight-color: transparent; }
   }
-  
-  /* Smooth scrolling */
-  html {
-    scroll-behavior: smooth;
-  }
-  
-  /* Touch-friendly minimum sizes for interactive elements */
-  button, a, [role="button"] {
-    min-height: 44px;
-    min-width: 44px;
-  }
-  
+
+  html { scroll-behavior: smooth; }
+
+  /* Refined card — matte, layered, no neon */
   .glass-card {
-    background: linear-gradient(135deg, hsl(var(--card) / 0.8) 0%, hsl(var(--card) / 0.6) 100%);
-    backdrop-filter: blur(20px);
-    border: 1px solid hsl(var(--border) / 0.5);
-    box-shadow: var(--shadow-card);
-  }
-  
-  .glow-effect {
-    box-shadow: var(--shadow-glow);
+    background: linear-gradient(180deg, hsl(222 14% 9% / 0.95) 0%, hsl(222 14% 7% / 0.95) 100%);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(0 0% 100% / 0.06);
+    box-shadow: var(--shadow-md);
+    border-radius: 1.25rem;
   }
 
-  .neon-glow-purple {
-    box-shadow: var(--shadow-neon-purple);
+  .surface-card {
+    background: hsl(222 14% 8%);
+    border: 1px solid hsl(0 0% 100% / 0.06);
+    border-radius: 1rem;
   }
 
+  .hairline {
+    border: 1px solid hsl(0 0% 100% / 0.06);
+  }
+
+  /* Replace prior neon glow utilities with subtle depth (kept for compatibility) */
+  .glow-effect,
+  .neon-glow-purple,
   .neon-glow-blue {
-    box-shadow: var(--shadow-neon-blue);
+    box-shadow: 0 0 0 1px hsl(0 0% 100% / 0.04), 0 6px 18px rgba(0,0,0,0.35);
   }
 
+  /* Disable noisy keyframe glow animations referenced across the app */
   @keyframes pulse-glow {
-    0%, 100% {
-      filter: drop-shadow(0 0 20px hsl(280 100% 60% / 0.6)) drop-shadow(0 0 40px hsl(195 100% 50% / 0.4));
-    }
-    50% {
-      filter: drop-shadow(0 0 30px hsl(280 100% 60% / 0.8)) drop-shadow(0 0 60px hsl(195 100% 50% / 0.6));
-    }
+    0%, 100% { filter: none; }
+    50% { filter: none; }
   }
-
   @keyframes spin-slow {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
+  .animate-pulse-glow { animation: none; }
+  .animate-spin-slow { animation: spin-slow 6s linear infinite; }
 
-  .animate-pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
-  }
-
-  .animate-spin-slow {
-    animation: spin-slow 3s linear infinite;
-  }
-
-  /* Round all logos */
+  /* Round logos (preserved) */
   img[src*="solana-logo"],
   img[src*="sui-logo"],
   img[src*="usdc-logo"],
@@ -176,4 +186,12 @@ All colors MUST be HSL.
   img[alt*="Processing"] {
     border-radius: 9999px;
   }
+
+  /* Inputs feel refined */
+  input, select, textarea, [role="combobox"] {
+    transition: var(--transition-smooth);
+  }
+
+  /* Ensure all containers sit above background layers */
+  #root { position: relative; z-index: 1; }
 }
