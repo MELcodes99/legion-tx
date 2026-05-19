@@ -18,8 +18,8 @@ export const PromoCarousel = () => {
   }, []);
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <div className="relative overflow-hidden aspect-[4/3] sm:aspect-[16/10]">
+    <div className="max-w-md mx-auto">
+      <div className="relative" style={{ aspectRatio: "3 / 4" }}>
         {IMAGES.map((src, i) => (
           <img
             key={i}
@@ -30,16 +30,6 @@ export const PromoCarousel = () => {
             style={{ opacity: i === index ? 1 : 0 }}
           />
         ))}
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
-          {IMAGES.map((_, i) => (
-            <span
-              key={i}
-              className={`h-1.5 rounded-full transition-all duration-500 ${
-                i === index ? "w-6 bg-white/80" : "w-1.5 bg-white/30"
-              }`}
-            />
-          ))}
-        </div>
       </div>
     </div>
   );
