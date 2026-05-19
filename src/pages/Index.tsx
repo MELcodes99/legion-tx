@@ -76,10 +76,6 @@ const Index = () => {
             <div className="grid lg:grid-cols-[1.05fr_minmax(0,460px)] gap-10 lg:gap-14 items-start">
               {/* Left column */}
               <div className="max-w-xl">
-                <span className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground border border-white/[0.08] bg-white/[0.02] rounded-full px-3 py-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/90 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
-                  Gasless infrastructure · Live
-                </span>
 
                 <h1 className="mt-6 text-4xl sm:text-5xl md:text-[3.4rem] font-bold leading-[1.05] tracking-tight text-foreground">
                   Multi-chain transfers,
