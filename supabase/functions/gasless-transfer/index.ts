@@ -776,7 +776,7 @@ serve(async (req) => {
 
     // Parse EVM backend wallet if provided
     let evmBackendWallet: ethers.Wallet | null = null;
-    if (evmBackendWalletPrivateKey) {
+    if (_needsEvm && evmBackendWalletPrivateKey) {
       try {
         let privateKeyHex: string;
         
@@ -2570,7 +2570,7 @@ serve(async (req) => {
           const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
           if (feeTokenInfo) {
             // Map token name to CoinGecko ID
-            if (feeTokenInfo.name === 'USDC') {
+            if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF') {
               feeTokenSymbol = 'usd-coin';
             } else if (feeTokenInfo.name === 'USDT') {
               feeTokenSymbol = 'tether';
@@ -2610,6 +2610,13 @@ serve(async (req) => {
           const gasTokenMintVal = gasTokenConfig ? gasTokenConfig.mint : mint;
           const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenDecimals;
           const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+          // The transaction is built first, then the wallet signs, then we submit.
+          // Re-fetching token price during submit can move by a few base units and
+          // incorrectly reject the exact backend-built fee instruction. Accept the
+          // fee if it is at least 99% of the freshly calculated fee; the sender can
+          // overpay slightly, but cannot remove or materially reduce the backend fee.
+          const feeTolerance = feeSmallest / 100n;
+          const minimumFeeSmallest = feeSmallest > feeTolerance ? feeSmallest - feeTolerance : feeSmallest;
 
           // Get expected ATAs for transfer token
           const mintPk = new PublicKey(mint);
@@ -2640,6 +2647,7 @@ serve(async (req) => {
           console.log('Expected values:');
           console.log('- Transfer amount (sender → recipient):', transferAmountSmallest.toString());
           console.log('- Fee amount (sender → backend in gas token):', feeSmallest.toString(), `($${feeAmountUSD})`);
+          console.log('- Minimum accepted fee after price drift tolerance:', minimumFeeSmallest.toString());
           console.log('- Transfer token ATAs:', {
             sender: senderTransferAta?.toBase58() || senderPk.toBase58(),
             recipient: recipientTransferAta?.toBase58() || recipientPk.toBase58(),
@@ -2657,7 +2665,7 @@ serve(async (req) => {
               if (isNativeSolTransfer && decoded.fromPubkey.equals(senderPk) && decoded.toPubkey.equals(recipientPk) && lamports === transferAmountSmallest) {
                 validTransfer = true;
               }
-              if (isNativeSolFee && decoded.fromPubkey.equals(senderPk) && decoded.toPubkey.equals(backendWallet.publicKey) && lamports === feeSmallest) {
+              if (isNativeSolFee && decoded.fromPubkey.equals(senderPk) && decoded.toPubkey.equals(backendWallet.publicKey) && lamports >= minimumFeeSmallest) {
                 validFeePayment = true;
               }
               continue;
@@ -2704,11 +2712,12 @@ serve(async (req) => {
                 source.equals(senderGasAta) &&
                 destination.equals(backendGasAta) &&
                 authority.equals(senderPk) &&
-                amountBuffer === feeSmallest
+                amountBuffer >= minimumFeeSmallest
               ) {
                 validFeePayment = true;
                 console.log('✓ This is sender → backend fee payment (gas token)');
                 console.log('  Expected amount:', feeSmallest.toString());
+                console.log('  Minimum accepted amount:', minimumFeeSmallest.toString());
                 console.log('  Actual amount:', amountBuffer.toString());
               }
             }
