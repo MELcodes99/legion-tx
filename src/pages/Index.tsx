@@ -111,6 +111,7 @@ const Index = () => {
                     ))}
                   </div>
                 </div>
+              </div>
 
 
               {/* Right column — transfer widget */}
