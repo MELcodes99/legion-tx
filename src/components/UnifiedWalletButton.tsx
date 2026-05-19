@@ -89,14 +89,15 @@ export const UnifiedWalletButton = () => {
       disconnectEvm();
     }
     setSelectedNetwork(null);
+    persistSelectedNetwork(null);
     toast({
       title: "Wallet Disconnected",
       description: "Wallet has been disconnected successfully."
     });
   };
   const handleNetworkSelect = (network: ChainType) => {
+    persistSelectedNetwork(network);
     setSelectedNetwork(network);
-    setSelectedNetworkState(network);
     setStep('select-wallet');
 
     // For EVM chains, switch chain if already connected
