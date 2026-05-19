@@ -38,6 +38,7 @@ async function loadSolanaSdk() {
       PublicKey: (web3 as any).PublicKey,
       Transaction: (web3 as any).Transaction,
       SystemProgram: (web3 as any).SystemProgram,
+      SystemInstruction: (web3 as any).SystemInstruction,
       LAMPORTS_PER_SOL: (web3 as any).LAMPORTS_PER_SOL,
       sendAndConfirmTransaction: (web3 as any).sendAndConfirmTransaction,
       getOrCreateAssociatedTokenAccount: (splToken as any).getOrCreateAssociatedTokenAccount,
@@ -45,6 +46,7 @@ async function loadSolanaSdk() {
       createTransferInstruction: (splToken as any).createTransferInstruction,
       createAssociatedTokenAccountInstruction: (splToken as any).createAssociatedTokenAccountInstruction,
       TOKEN_PROGRAM_ID: (splToken as any).TOKEN_PROGRAM_ID,
+      TOKEN_2022_PROGRAM_ID: (splToken as any).TOKEN_2022_PROGRAM_ID,
     };
   }
   return _solanaSdk!;
@@ -185,13 +187,28 @@ async function updateDailyReport() {
   }
 }
 
-// Solana RPC endpoint - use mainnet-beta for production
-const SOLANA_RPC = 'https://api.mainnet-beta.solana.com';
+// Solana RPC endpoint - use a more permissive public endpoint for production transfers
+const SOLANA_RPC = 'https://solana-rpc.publicnode.com';
+const WRAPPED_SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+async function getSolanaTokenProgramId(connection: any, mintPk: any, tokenProgramId: any, token2022ProgramId: any) {
+  const mintInfo = await connection.getAccountInfo(mintPk, 'confirmed');
+  if (!mintInfo) throw new Error(`Token mint not found: ${mintPk.toBase58()}`);
+  return mintInfo.owner.equals(token2022ProgramId) ? token2022ProgramId : tokenProgramId;
+}
+
+function readU64LE(data: Uint8Array, offset = 1): bigint {
+  let value = 0n;
+  for (let i = 0; i < 8; i++) {
+    value |= BigInt(data[offset + i]) << (8n * BigInt(i));
+  }
+  return value;
+}
 
 // Token configuration for multi-chain support
 const CHAIN_CONFIG = {
   solana: {
-    rpcUrl: 'https://api.mainnet-beta.solana.com',
+    rpcUrl: SOLANA_RPC,
     gasFee: 0.50, // Fixed $0.50 fee for Solana
     coingeckoId: 'solana', // For price fetching
     decimals: 9, // SOL has 9 decimals
@@ -714,12 +731,14 @@ serve(async (req) => {
     const PublicKey = _sol?.PublicKey;
     const Transaction = _sol?.Transaction;
     const SystemProgram = _sol?.SystemProgram;
+    const SystemInstruction = _sol?.SystemInstruction;
     const LAMPORTS_PER_SOL = _sol?.LAMPORTS_PER_SOL;
     const sendAndConfirmTransaction = _sol?.sendAndConfirmTransaction;
     const getOrCreateAssociatedTokenAccount = _sol?.getOrCreateAssociatedTokenAccount;
     const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
     const createTransferInstruction = _sol?.createTransferInstruction;
     const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
+    const TOKEN_2022_PROGRAM_ID = _sol?.TOKEN_2022_PROGRAM_ID;
     // Lazy-load ethers only for EVM-touching actions.
     const ethers: any = _needsEvm ? await loadEthers() : { ZeroAddress: '0x0000000000000000000000000000000000000000' };
 
@@ -783,7 +802,7 @@ serve(async (req) => {
 
     // Initialize blockchain clients (Sui client built lazily inside Sui branches).
     // Solana connection only created when Solana SDK is loaded for this request.
-    const connection: any = _needsSolana ? new Connection(SOLANA_RPC, 'confirmed') : null;
+    const connection: any = _needsSolana ? new Connection(CHAIN_CONFIG.solana.rpcUrl || SOLANA_RPC, 'confirmed') : null;
     const suiClient: SuiClient | null = suiRelayerKeypair
       ? new (await loadSuiSdk()).SuiClient({ url: CHAIN_CONFIG.sui.rpcUrl })
       : null;
@@ -983,6 +1002,8 @@ serve(async (req) => {
           const senderPk = new PublicKey(senderPublicKey);
           const recipientPk = new PublicKey(recipientPublicKey);
           const mintPk = new PublicKey(mint);
+          const isNativeSolTransfer = mint === WRAPPED_SOL_MINT && tokenSymbol === 'SOL';
+          const transferTokenProgramId = await getSolanaTokenProgramId(connection, mintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
 
         // CRITICAL: Use FIXED FEE model with token price conversion
         // Solana transfers: $0.50 fee (converted to token amount based on current price)
@@ -1077,6 +1098,7 @@ serve(async (req) => {
         // Determine gas token info
         const buildGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
         const gasTokenMint = buildGasTokenConfig ? buildGasTokenConfig.mint : mint;
+        const isNativeSolFee = !!buildGasTokenConfig?.isNative && buildGasTokenConfig.symbol === 'SOL';
         const gasTokenDecimals = buildGasTokenConfig ? buildGasTokenConfig.decimals : decimals;
         
         // Calculate fee in gas token's smallest units
@@ -1093,23 +1115,28 @@ serve(async (req) => {
           networkGasPaidBy: 'backend SOL balance',
         });
 
+        const transferTokenProgramId = isNativeSolTransfer
+          ? null
+          : await getSolanaTokenProgramId(connection, mintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
+
         // Get transfer token ATAs
-        const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
-        const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+        const senderTransferAta = isNativeSolTransfer ? null : await getAssociatedTokenAddress(mintPk, senderPk, false, transferTokenProgramId);
+        const recipientTransferAta = isNativeSolTransfer ? null : await getAssociatedTokenAddress(mintPk, recipientPk, false, transferTokenProgramId);
 
         // Get gas token ATAs (for fee payment)
-        const gasTokenMintPk = new PublicKey(gasTokenMint);
-        const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
-        const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+        const gasTokenMintPk = isNativeSolFee ? null : new PublicKey(gasTokenMint);
+        const gasTokenProgramId = isNativeSolFee ? null : await getSolanaTokenProgramId(connection, gasTokenMintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
+        const senderGasAta = isNativeSolFee ? null : await getAssociatedTokenAddress(gasTokenMintPk, senderPk, false, gasTokenProgramId);
+        const backendGasAta = isNativeSolFee ? null : await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey, false, gasTokenProgramId);
 
         console.log('Token accounts:', {
           transfer: {
-            senderAta: senderTransferAta.toBase58(),
-            recipientAta: recipientTransferAta.toBase58(),
+            senderAta: senderTransferAta?.toBase58() || senderPk.toBase58(),
+            recipientAta: recipientTransferAta?.toBase58() || recipientPk.toBase58(),
           },
           gasPayment: {
-            senderGasAta: senderGasAta.toBase58(),
-            backendGasAta: backendGasAta.toBase58(),
+            senderGasAta: senderGasAta?.toBase58() || senderPk.toBase58(),
+            backendGasAta: backendGasAta?.toBase58() || backendWallet.publicKey.toBase58(),
           }
         });
 
@@ -1120,8 +1147,9 @@ serve(async (req) => {
         
         if (usesSameTokenForGas) {
           // Check if sender has enough of the transfer token for BOTH transfer and fee
-          const senderTransferBalance = await connection.getTokenAccountBalance(senderTransferAta);
-          const senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
+          const senderTransferBalanceSmallest = isNativeSolTransfer
+            ? BigInt(await connection.getBalance(senderPk, 'confirmed'))
+            : BigInt((await connection.getTokenAccountBalance(senderTransferAta)).value.amount);
           const totalNeeded = transferAmountSmallest + feeSmallest;
           
           console.log('Balance validation (same token for transfer & fee):', {
@@ -1155,8 +1183,9 @@ serve(async (req) => {
           
           // Get transfer token balance
           try {
-            const senderTransferBalance = await connection.getTokenAccountBalance(senderTransferAta);
-            senderTransferBalanceSmallest = BigInt(senderTransferBalance.value.amount);
+            senderTransferBalanceSmallest = isNativeSolTransfer
+              ? BigInt(await connection.getBalance(senderPk, 'confirmed'))
+              : BigInt((await connection.getTokenAccountBalance(senderTransferAta)).value.amount);
           } catch (err) {
             console.log('Transfer token ATA does not exist, balance is 0');
             // ATA doesn't exist means balance is 0
@@ -1164,8 +1193,9 @@ serve(async (req) => {
           
           // Get gas token balance - handle case where ATA doesn't exist
           try {
-            const senderGasBalance = await connection.getTokenAccountBalance(senderGasAta);
-            senderGasBalanceSmallest = BigInt(senderGasBalance.value.amount);
+            senderGasBalanceSmallest = isNativeSolFee
+              ? BigInt(await connection.getBalance(senderPk, 'confirmed'))
+              : BigInt((await connection.getTokenAccountBalance(senderGasAta)).value.amount);
           } catch (err) {
             console.log(`Gas token (${gasTokenName}) ATA does not exist, balance is 0`);
             // ATA doesn't exist means balance is 0 - will trigger insufficient balance error below
@@ -1209,22 +1239,30 @@ serve(async (req) => {
           }
         }
 
-        // Ensure recipient's ATA exists (if not, we'll create it)
-        let recipientAtaExists = false;
-        try {
-          await connection.getTokenAccountBalance(recipientTransferAta);
-          recipientAtaExists = true;
-        } catch {
-          console.log('Recipient ATA does not exist, will create...');
+        // Ensure recipient's ATA exists for SPL tokens (native SOL uses the recipient wallet directly)
+        let recipientAtaExists = isNativeSolTransfer;
+        if (!isNativeSolTransfer) {
+          try {
+            await connection.getTokenAccountBalance(recipientTransferAta);
+            recipientAtaExists = true;
+          } catch {
+            console.log('Recipient ATA does not exist, will create...');
+          }
         }
 
-        // Ensure backend's gas token ATA exists
-        await getOrCreateAssociatedTokenAccount(
-          connection,
-          backendWallet,
-          gasTokenMintPk,
-          backendWallet.publicKey
-        );
+        // Ensure backend's gas token ATA exists for SPL gas tokens (native SOL fee uses backend wallet directly)
+        if (!isNativeSolFee) {
+          await getOrCreateAssociatedTokenAccount(
+            connection,
+            backendWallet,
+            gasTokenMintPk,
+            backendWallet.publicKey,
+            false,
+            'confirmed',
+            undefined,
+            gasTokenProgramId
+          );
+        }
 
         // Build atomic transaction with ALL instructions
         const transaction = new Transaction();
@@ -1245,30 +1283,37 @@ serve(async (req) => {
               backendWallet.publicKey, // payer
               recipientTransferAta,    // ata
               recipientPk,             // owner
-              mintPk                   // mint
+              mintPk,                  // mint
+              transferTokenProgramId
             )
           );
           console.log('Added instruction to create recipient ATA');
         }
 
         // INSTRUCTION 1: Sender → Recipient (FULL transfer amount)
-        transaction.add(
-          createTransferInstruction(
-            senderTransferAta,         // source
-            recipientTransferAta,       // destination
-            senderPk,                   // authority (sender signs)
-            transferAmountSmallest     // amount
-          )
+        transaction.add(isNativeSolTransfer
+          ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: recipientPk, lamports: transferAmountSmallest })
+          : createTransferInstruction(
+              senderTransferAta,         // source
+              recipientTransferAta,       // destination
+              senderPk,                   // authority (sender signs)
+              transferAmountSmallest,     // amount
+              [],
+              transferTokenProgramId
+            )
         );
 
         // INSTRUCTION 2: Sender → Backend (fee in gas token)
-        transaction.add(
-          createTransferInstruction(
-            senderGasAta,              // source
-            backendGasAta,             // destination
-            senderPk,                  // authority (sender signs)
-            feeSmallest               // fee amount
-          )
+        transaction.add(isNativeSolFee
+          ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
+          : createTransferInstruction(
+              senderGasAta,              // source
+              backendGasAta,             // destination
+              senderPk,                  // authority (sender signs)
+              feeSmallest,               // fee amount
+              [],
+              gasTokenProgramId
+            )
         );
 
         // Serialize the transaction for frontend signing
@@ -2448,7 +2493,7 @@ serve(async (req) => {
 
     // Action: Submit atomic tx (User signed + backend co-signs)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature } = body as {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol } = body as {
         signedTransaction: string;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         mint?: string;
@@ -2461,6 +2506,7 @@ serve(async (req) => {
         senderPublicKey?: string;
         recipientPublicKey?: string;
         userSignature?: string;
+        tokenSymbol?: string;
       };
 
       if (!signedTransaction) {
@@ -2570,14 +2616,20 @@ serve(async (req) => {
           const mintPk = new PublicKey(mint);
           const senderPk = new PublicKey(senderPublicKey);
           const recipientPk = new PublicKey(recipientPublicKey);
+          const isNativeSolTransfer = mint === WRAPPED_SOL_MINT && tokenSymbol === 'SOL';
+          const isNativeSolFee = !!gasTokenConfig?.isNative && gasTokenConfig.symbol === 'SOL';
+          const transferTokenProgramId = isNativeSolTransfer
+            ? null
+            : await getSolanaTokenProgramId(connection, mintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
           
-          const senderTransferAta = await getAssociatedTokenAddress(mintPk, senderPk);
-          const recipientTransferAta = await getAssociatedTokenAddress(mintPk, recipientPk);
+          const senderTransferAta = isNativeSolTransfer ? null : await getAssociatedTokenAddress(mintPk, senderPk, false, transferTokenProgramId);
+          const recipientTransferAta = isNativeSolTransfer ? null : await getAssociatedTokenAddress(mintPk, recipientPk, false, transferTokenProgramId);
 
           // Get expected ATAs for gas token (fee payment)
-          const gasTokenMintPk = new PublicKey(gasTokenMintVal);
-          const senderGasAta = await getAssociatedTokenAddress(gasTokenMintPk, senderPk);
-          const backendGasAta = await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey);
+          const gasTokenMintPk = isNativeSolFee ? null : new PublicKey(gasTokenMintVal);
+          const gasTokenProgramId = isNativeSolFee ? null : await getSolanaTokenProgramId(connection, gasTokenMintPk, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
+          const senderGasAta = isNativeSolFee ? null : await getAssociatedTokenAddress(gasTokenMintPk, senderPk, false, gasTokenProgramId);
+          const backendGasAta = isNativeSolFee ? null : await getAssociatedTokenAddress(gasTokenMintPk, backendWallet.publicKey, false, gasTokenProgramId);
 
           // SECURITY: Validate transaction structure for NEW FEE MODEL
           const instructions = transaction.instructions;
@@ -2590,19 +2642,30 @@ serve(async (req) => {
           console.log('- Transfer amount (sender → recipient):', transferAmountSmallest.toString());
           console.log('- Fee amount (sender → backend in gas token):', feeSmallest.toString(), `($${feeAmountUSD})`);
           console.log('- Transfer token ATAs:', {
-            sender: senderTransferAta.toBase58(),
-            recipient: recipientTransferAta.toBase58(),
+            sender: senderTransferAta?.toBase58() || senderPk.toBase58(),
+            recipient: recipientTransferAta?.toBase58() || recipientPk.toBase58(),
           });
           console.log('- Gas token ATAs:', {
-            sender: senderGasAta.toBase58(),
-            backend: backendGasAta.toBase58(),
+            sender: senderGasAta?.toBase58() || senderPk.toBase58(),
+            backend: backendGasAta?.toBase58() || backendWallet.publicKey.toBase58(),
           });
 
           for (let i = 0; i < instructions.length; i++) {
             const instruction = instructions[i];
+            if (instruction.programId.equals(SystemProgram.programId)) {
+              const decoded = SystemInstruction.decodeTransfer(instruction);
+              const lamports = BigInt(decoded.lamports.toString());
+              if (isNativeSolTransfer && decoded.fromPubkey.equals(senderPk) && decoded.toPubkey.equals(recipientPk) && lamports === transferAmountSmallest) {
+                validTransfer = true;
+              }
+              if (isNativeSolFee && decoded.fromPubkey.equals(senderPk) && decoded.toPubkey.equals(backendWallet.publicKey) && lamports === feeSmallest) {
+                validFeePayment = true;
+              }
+              continue;
+            }
             
-            // Skip ATA creation instructions (they use a different program)
-            if (!instruction.programId.equals(TOKEN_PROGRAM_ID)) {
+            // Skip ATA creation/system instructions; validate SPL Token and Token-2022 transfers only.
+            if (!instruction.programId.equals(TOKEN_PROGRAM_ID) && !instruction.programId.equals(TOKEN_2022_PROGRAM_ID)) {
               console.log(`Skipping instruction ${i + 1}: Not a token transfer (different program)`);
               continue;
             }
@@ -2612,8 +2675,7 @@ serve(async (req) => {
               console.log(`\nFound SPL Token instruction, data length: ${instruction.data.length}`);
               
               // Decode amount from instruction data (bytes 1-8, little endian)
-              const amountBytes = instruction.data.slice(1, 9);
-              const amountBuffer = new BigInt64Array(new Uint8Array(amountBytes).buffer)[0];
+              const amountBuffer = readU64LE(instruction.data);
               
               const source = instruction.keys[0].pubkey;
               const destination = instruction.keys[1].pubkey;

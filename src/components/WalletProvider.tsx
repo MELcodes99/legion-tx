@@ -12,8 +12,8 @@ interface WalletProviderProps {
 export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
   // Use a reliable public RPC endpoint - publicnode.com is more stable than the official public endpoint
   const endpoint = useMemo(() => {
-    // Primary: ankr (more permissive for token queries), Fallbacks: publicnode, drpc
-    const selected = 'https://rpc.ankr.com/solana';
+    // Primary: publicnode avoids browser-side 403s seen on restricted public RPC gateways.
+    const selected = 'https://solana-rpc.publicnode.com';
     console.log('Using Solana RPC endpoint:', selected);
     return selected;
   }, []);
