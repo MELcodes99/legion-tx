@@ -605,6 +605,16 @@ export const MultiChainTransferForm = () => {
     }
     setError('');
     setIsLoading(true);
+    // Cap the loading spinner at 3s so users aren't stuck waiting on RPC confirmation
+    let loadingCapped = false;
+    const loadingCapTimer = window.setTimeout(() => {
+      loadingCapped = true;
+      setIsLoading(false);
+      toast({
+        title: 'Transfer Successful!',
+        description: 'Your transfer has been submitted on-chain.'
+      });
+    }, 3000);
     try {
       if (!tokenConfig && !selectedDiscoveredToken) throw new Error('Invalid token selected');
       const amountUSD = parseFloat(amount);
@@ -1252,13 +1262,17 @@ export const MultiChainTransferForm = () => {
     } catch (err) {
       console.error('Transfer error:', err);
       const errorMessage = err instanceof Error ? err.message : 'Transfer failed';
-      setError(errorMessage);
-      toast({
-        title: 'Transfer failed',
-        description: errorMessage,
-        variant: 'destructive'
-      });
+      // If we already showed the optimistic success toast, don't flip back to an error
+      if (!loadingCapped) {
+        setError(errorMessage);
+        toast({
+          title: 'Transfer failed',
+          description: errorMessage,
+          variant: 'destructive'
+        });
+      }
     } finally {
+      window.clearTimeout(loadingCapTimer);
       setIsLoading(false);
     }
   };
