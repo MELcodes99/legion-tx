@@ -47,6 +47,7 @@ export const MultiChainTransferForm = () => {
     signTransaction: solanaSignTransaction,
     connected: solanaConnected,
     connect: solanaConnect,
+    disconnect: solanaDisconnect,
     wallet: solanaWallet
   } = useWallet();
   const suiAccount = useSuiAccount();
