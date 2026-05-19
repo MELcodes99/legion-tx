@@ -5,78 +5,180 @@ import { MultiChainTransferForm } from "@/components/MultiChainTransferForm";
 import { FAQ } from "@/components/FAQ";
 import { Footer } from "@/components/Footer";
 import legionLogo from "@/assets/legion-logo.png";
-import xLogo from "@/assets/x-logo.png";
-const Index = () => {
-  return <MultiWalletProvider>
-      <div className="min-h-screen bg-background relative overflow-hidden">
-        {/* Neon gradient background effects */}
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,hsl(280_100%_60%/0.2)_0%,transparent_50%)] pointer-events-none" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,hsl(195_100%_50%/0.15)_0%,transparent_50%)] pointer-events-none" />
+import solanaLogo from "@/assets/solana-logo.png";
+import suiLogo from "@/assets/sui-logo.png";
+import baseLogo from "@/assets/base-logo.jpeg";
+import ethLogo from "@/assets/eth-logo.jpeg";
+import { Zap, Shield, Layers } from "lucide-react";
 
+const SUPPORTED_CHAINS = [
+  { name: "Solana", logo: solanaLogo },
+  { name: "Sui", logo: suiLogo },
+  { name: "Base", logo: baseLogo },
+  { name: "Ethereum", logo: ethLogo },
+];
+
+const FEATURES = [
+  {
+    icon: Zap,
+    title: "Flexible gas",
+    description: "Pay network fees with the same token you're sending. No native gas required.",
+    stat: "USDC · USDT · SPL",
+  },
+  {
+    icon: Shield,
+    title: "Atomic execution",
+    description: "Transfers settle in a single signed transaction or revert entirely. No partial state.",
+    stat: "Non-custodial",
+  },
+  {
+    icon: Layers,
+    title: "Transparent fees",
+    description: "Fixed network coverage per chain. No spreads, no slippage on the fee itself.",
+    stat: "$0.40 – $0.50",
+  },
+];
+
+const Index = () => {
+  return (
+    <MultiWalletProvider>
+      <div className="min-h-screen bg-background relative">
         <div className="relative z-10">
           {/* Header */}
-          <header className="container mx-auto px-4 py-4 md:py-6 bg-black">
-            <nav className="flex items-center justify-between">
-              <div className="flex items-center gap-2 md:gap-3">
-                <img src={legionLogo} alt="Legion" className="w-10 h-10 md:w-12 md:h-12 neon-glow-purple" />
-                <div>
-                  <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent font-serif">
-                    Legion
-                  </h1>
-                </div>
+          <header className="sticky top-0 z-50 border-b border-white/[0.06] bg-background/70 backdrop-blur-xl">
+            <nav className="container mx-auto px-4 sm:px-6 h-14 md:h-16 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <img src={legionLogo} alt="Legion" className="w-7 h-7 md:w-8 md:h-8" />
+                <span className="text-[15px] md:text-base font-semibold tracking-tight text-foreground">
+                  Legion
+                </span>
+                <span className="hidden sm:inline-flex items-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground border border-white/10 rounded-full px-2 py-0.5 ml-2">
+                  Mainnet
+                </span>
               </div>
-              <div className="flex items-center gap-2 md:gap-3">
-                <a href="https://x.com/use_legion" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-                  <img alt="Follow us on X" className="w-8 h-8 md:w-9 md:h-9" src="/lovable-uploads/0bfe1a7e-3715-4490-bdd6-a69e1f7a1f1c.jpg" />
+              <div className="flex items-center gap-2">
+                <a
+                  href="https://x.com/use_legion"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden sm:flex items-center justify-center w-9 h-9 rounded-lg border border-white/[0.06] hover:border-white/15 hover:bg-white/[0.03] transition-colors"
+                  aria-label="Follow on X"
+                >
+                  <img alt="X" className="w-4 h-4" src="/lovable-uploads/0bfe1a7e-3715-4490-bdd6-a69e1f7a1f1c.jpg" />
                 </a>
                 <UnifiedWalletButton />
               </div>
             </nav>
           </header>
 
-          {/* Main Content */}
-          <main className="container mx-auto px-4 py-6 sm:py-8 md:py-12 bg-[#050621]">
-            <div className="max-w-4xl mx-auto text-center mb-6 sm:mb-8 md:mb-12 px-2">
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2 sm:mb-3 md:mb-4 bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent animate-pulse-glow leading-tight font-mono lg:text-5xl">
-                Multi-Chain Flexible Gas Transfers
-              </h2>
-              <p className="text-sm sm:text-base md:text-lg text-muted-foreground max-w-2xl mx-auto px-2 font-serif">Send Tokens across Solana, Sui, Base_eth & ETH with flexible gas fees. Simple, fast, and secure multi-chain transfers.</p>
-            </div>
+          {/* Hero / Main */}
+          <main className="container mx-auto px-4 sm:px-6 pt-10 sm:pt-14 md:pt-20 pb-16">
+            <div className="grid lg:grid-cols-[1.05fr_minmax(0,460px)] gap-10 lg:gap-14 items-start">
+              {/* Left column */}
+              <div className="max-w-xl">
+                <span className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground border border-white/[0.08] bg-white/[0.02] rounded-full px-3 py-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400/90 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
+                  Gasless infrastructure · Live
+                </span>
 
-            {/* Transfer Form */}
-            <div className="flex justify-center px-2 border-[#faf2f2]">
-              <MultiChainTransferForm />
+                <h1 className="mt-6 text-4xl sm:text-5xl md:text-[3.4rem] font-bold leading-[1.05] tracking-tight text-foreground">
+                  Multi-chain transfers,
+                  <br />
+                  <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                    without the gas friction.
+                  </span>
+                </h1>
+
+                <p className="mt-5 text-[15px] sm:text-base text-muted-foreground leading-relaxed max-w-lg">
+                  Send stablecoins and supported tokens across Solana, Sui, Base, and Ethereum.
+                  Pay network fees in the token you're already holding — no native gas balance required.
+                </p>
+
+                {/* Supported chains strip */}
+                <div className="mt-8">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground mb-3">
+                    Supported networks
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {SUPPORTED_CHAINS.map((c) => (
+                      <div
+                        key={c.name}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04] transition-colors px-3 py-1.5"
+                      >
+                        <img src={c.logo} alt={c.name} className="w-4 h-4 rounded-full" />
+                        <span className="text-xs font-medium text-foreground/90">{c.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Mini stats */}
+                <div className="mt-8 grid grid-cols-3 gap-4 max-w-md">
+                  {[
+                    { v: "4", l: "Networks" },
+                    { v: "$0.40+", l: "Flat gas" },
+                    { v: "1 sig", l: "To settle" },
+                  ].map((s) => (
+                    <div key={s.l} className="border-l border-white/[0.08] pl-3">
+                      <div className="text-lg font-semibold tracking-tight text-foreground">{s.v}</div>
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground mt-0.5">{s.l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right column — transfer widget */}
+              <div className="lg:sticky lg:top-24 w-full flex justify-center lg:justify-end">
+                <MultiChainTransferForm />
+              </div>
             </div>
 
             {/* Features */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 md:gap-6 max-w-4xl mx-auto mt-8 sm:mt-12 md:mt-16 px-2">
-              {[{
-              title: "Flexible Gas Fees",
-              description: "Your tokens, your choice of gas."
-            }, {
-              title: "Multichain Gas Fee",
-              description: "Fixed fee: $0.50 (Solana) | $0.40 (Sui) - transparent and predictable"
-            }, {
-              title: "Multi-Chain Support",
-              description: "Send USDT & USDC across Solana and Sui blockchains"
-            }].map((feature, i) => <div key={i} className="glass-card p-4 sm:p-5 md:p-6 rounded-xl transition-all hover:scale-105 cursor-default border-2 border-primary/20 hover:border-primary/40">
-                  <h3 className="text-sm sm:text-base md:text-lg font-semibold mb-1.5 sm:mb-2 bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                    {feature.title}
-                  </h3>
-                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
-                </div>)}
-            </div>
+            <section className="mt-20 md:mt-28">
+              <div className="flex items-end justify-between mb-6">
+                <div>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    Platform
+                  </div>
+                  <h2 className="mt-1 text-xl md:text-2xl font-semibold tracking-tight text-foreground">
+                    Built for predictable settlement
+                  </h2>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {FEATURES.map((f) => (
+                  <div
+                    key={f.title}
+                    className="surface-card p-5 md:p-6 transition-colors hover:border-white/15"
+                  >
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-white/[0.04] border border-white/[0.06] text-primary mb-4">
+                      <f.icon className="w-4.5 h-4.5" strokeWidth={1.75} />
+                    </div>
+                    <h3 className="text-[15px] font-semibold text-foreground tracking-tight">
+                      {f.title}
+                    </h3>
+                    <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+                      {f.description}
+                    </p>
+                    <div className="mt-4 pt-4 border-t border-white/[0.06] text-xs font-medium text-foreground/70">
+                      {f.stat}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
 
             {/* FAQ Section */}
-            <div className="mt-12 sm:mt-16 md:mt-20 px-2">
+            <section className="mt-20 md:mt-28">
               <FAQ />
-            </div>
+            </section>
           </main>
 
-          {/* Footer */}
           <Footer />
         </div>
       </div>
-    </MultiWalletProvider>;
+    </MultiWalletProvider>
+  );
 };
+
 export default Index;
