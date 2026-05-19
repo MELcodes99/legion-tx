@@ -3,6 +3,7 @@ import { UnifiedWalletButton } from "@/components/UnifiedWalletButton";
 import { MultiChainTransferForm } from "@/components/MultiChainTransferForm";
 
 import { FAQ } from "@/components/FAQ";
+import { PromoCarousel } from "@/components/PromoCarousel";
 import { Footer } from "@/components/Footer";
 import legionLogo from "@/assets/legion-logo.png";
 import solanaLogo from "@/assets/solana-logo.png";
@@ -149,6 +150,11 @@ const Index = () => {
                   </div>
                 ))}
               </div>
+            </section>
+
+            {/* Promo Carousel */}
+            <section className="mt-20 md:mt-28">
+              <PromoCarousel />
             </section>
 
             {/* FAQ Section */}
