@@ -24,7 +24,7 @@ export const PromoCarousel = () => {
           <img
             key={i}
             src={src}
-            alt={`Legion highlight ${i + 1}`}
+            alt={`Promo ${i + 1}`}
             loading="lazy"
             className="absolute inset-0 w-full h-full object-contain transition-opacity duration-1000 ease-in-out"
             style={{ opacity: i === index ? 1 : 0 }}
