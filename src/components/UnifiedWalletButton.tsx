@@ -16,7 +16,7 @@ import ethLogo from '@/assets/eth-logo.jpeg';
 import metamaskLogo from '@/assets/metamask-logo.svg';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useToast } from '@/hooks/use-toast';
-import { setSelectedNetwork } from '@/hooks/useSelectedNetwork';
+import { setSelectedNetwork as persistSelectedNetwork } from '@/hooks/useSelectedNetwork';
 import type { ChainType } from '@/config/tokens';
 type NetworkStep = 'select-network' | 'select-wallet';
 const NETWORKS = [{
