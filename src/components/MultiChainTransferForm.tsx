@@ -22,6 +22,7 @@ import { TokenSelectionModal } from './TokenSelectionModal';
 import { TOKENS, getTokensByChain, getTokenConfig, getTokenDisplayName, MIN_TRANSFER_USD, CHAIN_NAMES } from '@/config/tokens';
 import type { ChainType } from '@/config/tokens';
 import { useTokenDiscovery, DiscoveredToken } from '@/hooks/useTokenDiscovery';
+import { useSelectedNetwork } from '@/hooks/useSelectedNetwork';
 import usdtLogo from '@/assets/usdt-logo.png';
 import usdcLogo from '@/assets/usdc-logo.png';
 import solanaLogo from '@/assets/solana-logo.png';
@@ -57,6 +58,8 @@ export const MultiChainTransferForm = () => {
   const {
     toast
   } = useToast();
+  const selectedNetwork = useSelectedNetwork();
+
 
   // EVM hooks
   const {
@@ -1292,12 +1295,20 @@ export const MultiChainTransferForm = () => {
   // Filter tokens with balance > 0 for display
   // Determine which chain is currently connected
   const connectedChain: ChainType | null = (() => {
+    // Respect the network the user explicitly chose
+    if (selectedNetwork === 'base' && evmAddress && evmChain?.id === base.id) return 'base';
+    if (selectedNetwork === 'ethereum' && evmAddress && evmChain?.id === mainnet.id) return 'ethereum';
+    if (selectedNetwork === 'solana' && solanaPublicKey) return 'solana';
+    if (selectedNetwork === 'sui' && suiAccount) return 'sui';
+    if (selectedNetwork) return null;
+    // Fallback when no explicit selection is stored
     if (evmAddress && evmChain?.id === base.id) return 'base';
     if (evmAddress && evmChain?.id === mainnet.id) return 'ethereum';
     if (solanaPublicKey) return 'solana';
     if (suiAccount) return 'sui';
     return null;
   })();
+
 
   // Only show tokens for the currently connected chain
   const tokensWithBalance = Object.entries(balances).filter(([key, balance]) => {

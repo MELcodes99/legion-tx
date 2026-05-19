@@ -16,6 +16,7 @@ import ethLogo from '@/assets/eth-logo.jpeg';
 import metamaskLogo from '@/assets/metamask-logo.svg';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useToast } from '@/hooks/use-toast';
+import { setSelectedNetwork as persistSelectedNetwork } from '@/hooks/useSelectedNetwork';
 import type { ChainType } from '@/config/tokens';
 type NetworkStep = 'select-network' | 'select-wallet';
 const NETWORKS = [{
@@ -87,12 +88,15 @@ export const UnifiedWalletButton = () => {
     if (evmAddress) {
       disconnectEvm();
     }
+    setSelectedNetwork(null);
+    persistSelectedNetwork(null);
     toast({
       title: "Wallet Disconnected",
       description: "Wallet has been disconnected successfully."
     });
   };
   const handleNetworkSelect = (network: ChainType) => {
+    persistSelectedNetwork(network);
     setSelectedNetwork(network);
     setStep('select-wallet');
 
