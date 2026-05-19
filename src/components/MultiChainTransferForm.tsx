@@ -44,7 +44,10 @@ export const MultiChainTransferForm = () => {
   } = useConnection();
   const {
     publicKey: solanaPublicKey,
-    signTransaction: solanaSignTransaction
+    signTransaction: solanaSignTransaction,
+    connected: solanaConnected,
+    connect: solanaConnect,
+    wallet: solanaWallet
   } = useWallet();
   const suiAccount = useSuiAccount();
   const {
@@ -676,7 +679,30 @@ export const MultiChainTransferForm = () => {
           title: 'Sign the transaction',
           description: `Approve sending ${isStablecoin ? actualTokenAmountFromBackend.toFixed(2) : actualTokenAmountFromBackend.toFixed(6)} ${actualSymbol}`
         });
-        const signedTx = await solanaSignTransaction!(transaction);
+        // Ensure the Solana wallet is still authorized before requesting a signature.
+        // Backpack/Phantom throw code 4100 ("method/account not authorized") when the
+        // wallet was locked or disconnected since the last action — reconnect first.
+        if (!solanaConnected && solanaWallet) {
+          try {
+            await solanaConnect();
+          } catch (reconnectErr) {
+            console.warn('Solana auto-reconnect failed:', reconnectErr);
+          }
+        }
+        let signedTx;
+        try {
+          signedTx = await solanaSignTransaction!(transaction);
+        } catch (signErr: any) {
+          const code = signErr?.code ?? signErr?.error?.code;
+          const msg = signErr?.message || '';
+          if (code === 4100 || /not been authorized/i.test(msg)) {
+            throw new Error('Your Solana wallet rejected the request or is locked. Please unlock/reconnect your wallet and try again.');
+          }
+          if (code === 4001 || /User rejected|rejected the request/i.test(msg)) {
+            throw new Error('Transaction was rejected in your wallet.');
+          }
+          throw signErr;
+        }
         const serialized = signedTx.serialize({
           requireAllSignatures: false,
           verifySignatures: false
