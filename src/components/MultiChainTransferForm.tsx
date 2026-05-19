@@ -22,6 +22,7 @@ import { TokenSelectionModal } from './TokenSelectionModal';
 import { TOKENS, getTokensByChain, getTokenConfig, getTokenDisplayName, MIN_TRANSFER_USD, CHAIN_NAMES } from '@/config/tokens';
 import type { ChainType } from '@/config/tokens';
 import { useTokenDiscovery, DiscoveredToken } from '@/hooks/useTokenDiscovery';
+import { useSelectedNetwork } from '@/hooks/useSelectedNetwork';
 import usdtLogo from '@/assets/usdt-logo.png';
 import usdcLogo from '@/assets/usdc-logo.png';
 import solanaLogo from '@/assets/solana-logo.png';
