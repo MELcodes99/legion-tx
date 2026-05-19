@@ -11,7 +11,7 @@ export const Footer = () => {
             · Multi-chain flexible gas transfers
           </span>
         </div>
-        <p className="text-xs text-muted-foreground">© 2025 Legion. All rights reserved.</p>
+        <p className="text-xs text-muted-foreground">© 2026 Legion. All rights reserved.</p>
       </div>
     </footer>
   );
