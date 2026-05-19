@@ -23,7 +23,7 @@ const FEATURES = [
     icon: Zap,
     title: "Flexible gas",
     description: "Pay network fees with the same token you're sending. No native gas required.",
-    stat: "USDC · USDT · SPL",
+    stat: "USDC · USDT · SPL Tokens",
   },
   {
     icon: Shield,
@@ -91,7 +91,7 @@ const Index = () => {
 
                 <p className="mt-5 text-[15px] sm:text-base text-muted-foreground leading-relaxed max-w-lg">
                   Send stablecoins and supported tokens across Solana, Sui, Base, and Ethereum.
-                  Pay network fees in the token you're already holding — no native gas balance required.
+                  Pay network fees in the token you're already holding, no native gas balance required.
                 </p>
 
                 {/* Supported chains strip */}
@@ -128,7 +128,7 @@ const Index = () => {
                     Platform
                   </div>
                   <h2 className="mt-1 text-xl md:text-2xl font-semibold tracking-tight text-foreground">
-                    Built for predictable settlement
+                    Built for Gas Fee Abstraction
                   </h2>
                 </div>
               </div>
