@@ -62,7 +62,7 @@ const Index = () => {
                   href="https://x.com/use_legion"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hidden sm:flex items-center justify-center w-9 h-9 rounded-lg border border-white/[0.06] hover:border-white/15 hover:bg-white/[0.03] transition-colors"
+                  className="flex items-center justify-center w-9 h-9 rounded-lg border border-white/[0.06] hover:border-white/15 hover:bg-white/[0.03] transition-colors"
                   aria-label="Follow on X"
                 >
                   <img alt="X" className="w-4 h-4" src="/lovable-uploads/0bfe1a7e-3715-4490-bdd6-a69e1f7a1f1c.jpg" />

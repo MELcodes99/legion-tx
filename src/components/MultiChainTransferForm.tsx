@@ -1339,7 +1339,7 @@ export const MultiChainTransferForm = () => {
             </AlertDescription>
           </Alert>}
 
-        <ConnectedWalletInfo />
+        <ConnectedWalletInfo activeChain={connectedChain} />
 
         {/* Token Selection Modal */}
         <TokenSelectionModal
