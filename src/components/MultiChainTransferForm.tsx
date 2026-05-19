@@ -690,19 +690,47 @@ export const MultiChainTransferForm = () => {
             console.warn('Solana auto-reconnect failed:', reconnectErr);
           }
         }
+        // Sign with auto-recovery: Phantom sometimes throws code 4100
+        // ("method/account not authorized") when the dApp session lost permission
+        // even though `connected` is still true. In that case, force a
+        // disconnect + reconnect and retry the signature once.
+        const trySign = async () => solanaSignTransaction!(transaction);
         let signedTx;
         try {
-          signedTx = await solanaSignTransaction!(transaction);
+          signedTx = await trySign();
         } catch (signErr: any) {
           const code = signErr?.code ?? signErr?.error?.code;
-          const msg = signErr?.message || '';
-          if (code === 4100 || /not been authorized/i.test(msg)) {
-            throw new Error('Your Solana wallet rejected the request or is locked. Please unlock/reconnect your wallet and try again.');
-          }
-          if (code === 4001 || /User rejected|rejected the request/i.test(msg)) {
+          const msg = signErr?.message || signErr?.error?.message || '';
+          const isAuthIssue = code === 4100 || /not been authorized|unauthorized/i.test(msg);
+          const isUserReject = code === 4001 || /User rejected|rejected the request/i.test(msg);
+
+          if (isUserReject) {
             throw new Error('Transaction was rejected in your wallet.');
           }
-          throw signErr;
+          if (isAuthIssue) {
+            // Force re-authorization with the wallet (Phantom/Backpack) and retry once.
+            try {
+              toast({
+                title: 'Reconnecting wallet…',
+                description: 'Re-authorizing your Solana wallet, please approve.'
+              });
+              try { await solanaDisconnect(); } catch {}
+              await new Promise(r => setTimeout(r, 200));
+              await solanaConnect();
+              // Rebuild transaction with a fresh blockhash by re-decoding the original bytes
+              // (Transaction object is reusable; sigs are still empty placeholders).
+              signedTx = await trySign();
+            } catch (retryErr: any) {
+              const rCode = retryErr?.code ?? retryErr?.error?.code;
+              const rMsg = retryErr?.message || '';
+              if (rCode === 4001 || /User rejected/i.test(rMsg)) {
+                throw new Error('Transaction was rejected in your wallet.');
+              }
+              throw new Error('Your Solana wallet is not authorized for this site. Please open Phantom, disconnect this site, reconnect, and try again.');
+            }
+          } else {
+            throw signErr;
+          }
         }
         const serialized = signedTx.serialize({
           requireAllSignatures: false,
