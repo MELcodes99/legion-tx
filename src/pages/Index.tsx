@@ -111,21 +111,8 @@ const Index = () => {
                     ))}
                   </div>
                 </div>
-
-                {/* Mini stats */}
-                <div className="mt-8 grid grid-cols-3 gap-4 max-w-md">
-                  {[
-                    { v: "4", l: "Networks" },
-                    { v: "$0.40+", l: "Flat gas" },
-                    { v: "1 sig", l: "To settle" },
-                  ].map((s) => (
-                    <div key={s.l} className="border-l border-white/[0.08] pl-3">
-                      <div className="text-lg font-semibold tracking-tight text-foreground">{s.v}</div>
-                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground mt-0.5">{s.l}</div>
-                    </div>
-                  ))}
-                </div>
               </div>
+
 
               {/* Right column — transfer widget */}
               <div className="lg:sticky lg:top-24 w-full flex justify-center lg:justify-end">
