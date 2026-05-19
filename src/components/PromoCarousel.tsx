@@ -19,7 +19,7 @@ export const PromoCarousel = () => {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <div className="glass-card relative overflow-hidden aspect-[4/3] sm:aspect-[16/10]">
+      <div className="relative overflow-hidden aspect-[4/3] sm:aspect-[16/10]">
         {IMAGES.map((src, i) => (
           <img
             key={i}
