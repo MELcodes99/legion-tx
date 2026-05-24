@@ -57,11 +57,10 @@ export const GaslessSDKSection = () => {
           </span>
         </h2>
         <p className="mt-4 text-[15px] text-muted-foreground leading-relaxed max-w-2xl mx-auto">
-          Drop-in TypeScript SDK that lets your users sign Solana transactions
-          with <span className="text-foreground">zero SOL</span>. Your sponsor
-          wallet pays the gas, the SDK collects a small fee in USDC, USDT, or
-          any SPL token you configure — bundled atomically into a single
-          transaction.
+          Your users shouldn't need SOL just to use your app. This SDK handles the gas,
+          your sponsor wallet covers it, and you collect a small fee in{" "}
+          <span className="text-foreground">USDC, USDT</span>, or whatever token you choose.
+          One transaction, fully atomic, no SOL required on the user's end.
         </p>
       </div>
 
