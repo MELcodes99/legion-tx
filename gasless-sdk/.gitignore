@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+dist/
+
+# 🚨 NEVER commit the sponsor wallet — it controls real SOL
+sponsor-wallet.json
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+.DS_Store

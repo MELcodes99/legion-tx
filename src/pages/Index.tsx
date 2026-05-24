@@ -5,6 +5,7 @@ import { MultiChainTransferForm } from "@/components/MultiChainTransferForm";
 import { FAQ } from "@/components/FAQ";
 import { PromoCarousel } from "@/components/PromoCarousel";
 import { Footer } from "@/components/Footer";
+import { GaslessSDKSection } from "@/components/GaslessSDKSection";
 import legionLogo from "@/assets/legion-logo.png";
 import solanaLogo from "@/assets/solana-logo.png";
 import suiLogo from "@/assets/sui-logo.png";
@@ -160,6 +161,11 @@ const Index = () => {
             {/* FAQ Section */}
             <section className="mt-20 md:mt-28">
               <FAQ />
+            </section>
+
+            {/* Gasless SDK Section */}
+            <section className="mt-20 md:mt-28">
+              <GaslessSDKSection />
             </section>
           </main>
 
