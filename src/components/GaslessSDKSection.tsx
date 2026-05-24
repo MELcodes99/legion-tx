@@ -107,8 +107,8 @@ export const GaslessSDKSection = () => {
             View on GitHub
           </a>
         </Button>
-        <span className="text-xs text-muted-foreground">
-          MIT licensed · Clone, configure, ship in minutes
+        <span className="text-xs text-muted-foreground text-center">
+          Go gasless in seconds
         </span>
       </div>
     </div>
