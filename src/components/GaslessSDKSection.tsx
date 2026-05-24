@@ -1,30 +1,22 @@
 import { Github, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const SDK_CODE = `import { GaslessSDK } from "legion-gasless-sdk";
-import { Transaction, SystemProgram } from "@solana/web3.js";
-
-// Auto-loads ./config.json + ./sponsor-wallet.json
-const sdk = new GaslessSDK();
-
-// Build any normal Solana transaction
-const tx = new Transaction().add(
-  SystemProgram.transfer({
-    fromPubkey: user.publicKey,
-    toPubkey: recipient,
-    lamports: 1_000,
-  })
-);
-
-// Wrap it — sponsor pays SOL, user pays $0.05 USDC
-const gaslessTx = await sdk.makeGasless({
-  transaction: tx,
-  userPublicKey: user.publicKey,
-  feeToken: "USDC",
-});
-
-gaslessTx.partialSign(userKeypair);
-const sig = await sdk.sendAndConfirm(gaslessTx);`;
+const SDK_CODE = `gasless: {
+  fees: [
+    {
+      token: "USDT",
+      mintAddress: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // Solana mainnet USDT
+      amount: 0.10  // charge user $0.10 per transaction
+    },
+    {
+      token: "USDC",
+      mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Solana mainnet USDC
+      amount: 0.05
+    }
+    // Developer can add any additional token by adding a new object with its mint address
+  ],
+  defaultFeeToken: "USDC"  // which token to charge by default
+}`;
 
 // Minimal Prism-free purple syntax highlighting
 const highlight = (code: string) => {
@@ -65,11 +57,10 @@ export const GaslessSDKSection = () => {
           </span>
         </h2>
         <p className="mt-4 text-[15px] text-muted-foreground leading-relaxed max-w-2xl mx-auto">
-          Drop-in TypeScript SDK that lets your users sign Solana transactions
-          with <span className="text-foreground">zero SOL</span>. Your sponsor
-          wallet pays the gas, the SDK collects a small fee in USDC, USDT, or
-          any SPL token you configure — bundled atomically into a single
-          transaction.
+          Your users shouldn't need SOL just to use your app. This SDK handles the gas,
+          your sponsor wallet covers it, and you collect a small fee in{" "}
+          <span className="text-foreground">USDC, USDT</span>, or whatever token you choose.
+          One transaction, fully atomic, no SOL required on the user's end.
         </p>
       </div>
 
@@ -88,14 +79,14 @@ export const GaslessSDKSection = () => {
               <span className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
             </div>
             <span className="text-[11px] font-mono text-purple-300/60">
-              example.ts
+              config.ts
             </span>
-            <span className="text-[11px] font-mono text-purple-300/40">
+            <span className="hidden sm:inline text-[11px] font-mono text-purple-300/40">
               legion-gasless-sdk
             </span>
           </div>
 
-          <pre className="overflow-x-auto p-5 md:p-6 text-[13px] leading-relaxed font-mono text-purple-100/90">
+          <pre className="overflow-x-auto p-4 sm:p-5 md:p-6 text-[11px] sm:text-[12px] md:text-[13px] leading-relaxed font-mono text-purple-100/90">
             <code dangerouslySetInnerHTML={{ __html: highlight(SDK_CODE) }} />
           </pre>
         </div>
@@ -116,8 +107,8 @@ export const GaslessSDKSection = () => {
             View on GitHub
           </a>
         </Button>
-        <span className="text-xs text-muted-foreground">
-          MIT licensed · Clone, configure, ship in minutes
+        <span className="text-xs text-muted-foreground text-center">
+          Go gasless in seconds
         </span>
       </div>
     </div>
