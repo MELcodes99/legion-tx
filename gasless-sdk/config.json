@@ -1,0 +1,18 @@
+{
+  "rpcUrl": "https://api.mainnet-beta.solana.com",
+  "gasless": {
+    "fees": [
+      {
+        "token": "USDT",
+        "mintAddress": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        "amount": 0.10
+      },
+      {
+        "token": "USDC",
+        "mintAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "amount": 0.05
+      }
+    ],
+    "defaultFeeToken": "USDC"
+  }
+}

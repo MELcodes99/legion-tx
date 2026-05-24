@@ -1,0 +1,22 @@
+{
+  "name": "legion-gasless-sdk",
+  "version": "1.0.0",
+  "description": "Solana Gasless Transaction SDK — let your users transact without holding SOL.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["solana", "gasless", "sdk", "spl", "fee-sponsor", "web3"],
+  "author": "Legion",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/spl-token": "^0.4.6",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}
