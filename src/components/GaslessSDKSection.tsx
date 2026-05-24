@@ -1,30 +1,22 @@
 import { Github, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const SDK_CODE = `import { GaslessSDK } from "legion-gasless-sdk";
-import { Transaction, SystemProgram } from "@solana/web3.js";
-
-// Auto-loads ./config.json + ./sponsor-wallet.json
-const sdk = new GaslessSDK();
-
-// Build any normal Solana transaction
-const tx = new Transaction().add(
-  SystemProgram.transfer({
-    fromPubkey: user.publicKey,
-    toPubkey: recipient,
-    lamports: 1_000,
-  })
-);
-
-// Wrap it — sponsor pays SOL, user pays $0.05 USDC
-const gaslessTx = await sdk.makeGasless({
-  transaction: tx,
-  userPublicKey: user.publicKey,
-  feeToken: "USDC",
-});
-
-gaslessTx.partialSign(userKeypair);
-const sig = await sdk.sendAndConfirm(gaslessTx);`;
+const SDK_CODE = `gasless: {
+  fees: [
+    {
+      token: "USDT",
+      mintAddress: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", // Solana mainnet USDT
+      amount: 0.10  // charge user $0.10 per transaction
+    },
+    {
+      token: "USDC",
+      mintAddress: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Solana mainnet USDC
+      amount: 0.05
+    }
+    // Developer can add any additional token by adding a new object with its mint address
+  ],
+  defaultFeeToken: "USDC"  // which token to charge by default
+}`;
 
 // Minimal Prism-free purple syntax highlighting
 const highlight = (code: string) => {
