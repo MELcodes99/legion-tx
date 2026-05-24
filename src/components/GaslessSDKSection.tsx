@@ -79,14 +79,14 @@ export const GaslessSDKSection = () => {
               <span className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
             </div>
             <span className="text-[11px] font-mono text-purple-300/60">
-              example.ts
+              config.ts
             </span>
-            <span className="text-[11px] font-mono text-purple-300/40">
+            <span className="hidden sm:inline text-[11px] font-mono text-purple-300/40">
               legion-gasless-sdk
             </span>
           </div>
 
-          <pre className="overflow-x-auto p-5 md:p-6 text-[13px] leading-relaxed font-mono text-purple-100/90">
+          <pre className="overflow-x-auto p-4 sm:p-5 md:p-6 text-[11px] sm:text-[12px] md:text-[13px] leading-relaxed font-mono text-purple-100/90">
             <code dangerouslySetInnerHTML={{ __html: highlight(SDK_CODE) }} />
           </pre>
         </div>
