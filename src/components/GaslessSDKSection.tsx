@@ -99,7 +99,7 @@ export const GaslessSDKSection = () => {
           className="bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 text-white border-0 shadow-[0_0_30px_-8px_rgba(168,85,247,0.6)]"
         >
           <a
-            href="https://github.com/your-org/legion-gasless-sdk"
+            href="https://github.com/MELcodes99/legionSDK.git"
             target="_blank"
             rel="noopener noreferrer"
           >
