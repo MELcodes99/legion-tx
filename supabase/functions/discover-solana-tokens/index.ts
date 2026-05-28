@@ -183,7 +183,16 @@ Deno.serve(async (req) => {
     const uniqueMints = [...new Set(decoded.map((d) => d.mint))];
     const decimalsMap = await fetchMintDecimals(uniqueMints);
 
-    const tokens: { address: string; balance: number; decimals: number; isNative: boolean }[] = [];
+    type OutToken = {
+      address: string;
+      balance: number;
+      decimals: number;
+      isNative: boolean;
+      symbol?: string;
+      name?: string;
+      logoURI?: string;
+    };
+    const tokens: OutToken[] = [];
 
     // SOL
     tokens.push({
@@ -191,6 +200,8 @@ Deno.serve(async (req) => {
       balance: solLamports / 1e9,
       decimals: 9,
       isNative: true,
+      symbol: 'SOL',
+      name: 'Solana',
     });
 
     for (const d of decoded) {
@@ -198,6 +209,42 @@ Deno.serve(async (req) => {
       const balance = Number(d.amountRaw) / Math.pow(10, decimals);
       if (balance > 0) {
         tokens.push({ address: d.mint, balance, decimals, isNative: false });
+      }
+    }
+
+    // Enrich unknown SPL mints with Jupiter metadata (server-side, no CORS).
+    // Uses Jupiter's current lite-api endpoint per mint, in parallel with a tight timeout.
+    const mintsNeedingMeta = tokens.filter((t) => !t.isNative).map((t) => t.address);
+    const metaResults = await Promise.all(
+      mintsNeedingMeta.map(async (mint) => {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 4000);
+        try {
+          const r = await fetch(`https://lite-api.jup.ag/tokens/v1/token/${mint}`, {
+            headers: { Accept: 'application/json' },
+            signal: ctrl.signal,
+          });
+          if (!r.ok) return [mint, null] as const;
+          const j = await r.json();
+          return [
+            mint,
+            { symbol: j?.symbol, name: j?.name, logoURI: j?.logoURI },
+          ] as const;
+        } catch {
+          return [mint, null] as const;
+        } finally {
+          clearTimeout(to);
+        }
+      }),
+    );
+    const metaMap = new Map(metaResults);
+    for (const t of tokens) {
+      if (t.isNative) continue;
+      const m = metaMap.get(t.address);
+      if (m) {
+        if (m.symbol) t.symbol = m.symbol;
+        if (m.name) t.name = m.name;
+        if (m.logoURI) t.logoURI = m.logoURI;
       }
     }
 
