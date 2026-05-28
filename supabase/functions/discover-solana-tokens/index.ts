@@ -1,9 +1,176 @@
 // Lightweight Solana token discovery via raw JSON-RPC.
 // Uses base64+dataSlice to keep responses small and avoid memory limits.
+import { PublicKey } from 'npm:@solana/web3.js@1.95.3';
+import { Buffer } from 'node:buffer';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// ============================================================
+// Metadata resolution: Jupiter list → Metaplex on-chain → Legacy registry
+// ============================================================
+const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+const JUPITER_ALL_URL = 'https://token.jup.ag/all';
+const LEGACY_REGISTRY_URL =
+  'https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json';
+const LIST_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+
+type TokenMeta = { symbol?: string; name?: string; logoURI?: string };
+
+let jupiterCache: { at: number; map: Map<string, TokenMeta> } | null = null;
+let legacyCache: { at: number; map: Map<string, TokenMeta> } | null = null;
+const metaplexCache = new Map<string, TokenMeta | null>(); // per-mint, persistent across invocations
+
+async function fetchWithTimeout(url: string, ms = 8000): Promise<Response | null> {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { headers: { Accept: 'application/json' }, signal: ctrl.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+async function getJupiterMap(): Promise<Map<string, TokenMeta>> {
+  if (jupiterCache && Date.now() - jupiterCache.at < LIST_TTL_MS) return jupiterCache.map;
+  const map = new Map<string, TokenMeta>();
+  try {
+    const r = await fetchWithTimeout(JUPITER_ALL_URL, 15_000);
+    if (r?.ok) {
+      const arr = await r.json();
+      if (Array.isArray(arr)) {
+        for (const t of arr) {
+          if (t?.address) {
+            map.set(t.address, { symbol: t.symbol, name: t.name, logoURI: t.logoURI });
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.log('Jupiter list fetch failed:', (e as Error).message);
+  }
+  jupiterCache = { at: Date.now(), map };
+  console.log(`Jupiter list loaded: ${map.size} tokens`);
+  return map;
+}
+
+async function getLegacyMap(): Promise<Map<string, TokenMeta>> {
+  if (legacyCache && Date.now() - legacyCache.at < LIST_TTL_MS) return legacyCache.map;
+  const map = new Map<string, TokenMeta>();
+  try {
+    const r = await fetchWithTimeout(LEGACY_REGISTRY_URL, 15_000);
+    if (r?.ok) {
+      const j = await r.json();
+      const tokens = j?.tokens ?? [];
+      for (const t of tokens) {
+        if (t?.address) {
+          map.set(t.address, { symbol: t.symbol, name: t.name, logoURI: t.logoURI });
+        }
+      }
+    }
+  } catch (e) {
+    console.log('Legacy registry fetch failed:', (e as Error).message);
+  }
+  legacyCache = { at: Date.now(), map };
+  return map;
+}
+
+// Decode a Metaplex Metadata account (Borsh-ish layout).
+// key(1) | updateAuthority(32) | mint(32) | name(4+32) | symbol(4+10) | uri(4+200) | ...
+function decodeMetaplex(base64Data: string): TokenMeta | null {
+  try {
+    const buf = Buffer.from(base64Data, 'base64');
+    let off = 1 + 32 + 32;
+    const readBorshStr = (maxLen: number): string => {
+      const len = buf.readUInt32LE(off);
+      off += 4;
+      const slice = buf.subarray(off, off + Math.min(len, maxLen));
+      off += maxLen;
+      return new TextDecoder().decode(slice).replace(/\0+$/, '').trim();
+    };
+    const name = readBorshStr(32);
+    const symbol = readBorshStr(10);
+    const uri = readBorshStr(200);
+    return { name: name || undefined, symbol: symbol || undefined, logoURI: uri || undefined };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveMetaplex(mint: string): Promise<TokenMeta | null> {
+  if (metaplexCache.has(mint)) return metaplexCache.get(mint) ?? null;
+  try {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('metadata'), METADATA_PROGRAM_ID.toBuffer(), new PublicKey(mint).toBuffer()],
+      METADATA_PROGRAM_ID,
+    );
+    const acc = await tryEndpoints((ep) =>
+      rpcCall(ep, 'getAccountInfo', [pda.toBase58(), { encoding: 'base64' }]),
+    );
+    const data = acc?.value?.data?.[0];
+    if (!data) {
+      metaplexCache.set(mint, null);
+      return null;
+    }
+    const decoded = decodeMetaplex(data);
+    if (!decoded) {
+      metaplexCache.set(mint, null);
+      return null;
+    }
+    // Try to fetch off-chain JSON for the actual image
+    let logoURI = decoded.logoURI;
+    if (logoURI && /^https?:\/\//.test(logoURI)) {
+      try {
+        const r = await fetchWithTimeout(logoURI, 4000);
+        if (r?.ok) {
+          const j = await r.json();
+          if (j?.image && typeof j.image === 'string') logoURI = j.image;
+        }
+      } catch {
+        // keep raw uri
+      }
+    }
+    const out: TokenMeta = { symbol: decoded.symbol, name: decoded.name, logoURI };
+    metaplexCache.set(mint, out);
+    return out;
+  } catch (e) {
+    console.log(`Metaplex resolve failed for ${mint}: ${(e as Error).message}`);
+    metaplexCache.set(mint, null);
+    return null;
+  }
+}
+
+async function resolveMintMeta(mint: string): Promise<TokenMeta | null> {
+  const jup = await getJupiterMap();
+  const fromJup = jup.get(mint);
+  if (fromJup?.symbol && fromJup?.logoURI) return fromJup;
+
+  const fromChain = await resolveMetaplex(mint);
+  if (fromChain?.symbol || fromChain?.logoURI) {
+    // Merge with any partial jupiter hit
+    return {
+      symbol: fromChain.symbol || fromJup?.symbol,
+      name: fromChain.name || fromJup?.name,
+      logoURI: fromChain.logoURI || fromJup?.logoURI,
+    };
+  }
+
+  const legacy = await getLegacyMap();
+  const fromLegacy = legacy.get(mint);
+  if (fromLegacy?.symbol || fromLegacy?.logoURI) {
+    return {
+      symbol: fromLegacy.symbol || fromJup?.symbol,
+      name: fromLegacy.name || fromJup?.name,
+      logoURI: fromLegacy.logoURI || fromJup?.logoURI,
+    };
+  }
+
+  return fromJup ?? null;
+}
 
 // Public endpoints that work from server IPs. Ankr/extrnode block server IPs.
 const RPC_ENDPOINTS = [
