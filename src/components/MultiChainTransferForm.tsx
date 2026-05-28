@@ -202,6 +202,24 @@ export const MultiChainTransferForm = () => {
     }
   }, [solanaPublicKey, suiAccount, evmAddress, evmChain]);
 
+  // Keep gas token on the same chain as the selected transfer token
+  useEffect(() => {
+    if (!selectedTokenConfig) return;
+    const gasCfg = getTokenConfig(selectedGasToken);
+    if (gasCfg && gasCfg.chain === selectedTokenConfig.chain) return;
+
+    const sameChain = availableTokens.filter(([, c]) => c.chain === selectedTokenConfig.chain);
+    // For EVM, exclude native
+    const eligible = sameChain.filter(([, c]) =>
+      !((c.chain === 'base' || c.chain === 'ethereum') && c.isNative)
+    );
+    const pick =
+      eligible.find(([, c]) => c.symbol === 'USDC') ||
+      eligible.find(([, c]) => c.symbol === 'USDT') ||
+      eligible[0];
+    if (pick) setSelectedGasToken(pick[0] as TokenKey);
+  }, [selectedToken, availableTokens]);
+
   // Fetch balances for all chains
   useEffect(() => {
     const fetchBalances = async () => {
@@ -1482,6 +1500,10 @@ export const MultiChainTransferForm = () => {
             </SelectTrigger>
             <SelectContent className="bg-popover border-border z-[100] max-h-[300px]">
               {availableTokens.filter(([key, config]) => {
+              // Gas token must be on the same chain as the token being transferred
+              if (selectedTokenConfig && config.chain !== selectedTokenConfig.chain) {
+                return false;
+              }
               // For EVM chains, only allow ERC20 tokens (not native ETH) for gas payment
               if ((config.chain === 'base' || config.chain === 'ethereum') && config.isNative) {
                 return false;
