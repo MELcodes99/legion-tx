@@ -1482,6 +1482,10 @@ export const MultiChainTransferForm = () => {
             </SelectTrigger>
             <SelectContent className="bg-popover border-border z-[100] max-h-[300px]">
               {availableTokens.filter(([key, config]) => {
+              // Gas token must be on the same chain as the token being transferred
+              if (selectedTokenConfig && config.chain !== selectedTokenConfig.chain) {
+                return false;
+              }
               // For EVM chains, only allow ERC20 tokens (not native ETH) for gas payment
               if ((config.chain === 'base' || config.chain === 'ethereum') && config.isNative) {
                 return false;
