@@ -153,15 +153,24 @@ export const useTokenDiscovery = (
         return [];
       }
 
-      // Build token account map from server response
-      const tokenAccountMap: Record<string, { uiAmount: number; decimals: number }> = {};
+      // Build token account map from server response (now includes metadata)
+      const tokenAccountMap: Record<
+        string,
+        { uiAmount: number; decimals: number; symbol?: string; name?: string; logoURI?: string }
+      > = {};
       let solAmount = 0;
 
       for (const t of serverTokens) {
         if (t.isNative) {
           solAmount = t.balance;
         } else if (t.balance > 0) {
-          tokenAccountMap[t.address] = { uiAmount: t.balance, decimals: t.decimals };
+          tokenAccountMap[t.address] = {
+            uiAmount: t.balance,
+            decimals: t.decimals,
+            symbol: t.symbol,
+            name: t.name,
+            logoURI: t.logoURI,
+          };
         }
       }
 
@@ -214,7 +223,7 @@ export const useTokenDiscovery = (
         }
       }
 
-      // Process remaining tokens
+      // Process remaining tokens (all other SPL tokens in the wallet)
       for (const [mint, tokenData] of Object.entries(tokenAccountMap)) {
         if (processedMints.has(mint)) continue;
         const price = prices[mint] || 0;
@@ -223,13 +232,13 @@ export const useTokenDiscovery = (
           const knownToken = Object.entries(TOKENS).find(
             ([_, config]) => config.chain === 'solana' && config.mint === mint
           );
-          let symbol = knownToken ? knownToken[1].symbol : mint.slice(0, 6);
-          let name = knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`;
-          const jupiterMeta = await getSolanaTokenMetadata(mint);
-          if (jupiterMeta) {
-            symbol = jupiterMeta.symbol;
-            name = jupiterMeta.name;
-          }
+          // Prefer server-provided Jupiter metadata, then local TOKENS config, then mint slice fallback
+          const symbol =
+            tokenData.symbol ||
+            (knownToken ? knownToken[1].symbol : `${mint.slice(0, 4)}…`);
+          const name =
+            tokenData.name ||
+            (knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`);
           tokens.push({
             key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
             address: mint,
@@ -240,9 +249,11 @@ export const useTokenDiscovery = (
             usdValue,
             chain: 'solana',
             isNative: false,
+            logoUrl: tokenData.logoURI || undefined,
           });
         }
       }
+
     } catch (error) {
       console.error('Error discovering Solana tokens:', error);
     }
