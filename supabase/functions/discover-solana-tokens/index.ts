@@ -212,29 +212,71 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Enrich unknown SPL mints with Jupiter metadata (server-side, no CORS).
-    // Uses Jupiter's current lite-api endpoint per mint, in parallel with a tight timeout.
+    // Enrich unknown SPL mints with metadata (server-side, no CORS).
+    // Strategy per mint: Jupiter token API → DexScreener pair info → leave blank.
     const mintsNeedingMeta = tokens.filter((t) => !t.isNative).map((t) => t.address);
+
+    async function fetchJupiterMeta(mint: string) {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 4000);
+      try {
+        const r = await fetch(`https://lite-api.jup.ag/tokens/v1/token/${mint}`, {
+          headers: { Accept: 'application/json' },
+          signal: ctrl.signal,
+        });
+        if (!r.ok) return null;
+        const j = await r.json();
+        if (!j?.symbol && !j?.name && !j?.logoURI) return null;
+        return { symbol: j?.symbol, name: j?.name, logoURI: j?.logoURI };
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(to);
+      }
+    }
+
+    async function fetchDexScreenerMeta(mint: string) {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 4000);
+      try {
+        const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
+          headers: { Accept: 'application/json' },
+          signal: ctrl.signal,
+        });
+        if (!r.ok) return null;
+        const j = await r.json();
+        const pairs = (j?.pairs ?? []).filter(
+          (p: any) => p?.chainId === 'solana' && p?.baseToken?.address === mint,
+        );
+        if (pairs.length === 0) return null;
+        // Pick the pair with highest USD liquidity — most likely to have correct logo+metadata.
+        pairs.sort((a: any, b: any) => (b?.liquidity?.usd ?? 0) - (a?.liquidity?.usd ?? 0));
+        const best = pairs[0];
+        return {
+          symbol: best?.baseToken?.symbol,
+          name: best?.baseToken?.name,
+          logoURI: best?.info?.imageUrl,
+        };
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(to);
+      }
+    }
+
     const metaResults = await Promise.all(
       mintsNeedingMeta.map(async (mint) => {
-        const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 4000);
-        try {
-          const r = await fetch(`https://lite-api.jup.ag/tokens/v1/token/${mint}`, {
-            headers: { Accept: 'application/json' },
-            signal: ctrl.signal,
-          });
-          if (!r.ok) return [mint, null] as const;
-          const j = await r.json();
-          return [
-            mint,
-            { symbol: j?.symbol, name: j?.name, logoURI: j?.logoURI },
-          ] as const;
-        } catch {
-          return [mint, null] as const;
-        } finally {
-          clearTimeout(to);
-        }
+        const jup = await fetchJupiterMeta(mint);
+        if (jup?.symbol && jup?.logoURI) return [mint, jup] as const;
+        const dex = await fetchDexScreenerMeta(mint);
+        // Merge: prefer non-empty fields from each source
+        const merged = {
+          symbol: jup?.symbol || dex?.symbol,
+          name: jup?.name || dex?.name,
+          logoURI: jup?.logoURI || dex?.logoURI,
+        };
+        if (!merged.symbol && !merged.name && !merged.logoURI) return [mint, null] as const;
+        return [mint, merged] as const;
       }),
     );
     const metaMap = new Map(metaResults);
@@ -247,6 +289,7 @@ Deno.serve(async (req) => {
         if (m.logoURI) t.logoURI = m.logoURI;
       }
     }
+
 
     console.log(`Discovered ${tokens.length} tokens for ${walletAddress}`);
 
