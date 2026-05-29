@@ -1091,6 +1091,159 @@ export type Database = {
         }
         Relationships: []
       }
+      swaps_daily: {
+        Row: {
+          chain: string
+          created_at: string
+          fee_usd: number
+          from_amount: number
+          from_token: string
+          id: string
+          period_date: string
+          status: string
+          to_amount: number
+          to_token: string
+          tx_hash: string | null
+          updated_at: string
+          volume_usd: number
+          wallet_address: string
+        }
+        Insert: {
+          chain?: string
+          created_at?: string
+          fee_usd?: number
+          from_amount?: number
+          from_token: string
+          id?: string
+          period_date?: string
+          status?: string
+          to_amount?: number
+          to_token: string
+          tx_hash?: string | null
+          updated_at?: string
+          volume_usd?: number
+          wallet_address: string
+        }
+        Update: {
+          chain?: string
+          created_at?: string
+          fee_usd?: number
+          from_amount?: number
+          from_token?: string
+          id?: string
+          period_date?: string
+          status?: string
+          to_amount?: number
+          to_token?: string
+          tx_hash?: string | null
+          updated_at?: string
+          volume_usd?: number
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      swaps_monthly: {
+        Row: {
+          chain: string
+          created_at: string
+          fee_usd: number
+          from_amount: number
+          from_token: string
+          id: string
+          month_start: string
+          status: string
+          to_amount: number
+          to_token: string
+          tx_hash: string | null
+          updated_at: string
+          volume_usd: number
+          wallet_address: string
+        }
+        Insert: {
+          chain?: string
+          created_at?: string
+          fee_usd?: number
+          from_amount?: number
+          from_token: string
+          id?: string
+          month_start: string
+          status?: string
+          to_amount?: number
+          to_token: string
+          tx_hash?: string | null
+          updated_at?: string
+          volume_usd?: number
+          wallet_address: string
+        }
+        Update: {
+          chain?: string
+          created_at?: string
+          fee_usd?: number
+          from_amount?: number
+          from_token?: string
+          id?: string
+          month_start?: string
+          status?: string
+          to_amount?: number
+          to_token?: string
+          tx_hash?: string | null
+          updated_at?: string
+          volume_usd?: number
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      swaps_weekly: {
+        Row: {
+          chain: string
+          created_at: string
+          fee_usd: number
+          from_amount: number
+          from_token: string
+          id: string
+          status: string
+          to_amount: number
+          to_token: string
+          tx_hash: string | null
+          updated_at: string
+          volume_usd: number
+          wallet_address: string
+          week_start: string
+        }
+        Insert: {
+          chain?: string
+          created_at?: string
+          fee_usd?: number
+          from_amount?: number
+          from_token: string
+          id?: string
+          status?: string
+          to_amount?: number
+          to_token: string
+          tx_hash?: string | null
+          updated_at?: string
+          volume_usd?: number
+          wallet_address: string
+          week_start: string
+        }
+        Update: {
+          chain?: string
+          created_at?: string
+          fee_usd?: number
+          from_amount?: number
+          from_token?: string
+          id?: string
+          status?: string
+          to_amount?: number
+          to_token?: string
+          tx_hash?: string | null
+          updated_at?: string
+          volume_usd?: number
+          wallet_address?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
@@ -1238,6 +1391,21 @@ export type Database = {
           p_status: string
           p_token_sent: string
           p_tx_hash: string
+        }
+        Returns: undefined
+      }
+      record_swap_stats: {
+        Args: {
+          p_chain: string
+          p_fee_usd: number
+          p_from_amount: number
+          p_from_token: string
+          p_status?: string
+          p_to_amount: number
+          p_to_token: string
+          p_tx_hash: string
+          p_volume_usd: number
+          p_wallet_address: string
         }
         Returns: undefined
       }
