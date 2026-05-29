@@ -17,9 +17,9 @@ export const TransferOrSwapPanel = () => {
   }, [mode, swapDisabled]);
 
   return (
-    <div className="w-full max-w-md mx-auto flex flex-col items-stretch gap-3">
+    <div className="w-full max-w-md mx-auto flex flex-col items-center gap-3">
       {/* Glass toggle */}
-      <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-primary/20 shadow-[0_8px_32px_-12px_hsl(var(--primary)/0.35)]">
+      <div className="grid w-full grid-cols-2 gap-1.5 p-1 rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-primary/20 shadow-[0_8px_32px_-12px_hsl(var(--primary)/0.35)]">
         <ToggleButton
           active={mode === 'send'}
           onClick={() => setMode('send')}
