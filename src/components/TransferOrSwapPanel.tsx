@@ -19,7 +19,7 @@ export const TransferOrSwapPanel = () => {
   return (
     <div className="w-full max-w-md mx-auto lg:mx-0 flex flex-col items-stretch gap-3">
       {/* Glass toggle */}
-      <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_-12px_rgba(0,0,0,0.4)]">
+      <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-primary/20 shadow-[0_8px_32px_-12px_hsl(var(--primary)/0.35)]">
         <ToggleButton
           active={mode === 'send'}
           onClick={() => setMode('send')}
