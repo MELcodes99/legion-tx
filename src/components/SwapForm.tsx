@@ -68,6 +68,15 @@ export const SwapForm = () => {
   const [outputModalOpen, setOutputModalOpen] = useState(false);
   const [outputDecimals, setOutputDecimals] = useState<number>(0);
   const [outputPrice, setOutputPrice] = useState<number | null>(null);
+  const [success, setSuccess] = useState<null | {
+    signature: string;
+    inSymbol: string;
+    outSymbol: string;
+    inAmount: string;
+    outAmount: string;
+    inUsd: number;
+    outUsd: number;
+  }>(null);
 
   // Default input to first solana token user holds
   useEffect(() => {
