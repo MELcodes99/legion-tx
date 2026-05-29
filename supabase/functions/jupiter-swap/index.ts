@@ -89,7 +89,13 @@ async function ensureFeeAccount(
     maxRetries: 3,
     preflightCommitment: "confirmed",
   });
-  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  try {
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  } catch (e) {
+    const created = await connection.getAccountInfo(feeAccount, "confirmed");
+    if (!created) throw e;
+    console.warn("Fee account creation confirmation expired, but account is initialized", signature);
+  }
   return feeAccount;
 }
 
