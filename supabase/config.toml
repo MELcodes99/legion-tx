@@ -11,3 +11,7 @@ verify_jwt = false
 
 [functions.discover-solana-tokens]
 verify_jwt = false
+
+[functions.record-swap]
+verify_jwt = false
+
