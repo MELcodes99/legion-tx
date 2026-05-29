@@ -19,7 +19,7 @@ export const TransferOrSwapPanel = () => {
   return (
     <div className="w-full max-w-md mx-auto lg:mx-0 flex flex-col items-stretch gap-3">
       {/* Glass toggle */}
-      <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_-12px_rgba(0,0,0,0.4)]">
+      <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-primary/20 shadow-[0_8px_32px_-12px_hsl(var(--primary)/0.35)]">
         <ToggleButton
           active={mode === 'send'}
           onClick={() => setMode('send')}
@@ -72,11 +72,11 @@ const ToggleButton = ({
     disabled={disabled}
     aria-pressed={active}
     className={[
-      'h-10 rounded-xl text-sm font-medium transition-all',
-      'backdrop-blur-md border',
+      'w-full h-9 sm:h-10 px-3 rounded-xl text-xs sm:text-sm font-medium transition-all',
+      'backdrop-blur-md border whitespace-nowrap',
       active
-        ? 'bg-gradient-to-b from-white/[0.14] to-white/[0.06] border-white/20 text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.12)]'
-        : 'bg-transparent border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',
+        ? 'bg-gradient-to-b from-primary/30 to-primary-glow/20 border-primary/40 text-foreground shadow-[inset_0_1px_0_0_hsl(var(--primary)/0.25),0_4px_16px_-4px_hsl(var(--primary)/0.45)]'
+        : 'bg-transparent border-transparent text-muted-foreground hover:bg-primary/10 hover:text-foreground',
       disabled ? 'opacity-40 cursor-not-allowed pointer-events-none' : '',
     ].join(' ')}
   >
