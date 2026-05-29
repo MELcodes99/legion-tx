@@ -315,6 +315,26 @@ export const SwapForm = () => {
       const outDecLocal = outputDecimals || tokenOut.decimals || 6;
       const outAmtNum = Number(quote.outAmount) / Math.pow(10, outDecLocal);
       const outAmtStr = fmtAmount(quote.outAmount, outDecLocal);
+      const outUsdNum = outputPrice ? outAmtNum * outputPrice : 0;
+      const volumeUsd = inputUsdValue || outUsdNum || 0;
+      const feeUsd = volumeUsd * 0.015; // 1.5% platform fee
+
+      // Record swap stats (fire-and-forget; never block UI)
+      supabase.functions.invoke('record-swap', {
+        body: {
+          wallet_address: publicKey.toBase58(),
+          chain: 'solana',
+          from_token: tokenIn.symbol,
+          to_token: tokenOut.symbol,
+          from_amount: amountInNum,
+          to_amount: outAmtNum,
+          volume_usd: volumeUsd,
+          fee_usd: feeUsd,
+          tx_hash: sig,
+          status: confirmed ? 'success' : 'pending',
+        },
+      }).catch((err) => console.warn('record-swap failed:', err));
+
       setSuccess({
         signature: sig,
         inSymbol: tokenIn.symbol,
@@ -322,7 +342,7 @@ export const SwapForm = () => {
         inAmount: amountInNum.toLocaleString(undefined, { maximumFractionDigits: 6 }),
         outAmount: outAmtStr,
         inUsd: inputUsdValue,
-        outUsd: outputPrice ? outAmtNum * outputPrice : 0,
+        outUsd: outUsdNum,
       });
       setAmountIn('');
       setQuote(null);
