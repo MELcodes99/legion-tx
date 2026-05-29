@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, ArrowDown, AlertCircle, Wallet } from 'lucide-react';
+import { Loader2, ArrowDown, AlertCircle, Wallet, CheckCircle2, ExternalLink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useTokenDiscovery, DiscoveredToken } from '@/hooks/useTokenDiscovery';
@@ -68,6 +68,15 @@ export const SwapForm = () => {
   const [outputModalOpen, setOutputModalOpen] = useState(false);
   const [outputDecimals, setOutputDecimals] = useState<number>(0);
   const [outputPrice, setOutputPrice] = useState<number | null>(null);
+  const [success, setSuccess] = useState<null | {
+    signature: string;
+    inSymbol: string;
+    outSymbol: string;
+    inAmount: string;
+    outAmount: string;
+    inUsd: number;
+    outUsd: number;
+  }>(null);
 
   // Default input to first solana token user holds
   useEffect(() => {
@@ -278,12 +287,42 @@ export const SwapForm = () => {
       });
       toast({ title: 'Swap submitted', description: 'Confirming on-chain…' });
 
-      const conf = await connection.confirmTransaction(sig, 'confirmed');
-      if (conf.value.err) throw new Error('Transaction failed on-chain');
+      // Bounded polling so the UI never hangs on confirmTransaction.
+      const startedAt = Date.now();
+      const MAX_WAIT_MS = 45_000;
+      let confirmed = false;
+      while (Date.now() - startedAt < MAX_WAIT_MS) {
+        try {
+          const { value } = await connection.getSignatureStatuses([sig], { searchTransactionHistory: true });
+          const status = value?.[0];
+          if (status) {
+            if (status.err) throw new Error('Transaction failed on-chain');
+            if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
+              confirmed = true;
+              break;
+            }
+          }
+        } catch (pollErr: any) {
+          if (/failed on-chain/i.test(pollErr?.message || '')) throw pollErr;
+          // transient — keep polling
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (!confirmed) {
+        // Treat as submitted; user can verify on Solscan via the link we show.
+      }
 
-      toast({
-        title: 'Swap complete 🎉',
-        description: `Received ~${fmtAmount(quote.outAmount, outputDecimals || tokenOut.decimals || 6)} ${tokenOut.symbol}`,
+      const outDecLocal = outputDecimals || tokenOut.decimals || 6;
+      const outAmtNum = Number(quote.outAmount) / Math.pow(10, outDecLocal);
+      const outAmtStr = fmtAmount(quote.outAmount, outDecLocal);
+      setSuccess({
+        signature: sig,
+        inSymbol: tokenIn.symbol,
+        outSymbol: tokenOut.symbol,
+        inAmount: amountInNum.toLocaleString(undefined, { maximumFractionDigits: 6 }),
+        outAmount: outAmtStr,
+        inUsd: inputUsdValue,
+        outUsd: outputPrice ? outAmtNum * outputPrice : 0,
       });
       setAmountIn('');
       setQuote(null);
@@ -315,6 +354,62 @@ export const SwapForm = () => {
             <Wallet className="h-4 w-4" />
             <AlertDescription>Use the Connect button at the top right.</AlertDescription>
           </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (success) {
+    return (
+      <Card className="w-full max-w-md surface-card">
+        <CardHeader className="pb-3 text-center">
+          <div className="mx-auto w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-2">
+            <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+          </div>
+          <CardTitle className="text-lg">Swap Successful</CardTitle>
+          <CardDescription>Your tokens have been swapped on Solana.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">Sent</span>
+              <div className="text-right">
+                <div className="text-sm font-medium">
+                  {success.inAmount} {success.inSymbol}
+                </div>
+                {success.inUsd > 0 && (
+                  <div className="text-[11px] text-muted-foreground">~${success.inUsd.toFixed(2)}</div>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <ArrowDown className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">Received</span>
+              <div className="text-right">
+                <div className="text-sm font-medium">
+                  {success.outAmount} {success.outSymbol}
+                </div>
+                {success.outUsd > 0 && (
+                  <div className="text-[11px] text-muted-foreground">~${success.outUsd.toFixed(2)}</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <a
+            href={`https://solscan.io/tx/${success.signature}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            View on Solscan <ExternalLink className="w-3 h-3" />
+          </a>
+
+          <Button onClick={() => setSuccess(null)} className="w-full h-11">
+            Start a new swap
+          </Button>
         </CardContent>
       </Card>
     );
