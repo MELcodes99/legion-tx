@@ -323,7 +323,7 @@ export const SwapForm = () => {
   const outDec = outputDecimals || tokenOut?.decimals || 6;
   const estOut = quote ? fmtAmount(quote.outAmount, outDec) : '0';
   const estOutNum = quote ? Number(quote.outAmount) / Math.pow(10, outDec) : 0;
-  const outUsdValue = tokenOut?.usdPrice ? estOutNum * tokenOut.usdPrice : 0;
+  const outUsdValue = outputPrice ? estOutNum * outputPrice : 0;
   const priceImpact = quote?.priceImpactPct ? `${(Number(quote.priceImpactPct) * 100).toFixed(2)}%` : '—';
 
   return (
