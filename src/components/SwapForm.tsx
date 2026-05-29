@@ -300,7 +300,7 @@ export const SwapForm = () => {
     <Card className="w-full max-w-md surface-card">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">Swap</CardTitle>
-        <CardDescription>Gasless Solana swap powered by Jupiter. Backend pays the SOL fee.</CardDescription>
+        <CardDescription>Gasless Solana swap powered by Legion.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Token In */}
@@ -424,7 +424,7 @@ export const SwapForm = () => {
         </Button>
 
         <p className="text-[11px] text-muted-foreground text-center">
-          1.5% platform fee on output · Backend pays SOL gas · Powered by Jupiter
+          1.5% platform fee on output
         </p>
       </CardContent>
 
