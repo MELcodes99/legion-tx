@@ -67,6 +67,7 @@ export const SwapForm = () => {
   const [inputModalOpen, setInputModalOpen] = useState(false);
   const [outputModalOpen, setOutputModalOpen] = useState(false);
   const [outputDecimals, setOutputDecimals] = useState<number>(0);
+  const [outputPrice, setOutputPrice] = useState<number | null>(null);
 
   // Default input to first solana token user holds
   useEffect(() => {
@@ -180,6 +181,33 @@ export const SwapForm = () => {
       }
     })();
   }, [tokenOut, connection]);
+
+  // Resolve live USD price for output token (lazy — if Jupiter list didn't include it)
+  useEffect(() => {
+    if (!tokenOut) {
+      setOutputPrice(null);
+      return;
+    }
+    if (typeof tokenOut.usdPrice === 'number' && tokenOut.usdPrice > 0) {
+      setOutputPrice(tokenOut.usdPrice);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`https://lite-api.jup.ag/price/v3?ids=${tokenOut.address}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        const price = data?.[tokenOut.address]?.usdPrice;
+        if (alive && typeof price === 'number') setOutputPrice(price);
+      } catch (e) {
+        console.warn('Failed to fetch output token price', e);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [tokenOut]);
 
   const insufficient = tokenIn && amountInNum > tokenIn.balance + 1e-9;
   const samePair = tokenIn && tokenOut && tokenIn.address === tokenOut.address;
@@ -295,7 +323,7 @@ export const SwapForm = () => {
   const outDec = outputDecimals || tokenOut?.decimals || 6;
   const estOut = quote ? fmtAmount(quote.outAmount, outDec) : '0';
   const estOutNum = quote ? Number(quote.outAmount) / Math.pow(10, outDec) : 0;
-  const outUsdValue = tokenOut?.usdPrice ? estOutNum * tokenOut.usdPrice : 0;
+  const outUsdValue = outputPrice ? estOutNum * outputPrice : 0;
   const priceImpact = quote?.priceImpactPct ? `${(Number(quote.priceImpactPct) * 100).toFixed(2)}%` : '—';
 
   return (

@@ -479,22 +479,26 @@ export const useTokenDiscovery = (
       ]);
 
       const allTokens = [...solanaTokens, ...suiTokens, ...evmTokens];
-      
-      // Fetch logos for all discovered tokens
-      if (allTokens.length > 0) {
-        const logoAddresses = allTokens.map(t => ({ address: t.address, chain: t.chain }));
-        const logos = await batchFetchLogos(logoAddresses);
-        
-        // Attach logos to tokens - preserve local logos for known tokens
-        for (const token of allTokens) {
-          if (!token.logoUrl) {
-            token.logoUrl = logos[token.address] || undefined;
-          }
-        }
-      }
 
+      // Show balances IMMEDIATELY so the user sees them under 3s.
+      // Logos for non-known tokens get attached in the background.
       setDiscoveredTokens(allTokens);
       hasLoadedOnceRef.current = true;
+      setIsLoading(false);
+
+      // Background: hydrate missing logos without blocking the UI.
+      const needLogos = allTokens.filter((t) => !t.logoUrl);
+      if (needLogos.length > 0) {
+        batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
+          .then((logos) => {
+            setDiscoveredTokens((prev) =>
+              prev.map((t) =>
+                t.logoUrl ? t : { ...t, logoUrl: logos[t.address] || undefined },
+              ),
+            );
+          })
+          .catch((e) => console.warn('logo hydration failed', e));
+      }
     } catch (error) {
       console.error('Error discovering tokens:', error);
     } finally {
