@@ -439,6 +439,7 @@ export const SwapForm = () => {
         onClose={() => setOutputModalOpen(false)}
         onSelect={(t) => setTokenOut(t)}
         excludeMint={tokenIn?.address}
+        walletTokens={discoveredTokens}
       />
     </Card>
   );
