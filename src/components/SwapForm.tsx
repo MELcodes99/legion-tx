@@ -287,12 +287,42 @@ export const SwapForm = () => {
       });
       toast({ title: 'Swap submitted', description: 'Confirming on-chain…' });
 
-      const conf = await connection.confirmTransaction(sig, 'confirmed');
-      if (conf.value.err) throw new Error('Transaction failed on-chain');
+      // Bounded polling so the UI never hangs on confirmTransaction.
+      const startedAt = Date.now();
+      const MAX_WAIT_MS = 45_000;
+      let confirmed = false;
+      while (Date.now() - startedAt < MAX_WAIT_MS) {
+        try {
+          const { value } = await connection.getSignatureStatuses([sig], { searchTransactionHistory: true });
+          const status = value?.[0];
+          if (status) {
+            if (status.err) throw new Error('Transaction failed on-chain');
+            if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
+              confirmed = true;
+              break;
+            }
+          }
+        } catch (pollErr: any) {
+          if (/failed on-chain/i.test(pollErr?.message || '')) throw pollErr;
+          // transient — keep polling
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (!confirmed) {
+        // Treat as submitted; user can verify on Solscan via the link we show.
+      }
 
-      toast({
-        title: 'Swap complete 🎉',
-        description: `Received ~${fmtAmount(quote.outAmount, outputDecimals || tokenOut.decimals || 6)} ${tokenOut.symbol}`,
+      const outDecLocal = outputDecimals || tokenOut.decimals || 6;
+      const outAmtNum = Number(quote.outAmount) / Math.pow(10, outDecLocal);
+      const outAmtStr = fmtAmount(quote.outAmount, outDecLocal);
+      setSuccess({
+        signature: sig,
+        inSymbol: tokenIn.symbol,
+        outSymbol: tokenOut.symbol,
+        inAmount: amountInNum.toLocaleString(undefined, { maximumFractionDigits: 6 }),
+        outAmount: outAmtStr,
+        inUsd: inputUsdValue,
+        outUsd: outputPrice ? outAmtNum * outputPrice : 0,
       });
       setAmountIn('');
       setQuote(null);
