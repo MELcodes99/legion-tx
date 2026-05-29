@@ -207,7 +207,7 @@ export const SwapForm = () => {
     setError('');
     try {
       // Build tx via edge function (backend overrides fee payer + partial-signs)
-      toast({ title: 'Preparing swap…', description: 'Routing via Jupiter' });
+      toast({ title: 'Preparing swap…', description: 'Confirming Swap with Legion' });
       const { data, error: invokeErr } = await supabase.functions.invoke('jupiter-swap', {
         body: {
           action: 'build',
