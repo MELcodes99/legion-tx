@@ -134,7 +134,7 @@ async function handleQuote(body: any): Promise<Response> {
     return json({ error: "inputMint, outputMint, amount required" }, 400);
   }
 
-  const url = new URL("https://quote-api.jup.ag/v6/quote");
+  const url = new URL("https://lite-api.jup.ag/swap/v1/quote");
   url.searchParams.set("inputMint", inputMint);
   url.searchParams.set("outputMint", outputMint);
   url.searchParams.set("amount", String(amount));
@@ -183,7 +183,7 @@ async function handleBuild(body: any): Promise<Response> {
     asLegacyTransaction: false,
   };
 
-  const r = await fetch("https://quote-api.jup.ag/v6/swap", {
+  const r = await fetch("https://lite-api.jup.ag/swap/v1/swap", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(swapReq),
