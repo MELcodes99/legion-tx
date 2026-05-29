@@ -1,104 +1,83 @@
-# Why gasless transactions are still broken
+## Goal
 
-Direct test of the deployed function right now returns:
+Add a **Swap** mode next to the existing transfer form, powered by Jupiter Aggregator. Solana-only, gasless (backend pays SOL), 1.5% fee on the output token routed to the backend fee account, $1 min, full SPL token support with live prices/logos/tickers.
 
-```
-546 WORKER_RESOURCE_LIMIT — Function failed due to not having enough compute resources
-```
+---
 
-Logs show a constant loop:
+## 1. UI — Send / Swap toggle
 
-```
-booted (time: ~100ms)
-ERROR module "/utf-8-validate@6.0.6/denonext/package.json" not found
-ERROR module "/bufferutil@4.1.0/denonext/package.json" not found
-ERROR CPU Time exceeded
-shutdown
-```
+- New component `SendSwapToggle.tsx` placed directly above `MultiChainTransferForm` in `src/pages/Index.tsx`.
+- Two glassmorphism buttons (`backdrop-blur`, semi‑transparent bg, subtle border). Active state uses primary accent ring.
+- State lifted into a small wrapper `TransferOrSwapPanel.tsx` that renders either `<MultiChainTransferForm/>` or `<SwapForm/>`.
+- Swap button is disabled (greyed + `pointer-events-none`) when `useSelectedNetwork() !== 'solana'`. Tooltip: *"Swap is only available on Solana"*. If user switches to a non‑Solana network while on Swap, auto‑fall back to Send.
 
-The previous "minimal fix" only lazy-loaded the Sui SDK. `@solana/web3.js`, `@solana/spl-token`, and `ethers` are **still imported at the top** of `supabase/functions/gasless-transfer/index.ts` (2,877 lines). Loading all three SDKs at boot exceeds the worker's CPU budget — the function dies before any request handler runs. That's why every Send click on every chain returns "Failed to send a request to the edge function".
+## 2. Swap UI — `SwapForm.tsx`
 
-The minimal-fix approach has been tried and isn't enough. The router needs to be split.
+- Token In selector → opens existing `TokenSelectionModal` populated from `useTokenDiscovery('solana')` (wallet SPL tokens with logo/ticker/balance).
+- Amount In input + USD value (live).
+- Token Out selector → opens a new `SwapOutputTokenModal` that lets users pick ANY SPL token. Source list:
+  - Seed with Jupiter "strict" / verified token list (`https://token.jup.ag/strict`) — cached client‑side.
+  - Free‑text search by symbol or mint address; if mint pasted that isn't in list, resolve metadata via new edge function `resolve-solana-token` (Jupiter single‑token API → Metaplex fallback, reusing the resolver pattern already in `discover-solana-tokens`).
+- Estimated Out (post‑fee), price impact, route summary — refreshed every 8s and on input change (debounced 400ms).
+- Swap button with inline validation messages (`Minimum swap is $1`, `Insufficient balance`, etc.).
 
-# Plan: split into chain-specific edge functions
+## 3. Quotes & swap build — new edge function `jupiter-swap`
 
-This matches the architecture already documented in project memory (`distributed-gasless-transfer-router`).
+Single Deno edge function with two actions:
 
-## 1. Create three new lightweight edge functions
+- `action: "quote"` → proxies `GET https://quote-api.jup.ag/v6/quote` with `inputMint`, `outputMint`, `amount`, `slippageBps` (default 50), `platformFeeBps=150`. Returns the quote plus computed USD values using existing `get-token-prices` infra (Jupiter price API as primary, DexScreener fallback — extending `get-token-prices` to accept Solana mints).
+- `action: "build"` → calls `POST https://quote-api.jup.ag/v6/swap` with:
+  - `quoteResponse` from client
+  - `userPublicKey` = user's wallet
+  - `feeAccount` = backend's referral token account for `outputMint` (ATA derivation explained below)
+  - `wrapAndUnwrapSol: true`
+  - **Gas payer override:** we cannot pass `feePayer` directly to `/swap`, so we deserialize the returned `VersionedTransaction`, **replace the fee payer** in the message header with the backend wallet pubkey, **partially sign** with the backend wallet's keypair (from `BACKEND_WALLET_PRIVATE_KEY` already in secrets), and return the partially‑signed serialized tx to the client.
+- Client then signs with the user wallet (Phantom/etc.) and submits via `sendRawTransaction` to a Solana RPC. Confirmation handled client‑side, then logged via existing `logTransaction` / `record_transaction_stats` flow with `chain='solana'`, `token_sent=inputSymbol`, `gas_token='SOL (backend)'`.
 
-Each one boots only the SDK it needs, so each stays well within the CPU budget.
+## 4. Fee account setup (1.5% on output)
 
-- **`gasless-solana`** — handles `build_atomic_tx` and `submit_signed_tx` for Solana. Imports only `@solana/web3.js` and `@solana/spl-token`. Lifts the existing Solana logic out of the monolith verbatim (no behavior changes — Solana flow is frozen per project memory).
-- **`gasless-sui`** — handles Sui transfers. Imports only `@mysten/sui`. Lifts the existing Sui logic out verbatim (Sui flow is frozen per project memory).
-- **`gasless-evm`** — handles Base and Ethereum (USDC permit flow + USDT Permit2 on Base). Imports only `ethers`. Native ETH / Base ETH stays rejected with a clear "not yet supported" message because the `GaslessTransfer.sol` contract is not deployed.
+- Backend fee receiving wallet = existing Solana backend wallet pubkey derived from `BACKEND_WALLET_PRIVATE_KEY`.
+- For each `outputMint`, the fee account is the **Associated Token Account** of the backend wallet for that mint. The `jupiter-swap` edge function:
+  1. Derives the ATA via `getAssociatedTokenAddressSync(outputMint, backendPubkey)`.
+  2. Checks if it exists; if not, prepends a `createAssociatedTokenAccountInstruction` (payer = backend wallet) to the swap transaction before re‑signing. This auto‑provisions fee ATAs on first use for any token.
+- `platformFeeBps=150` ensures Jupiter routes the 1.5% slice of output into that ATA atomically.
 
-Each function:
-- Uses the standard CORS headers on every response (success and error).
-- Returns structured JSON for validation errors (400) instead of letting boot failures surface as "Failed to fetch".
-- Has its own `verify_jwt = false` entry in `supabase/config.toml`.
-- Pins exact npm versions in `supabase/functions/deno.json` (no carets) per project memory.
+> Note: We are NOT registering with `referral.jup.ag` — Jupiter v6 accepts any ATA owned by `feeAccount`'s owner for the output mint as a valid platform fee account. Auto‑creating the ATA on demand removes the manual setup step.
 
-## 2. Turn `gasless-transfer` into a thin router
+## 5. Prices, tickers, logos
 
-Replace the 2,877-line monolith with a small router (~100 lines) that:
-- Reads the request body once.
-- Routes to the correct chain function via `supabase.functions.invoke()` based on `chain` (or `network`) field.
-- Forwards the response and CORS headers back to the client.
-- Keeps the existing `get_backend_wallet` / health action so deployed health checks return 200.
-- **No SDK imports at all** at the top level — guarantees boot.
+- Extend `get-token-prices` edge function to accept an array of Solana mints and return `{mint: {priceUsd, symbol, name, logoURI}}`. Order: Jupiter Price API v6 → DexScreener → cached metadata from `discover-solana-tokens`.
+- `SwapForm` uses a `useSwapQuote` hook (react‑query, 8s refetch) that calls `jupiter-swap` with `action:"quote"` and joins price data for USD display.
+- Estimated Out shown = `outAmount` from quote (Jupiter already subtracts the platform fee), formatted with output token decimals.
 
-This preserves the existing public API the frontend already uses, so no frontend transfer code needs to change.
+## 6. Validation rules
 
-## 3. Preserve existing Solana and Sui transaction flows exactly
+- Real‑time `inputUsdValue = amount * priceUsd(inputMint)`; if `< 1`, disable Swap with message *"Minimum swap is $1"*.
+- Disable if no quote, insufficient balance, same in/out mint, wallet not connected, or network ≠ solana.
 
-Project memory explicitly marks Solana and Sui logic as frozen. The split is a **lift-and-shift**:
-- Same `build_atomic_tx` / `submit_signed_tx` action names.
-- Same `transferAmountSmallest` handoff between build and submit (prevents the rounding mismatch you've hit before).
-- Same backend co-signing / single-transaction structure.
-- Same min $2 USD validation, full-balance epsilon tolerance, non-stable USD-value validation, and SKR $0.50 fixed gas fee.
+## 7. Files to add / change
 
-## 4. EVM behavior — honest about the limitation
+**New:**
+- `src/components/SendSwapToggle.tsx`
+- `src/components/TransferOrSwapPanel.tsx`
+- `src/components/SwapForm.tsx`
+- `src/components/SwapOutputTokenModal.tsx`
+- `src/hooks/useSwapQuote.ts`
+- `src/hooks/useJupiterTokenList.ts`
+- `supabase/functions/jupiter-swap/index.ts`
 
-Without the deployed `GaslessTransfer.sol` contract, **truly atomic single-tx EVM transfers (deduct fee + transfer to recipient inside one on-chain transaction) are not possible.** The current EVM flow uses EIP-2612 permits (USDC) and Permit2 (USDT on Base) — the user signs off-chain, and the backend submits two `transferFrom` calls (one to recipient, one for the fee). That is gasless for the user, but it is **two on-chain transfers**, not one atomic contract call.
+**Changed:**
+- `src/pages/Index.tsx` — render `TransferOrSwapPanel` instead of `MultiChainTransferForm` directly.
+- `supabase/functions/get-token-prices/index.ts` — add Solana mint price+metadata path using Jupiter Price API v6.
 
-In this plan I will:
-- Keep USDC gasless on Ethereum and Base (permit flow, backend pays gas, fee routed to backend wallet `0x89AF...`).
-- Keep USDT on Base gasless via Permit2.
-- Keep USDT on Ethereum marked "Coming Soon".
-- Reject native ETH / Base ETH gasless with a clean "not yet supported" message until the contract is deployed.
+No DB migrations needed (existing `transactions` / analytics tables already cover swaps via `insert_chain_transaction`).
 
-If you want true single-transaction atomic EVM transfers, you (or I, with your help compiling/deploying via Foundry/Remix) need to deploy `src/contracts/GaslessTransfer.sol` and give me the contract addresses for Ethereum and Base. That can be a separate follow-up — it does not block fixing the current 546 crash on Solana, Sui, and the existing EVM permit flow.
+## 8. Out of scope
 
-## 5. Validation before claiming "done"
+- No changes to Sui / EVM / Bungee flows (frozen per project rules).
+- No new secrets — reuses `BACKEND_WALLET_PRIVATE_KEY`.
+- No hardcoded token list; everything dynamic from Jupiter + Metaplex.
 
-After deploying the new functions I will, in this order:
+---
 
-1. Direct backend call: `gasless-solana` health → expect 200, no `CPU Time exceeded`.
-2. Direct backend call: `gasless-sui` health → expect 200.
-3. Direct backend call: `gasless-evm` health → expect 200.
-4. Direct backend call: `gasless-transfer` (router) `get_backend_wallet` → expect 200 with all chain backend addresses.
-5. Check `gasless-transfer` logs — confirm zero `WORKER_RESOURCE_LIMIT`, zero `bufferutil`, zero `utf-8-validate`, zero `CPU Time exceeded`.
-6. From the preview UI: connect a wallet and click Send on Solana, Sui, and Base → confirm we now reach the wallet-sign prompt instead of "Failed to send a request". Full on-chain completion still requires you to actually sign and have funded balances.
-
-I will only say "done" once steps 1–5 pass and the UI reaches the sign prompt in step 6.
-
-## 6. Files that will change
-
-- **New:** `supabase/functions/gasless-solana/index.ts`
-- **New:** `supabase/functions/gasless-sui/index.ts`
-- **New:** `supabase/functions/gasless-evm/index.ts`
-- **Rewritten (router):** `supabase/functions/gasless-transfer/index.ts` (~2,877 lines → ~100 lines)
-- **Updated:** `supabase/functions/deno.json` (split SDK pins per function group)
-- **Updated:** `supabase/config.toml` (add `verify_jwt = false` for the three new functions)
-- **Untouched:** All frontend code. `MultiChainTransferForm.tsx` keeps calling `gasless-transfer` exactly as it does today.
-
-# Expected outcome
-
-- "Failed to send a request to the edge function" stops on all chains.
-- Solana and Sui gasless transfers reach build → user-sign → backend co-sign → submit (single atomic transaction, as they were designed).
-- Base USDC and USDC/Ethereum gasless transfers reach the permit-sign step and complete via the existing 2-call backend flow (gasless for the user, but not single-on-chain-tx until the EVM contract is deployed).
-- Native ETH / Base ETH return a clean unsupported message instead of a worker crash.
-
-<lov-actions>
-<lov-link url="https://docs.lovable.dev/tips-tricks/troubleshooting">Troubleshooting docs</lov-link>
-</lov-actions>
+Reply **approve** to build, or tell me what to adjust (e.g. different default slippage, separate edge functions for quote vs build, manual referral.jup.ag setup instead of auto‑ATA).
