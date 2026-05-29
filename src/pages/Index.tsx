@@ -113,7 +113,7 @@ const Index = () => {
 
 
               {/* Right column — transfer widget */}
-              <div className="lg:sticky lg:top-24 w-full flex justify-center lg:justify-end">
+              <div className="lg:sticky lg:top-24 w-full flex justify-center">
                 <TransferOrSwapPanel />
               </div>
             </div>
