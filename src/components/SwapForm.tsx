@@ -359,6 +359,62 @@ export const SwapForm = () => {
     );
   }
 
+  if (success) {
+    return (
+      <Card className="w-full max-w-md surface-card">
+        <CardHeader className="pb-3 text-center">
+          <div className="mx-auto w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-2">
+            <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+          </div>
+          <CardTitle className="text-lg">Swap Successful</CardTitle>
+          <CardDescription>Your tokens have been swapped on Solana.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">Sent</span>
+              <div className="text-right">
+                <div className="text-sm font-medium">
+                  {success.inAmount} {success.inSymbol}
+                </div>
+                {success.inUsd > 0 && (
+                  <div className="text-[11px] text-muted-foreground">~${success.inUsd.toFixed(2)}</div>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <ArrowDown className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">Received</span>
+              <div className="text-right">
+                <div className="text-sm font-medium">
+                  {success.outAmount} {success.outSymbol}
+                </div>
+                {success.outUsd > 0 && (
+                  <div className="text-[11px] text-muted-foreground">~${success.outUsd.toFixed(2)}</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <a
+            href={`https://solscan.io/tx/${success.signature}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            View on Solscan <ExternalLink className="w-3 h-3" />
+          </a>
+
+          <Button onClick={() => setSuccess(null)} className="w-full h-11">
+            Start a new swap
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const outDec = outputDecimals || tokenOut?.decimals || 6;
   const estOut = quote ? fmtAmount(quote.outAmount, outDec) : '0';
   const estOutNum = quote ? Number(quote.outAmount) / Math.pow(10, outDec) : 0;
