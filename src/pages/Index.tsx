@@ -1,6 +1,6 @@
 import { MultiWalletProvider } from "@/components/MultiWalletProvider";
 import { UnifiedWalletButton } from "@/components/UnifiedWalletButton";
-import { MultiChainTransferForm } from "@/components/MultiChainTransferForm";
+import { TransferOrSwapPanel } from "@/components/TransferOrSwapPanel";
 
 import { FAQ } from "@/components/FAQ";
 import { PromoCarousel } from "@/components/PromoCarousel";
@@ -114,7 +114,7 @@ const Index = () => {
 
               {/* Right column — transfer widget */}
               <div className="lg:sticky lg:top-24 w-full flex justify-center lg:justify-end">
-                <MultiChainTransferForm />
+                <TransferOrSwapPanel />
               </div>
             </div>
 
