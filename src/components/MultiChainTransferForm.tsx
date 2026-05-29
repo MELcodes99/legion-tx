@@ -1350,7 +1350,7 @@ export const MultiChainTransferForm = () => {
   const ethTokensWithBalance = connectedChain === 'ethereum' ? tokensWithBalance : [];
   const [balancesOpen, setBalancesOpen] = useState(false);
    const [qrScannerOpen, setQrScannerOpen] = useState(false);
-  return <Card className="glass-card w-full max-w-md border-2 mx-4 sm:mx-0 border-secondary-foreground">
+  return <Card className="glass-card w-full max-w-md mx-auto border-2 border-secondary-foreground">
       <CardHeader className="space-y-1 p-4 sm:p-6">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">Legion Transfer
