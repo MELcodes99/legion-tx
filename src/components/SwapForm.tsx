@@ -294,6 +294,8 @@ export const SwapForm = () => {
 
   const outDec = outputDecimals || tokenOut?.decimals || 6;
   const estOut = quote ? fmtAmount(quote.outAmount, outDec) : '0';
+  const estOutNum = quote ? Number(quote.outAmount) / Math.pow(10, outDec) : 0;
+  const outUsdValue = tokenOut?.usdPrice ? estOutNum * tokenOut.usdPrice : 0;
   const priceImpact = quote?.priceImpactPct ? `${(Number(quote.priceImpactPct) * 100).toFixed(2)}%` : '—';
 
   return (
@@ -373,8 +375,9 @@ export const SwapForm = () => {
               {quoting ? <Loader2 className="inline w-4 h-4 animate-spin text-muted-foreground" /> : estOut}
             </div>
           </div>
-          <div className="text-right text-[11px] text-muted-foreground mt-1">
-            {quote ? `Price impact ${priceImpact}` : '\u00A0'}
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+            <span>{outUsdValue > 0 ? `~$${outUsdValue.toFixed(2)}` : '\u00A0'}</span>
+            <span>{quote ? `Price impact ${priceImpact}` : '\u00A0'}</span>
           </div>
         </div>
 
