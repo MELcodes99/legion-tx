@@ -11,10 +11,14 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  Transaction,
   VersionedTransaction,
 } from "npm:@solana/web3.js@1.95.0";
 import {
+  createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddress,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
 } from "npm:@solana/spl-token@0.4.8";
 
 const corsHeaders = {
@@ -42,6 +46,57 @@ function loadBackendKeypair(): Keypair {
   if (!raw) throw new Error("BACKEND_WALLET_PRIVATE_KEY not configured");
   const arr = JSON.parse(raw);
   return Keypair.fromSecretKey(new Uint8Array(arr));
+}
+
+async function getTokenProgramId(connection: Connection, mint: PublicKey): Promise<PublicKey> {
+  const info = await connection.getAccountInfo(mint, "confirmed");
+  if (info?.owner?.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+  return TOKEN_PROGRAM_ID;
+}
+
+async function ensureFeeAccount(
+  connection: Connection,
+  backend: Keypair,
+  mint: PublicKey,
+): Promise<PublicKey> {
+  const tokenProgramId = await getTokenProgramId(connection, mint);
+  const feeAccount = await getAssociatedTokenAddress(
+    mint,
+    backend.publicKey,
+    false,
+    tokenProgramId,
+  );
+
+  const existing = await connection.getAccountInfo(feeAccount, "confirmed");
+  if (existing) return feeAccount;
+
+  const tx = new Transaction().add(
+    createAssociatedTokenAccountIdempotentInstruction(
+      backend.publicKey,
+      feeAccount,
+      backend.publicKey,
+      mint,
+      tokenProgramId,
+    ),
+  );
+  tx.feePayer = backend.publicKey;
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  tx.recentBlockhash = blockhash;
+  tx.sign(backend);
+
+  const signature = await connection.sendRawTransaction(tx.serialize(), {
+    skipPreflight: false,
+    maxRetries: 3,
+    preflightCommitment: "confirmed",
+  });
+  try {
+    await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  } catch (e) {
+    const created = await connection.getAccountInfo(feeAccount, "confirmed");
+    if (!created) throw e;
+    console.warn("Fee account creation confirmation expired, but account is initialized", signature);
+  }
+  return feeAccount;
 }
 
 async function handleQuote(body: any): Promise<Response> {
@@ -81,8 +136,9 @@ async function handleBuild(body: any): Promise<Response> {
   const connection = getConnection();
 
   // Platform fee account = backend's ATA for the output mint.
-  // Jupiter will auto-create it if missing (paid by `payer`, i.e. backend).
-  const feeAccount = await getAssociatedTokenAddress(outputMint, backendPk, true);
+  // Jupiter requires this token account to already exist; otherwise swaps fail
+  // with InvalidTokenAccount (6025 / 0x1789).
+  const feeAccount = await ensureFeeAccount(connection, backend, outputMint);
 
   // Build the swap via Jupiter with backend as fee payer.
   // `payer` makes Jupiter compile the tx with backend at staticAccountKeys[0]
