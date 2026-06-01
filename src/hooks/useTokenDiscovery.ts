@@ -477,9 +477,16 @@ export const useTokenDiscovery = (
       setDiscoveredTokens([...acc.solana, ...acc.sui, ...acc.base, ...acc.ethereum]);
     };
 
+    const mergeIntoAcc = (result: DiscoveredToken[]) => {
+      for (const t of result) {
+        acc[t.chain] = acc[t.chain].filter((x) => x.key !== t.key);
+        acc[t.chain].push(t);
+      }
+    };
+
     const runChain = async (
       label: string,
-      fn: () => Promise<DiscoveredToken[]>,
+      fn: (onPartial?: (tokens: DiscoveredToken[]) => void) => Promise<DiscoveredToken[]>,
     ) => {
       try {
         const result = await fn();
