@@ -318,3 +318,60 @@ export async function getSolanaTokenMetadata(address: string): Promise<{ symbol:
   const tokenList = await fetchJupiterTokenList();
   return tokenList[address] || null;
 }
+
+// Batch fetch full metadata (logo + symbol + name) for Solana mints.
+// Phase 1 hits the verified list (one request, covers most tokens).
+// Phase 2 runs per-mint search lookups in parallel for unknowns and streams
+// patches via the optional onPatch callback so the UI can update progressively.
+export type TokenMetaPatch = { logoURI?: string; symbol?: string; name?: string };
+
+export async function batchFetchSolanaMetadata(
+  mints: string[],
+  onPatch?: (patch: Record<string, TokenMetaPatch>) => void,
+): Promise<Record<string, TokenMetaPatch>> {
+  const out: Record<string, TokenMetaPatch> = {};
+  if (mints.length === 0) return out;
+
+  const list = await fetchJupiterTokenList();
+  const missing: string[] = [];
+  const phase1: Record<string, TokenMetaPatch> = {};
+  for (const mint of mints) {
+    const local = KNOWN_LOGOS[mint];
+    const fromList = list[mint];
+    if (fromList || local) {
+      const patch: TokenMetaPatch = {
+        logoURI: local || fromList?.logoURI || undefined,
+        symbol: fromList?.symbol || undefined,
+        name: fromList?.name || undefined,
+      };
+      out[mint] = patch;
+      phase1[mint] = patch;
+    } else {
+      missing.push(mint);
+    }
+  }
+  if (onPatch && Object.keys(phase1).length > 0) onPatch(phase1);
+
+  if (missing.length > 0) {
+    const CONCURRENCY = 6;
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
+      while (cursor < missing.length) {
+        const mint = missing[cursor++];
+        const meta = await searchJupiterMint(mint);
+        if (meta && (meta.logoURI || meta.symbol)) {
+          const patch: TokenMetaPatch = {
+            logoURI: meta.logoURI || undefined,
+            symbol: meta.symbol || undefined,
+            name: meta.name || undefined,
+          };
+          out[mint] = patch;
+          if (onPatch) onPatch({ [mint]: patch });
+        }
+      }
+    });
+    await Promise.all(workers);
+  }
+
+  return out;
+}
