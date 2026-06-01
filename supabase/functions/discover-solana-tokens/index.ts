@@ -381,21 +381,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Enrich SPL mints with metadata.
-    // Priority: Jupiter `token.jup.ag/all` → Metaplex on-chain metadata → legacy Solana token registry.
-    const mintsNeedingMeta = tokens.filter((t) => !t.isNative).map((t) => t.address);
-    const metaResults = await Promise.all(
-      mintsNeedingMeta.map(async (mint) => [mint, await resolveMintMeta(mint)] as const),
-    );
-    const metaMap = new Map(metaResults);
-    for (const t of tokens) {
-      if (t.isNative) continue;
-      const m = metaMap.get(t.address);
-      if (m) {
-        if (m.symbol) t.symbol = m.symbol;
-        if (m.name) t.name = m.name;
-        if (m.logoURI) t.logoURI = m.logoURI;
+    // Best-effort Jupiter list enrichment only (fast, cached). Skip Metaplex —
+    // it serialised dozens of RPC calls through failing endpoints and added 8-10s.
+    // The frontend hydrates symbols (KNOWN_SOLANA_TOKENS) and logos (batchFetchLogos)
+    // after balances render, so unknown SPLs get filled in client-side.
+    try {
+      const jup = await getJupiterMap();
+      if (jup.size > 0) {
+        for (const t of tokens) {
+          if (t.isNative) continue;
+          const m = jup.get(t.address);
+          if (m) {
+            if (m.symbol) t.symbol = m.symbol;
+            if (m.name) t.name = m.name;
+            if (m.logoURI) t.logoURI = m.logoURI;
+          }
+        }
       }
+    } catch (e) {
+      console.log('Jupiter enrichment skipped:', (e as Error).message);
     }
 
 
