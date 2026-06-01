@@ -489,12 +489,15 @@ export const useTokenDiscovery = (
       fn: (onPartial?: (tokens: DiscoveredToken[]) => void) => Promise<DiscoveredToken[]>,
     ) => {
       try {
-        const result = await fn();
+        const result = await fn((partial) => {
+          if (partial.length === 0) return;
+          mergeIntoAcc(partial);
+          flush();
+          hasLoadedOnceRef.current = true;
+          setIsLoading(false);
+        });
         if (result.length === 0) return;
-        for (const t of result) {
-          acc[t.chain] = acc[t.chain].filter((x) => x.key !== t.key);
-          acc[t.chain].push(t);
-        }
+        mergeIntoAcc(result);
         flush();
         hasLoadedOnceRef.current = true;
         setIsLoading(false);
