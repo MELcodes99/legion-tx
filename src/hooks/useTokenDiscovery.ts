@@ -464,46 +464,64 @@ export const useTokenDiscovery = (
     return tokens;
   }, [evmAddress, evmChainId, fetchTokenPrices]);
 
-  // Main discovery function
+  // Main discovery — renders each chain's tokens as soon as it returns so
+  // balances appear in under 2s, instead of waiting for the slowest chain.
   const discoverTokens = useCallback(async () => {
-    // Only show loading spinner on first load, not on background refreshes
     if (!hasLoadedOnceRef.current) {
       setIsLoading(true);
     }
 
-    try {
-      const [solanaTokens, suiTokens, evmTokens] = await Promise.all([
-        discoverSolanaTokens(),
-        discoverSuiTokens(),
-        discoverEvmTokens(),
-      ]);
+    const acc: Record<ChainType, DiscoveredToken[]> = {
+      solana: [],
+      sui: [],
+      base: [],
+      ethereum: [],
+    };
 
-      const allTokens = [...solanaTokens, ...suiTokens, ...evmTokens];
+    const flush = () => {
+      setDiscoveredTokens([...acc.solana, ...acc.sui, ...acc.base, ...acc.ethereum]);
+    };
 
-      // Show balances IMMEDIATELY so the user sees them under 3s.
-      // Logos for non-known tokens get attached in the background.
-      setDiscoveredTokens(allTokens);
-      hasLoadedOnceRef.current = true;
-      setIsLoading(false);
+    const runChain = async (
+      label: string,
+      fn: () => Promise<DiscoveredToken[]>,
+    ) => {
+      try {
+        const result = await fn();
+        if (result.length === 0) return;
+        for (const t of result) {
+          acc[t.chain] = acc[t.chain].filter((x) => x.key !== t.key);
+          acc[t.chain].push(t);
+        }
+        flush();
+        hasLoadedOnceRef.current = true;
+        setIsLoading(false);
 
-      // Background: hydrate missing logos without blocking the UI.
-      const needLogos = allTokens.filter((t) => !t.logoUrl);
-      if (needLogos.length > 0) {
-        batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
-          .then((logos) => {
-            setDiscoveredTokens((prev) =>
-              prev.map((t) =>
-                t.logoUrl ? t : { ...t, logoUrl: logos[t.address] || undefined },
-              ),
-            );
-          })
-          .catch((e) => console.warn('logo hydration failed', e));
+        const needLogos = result.filter((t) => !t.logoUrl);
+        if (needLogos.length > 0) {
+          batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
+            .then((logos) => {
+              setDiscoveredTokens((prev) =>
+                prev.map((t) =>
+                  t.logoUrl ? t : { ...t, logoUrl: logos[t.address] || undefined },
+                ),
+              );
+            })
+            .catch((e) => console.warn('logo hydration failed', e));
+        }
+      } catch (e) {
+        console.error(`discover ${label} failed`, e);
       }
-    } catch (error) {
-      console.error('Error discovering tokens:', error);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    await Promise.all([
+      runChain('solana', discoverSolanaTokens),
+      runChain('sui', discoverSuiTokens),
+      runChain('evm', discoverEvmTokens),
+    ]);
+
+    hasLoadedOnceRef.current = true;
+    setIsLoading(false);
   }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
 
   // Keep a ref to the latest discoverTokens to avoid stale closures in setInterval
