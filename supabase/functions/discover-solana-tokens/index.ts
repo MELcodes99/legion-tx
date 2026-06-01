@@ -173,10 +173,12 @@ async function resolveMintMeta(mint: string): Promise<TokenMeta | null> {
 }
 
 // Public endpoints that work from server IPs. Ankr/extrnode block server IPs.
+// Working endpoints ordered by reliability. publicnode and drpc consistently
+// reject server IPs (403/400) — keep api.mainnet-beta first to avoid wasted RTT.
 const RPC_ENDPOINTS = [
-  'https://solana-rpc.publicnode.com',
-  'https://solana.drpc.org',
   'https://api.mainnet-beta.solana.com',
+  'https://solana.drpc.org',
+  'https://solana-rpc.publicnode.com',
 ];
 
 const SPL_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
