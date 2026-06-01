@@ -502,7 +502,34 @@ export const useTokenDiscovery = (
         hasLoadedOnceRef.current = true;
         setIsLoading(false);
 
-        const needLogos = result.filter((t) => !t.logoUrl);
+        // Hydrate Solana metadata (logo + symbol + name) and stream patches
+        // into state as they arrive so unknown SPLs aren't stuck as "ABCD…".
+        const solanaMints = result
+          .filter((t) => t.chain === 'solana' && !t.isNative)
+          .map((t) => t.address);
+        if (solanaMints.length > 0) {
+          batchFetchSolanaMetadata(solanaMints, (patch) => {
+            setDiscoveredTokens((prev) =>
+              prev.map((t) => {
+                const p = patch[t.address];
+                if (!p) return t;
+                return {
+                  ...t,
+                  logoUrl: t.logoUrl || p.logoURI || t.logoUrl,
+                  symbol:
+                    // Don't overwrite a real symbol with one from Jupiter,
+                    // but DO replace the "ABCD…" mint-slice placeholder.
+                    t.symbol && !t.symbol.endsWith('…') ? t.symbol : (p.symbol || t.symbol),
+                  name:
+                    t.name && !t.name.startsWith('Token ') ? t.name : (p.name || t.name),
+                };
+              }),
+            );
+          }).catch((e) => console.warn('solana metadata hydration failed', e));
+        }
+
+        // Logo-only hydration for other chains
+        const needLogos = result.filter((t) => !t.logoUrl && t.chain !== 'solana');
         if (needLogos.length > 0) {
           batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
             .then((logos) => {
