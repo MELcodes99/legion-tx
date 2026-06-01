@@ -6,7 +6,7 @@ import { createPublicClient, http, parseAbi } from 'viem';
 import { mainnet, base } from 'viem/chains';
 import { ChainType, TOKENS, TokenConfig } from '@/config/tokens';
 import { supabase } from '@/integrations/supabase/client';
-import { batchFetchLogos, getSolanaTokenMetadata, SOLANA_TOKEN_MINTS, LOCAL_TOKEN_LOGOS } from '@/services/tokenLogos';
+import { batchFetchLogos, batchFetchSolanaMetadata, getSolanaTokenMetadata, SOLANA_TOKEN_MINTS, LOCAL_TOKEN_LOGOS } from '@/services/tokenLogos';
 
 // Known Solana tokens to always check for (decimals fetched from actual token accounts)
 const KNOWN_SOLANA_TOKENS = [
