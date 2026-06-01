@@ -173,12 +173,10 @@ async function resolveMintMeta(mint: string): Promise<TokenMeta | null> {
 }
 
 // Public endpoints that work from server IPs. Ankr/extrnode block server IPs.
-// Working endpoints ordered by reliability. publicnode and drpc consistently
-// reject server IPs (403/400) — keep api.mainnet-beta first to avoid wasted RTT.
 const RPC_ENDPOINTS = [
-  'https://api.mainnet-beta.solana.com',
-  'https://solana.drpc.org',
   'https://solana-rpc.publicnode.com',
+  'https://solana.drpc.org',
+  'https://api.mainnet-beta.solana.com',
 ];
 
 const SPL_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -381,25 +379,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Best-effort Jupiter list enrichment only (fast, cached). Skip Metaplex —
-    // it serialised dozens of RPC calls through failing endpoints and added 8-10s.
-    // The frontend hydrates symbols (KNOWN_SOLANA_TOKENS) and logos (batchFetchLogos)
-    // after balances render, so unknown SPLs get filled in client-side.
-    try {
-      const jup = await getJupiterMap();
-      if (jup.size > 0) {
-        for (const t of tokens) {
-          if (t.isNative) continue;
-          const m = jup.get(t.address);
-          if (m) {
-            if (m.symbol) t.symbol = m.symbol;
-            if (m.name) t.name = m.name;
-            if (m.logoURI) t.logoURI = m.logoURI;
-          }
-        }
+    // Enrich SPL mints with metadata.
+    // Priority: Jupiter `token.jup.ag/all` → Metaplex on-chain metadata → legacy Solana token registry.
+    const mintsNeedingMeta = tokens.filter((t) => !t.isNative).map((t) => t.address);
+    const metaResults = await Promise.all(
+      mintsNeedingMeta.map(async (mint) => [mint, await resolveMintMeta(mint)] as const),
+    );
+    const metaMap = new Map(metaResults);
+    for (const t of tokens) {
+      if (t.isNative) continue;
+      const m = metaMap.get(t.address);
+      if (m) {
+        if (m.symbol) t.symbol = m.symbol;
+        if (m.name) t.name = m.name;
+        if (m.logoURI) t.logoURI = m.logoURI;
       }
-    } catch (e) {
-      console.log('Jupiter enrichment skipped:', (e as Error).message);
     }
 
 

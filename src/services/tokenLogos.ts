@@ -104,68 +104,37 @@ const KNOWN_LOGOS: Record<string, string> = {
   '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22': 'https://assets.coingecko.com/coins/images/27008/small/cbeth.png',
 };
 
-// Jupiter v2 lite-api works from the browser; the legacy token.jup.ag/strict
-// endpoint returns CORS / fetch errors. Use the verified-tags list.
-const JUPITER_TOKEN_LIST_URL = 'https://lite-api.jup.ag/tokens/v2/tag?query=verified';
-const JUPITER_SEARCH_URL = 'https://lite-api.jup.ag/tokens/v2/search?query=';
+// Jupiter API for Solana token metadata
+const JUPITER_TOKEN_LIST_URL = 'https://token.jup.ag/strict';
 
 // CoinGecko token info by platform
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 
-type JupMeta = { logoURI: string; symbol: string; name: string };
-let jupiterTokenList: Record<string, JupMeta> | null = null;
-let jupiterTokenListPromise: Promise<Record<string, JupMeta>> | null = null;
+let jupiterTokenList: Record<string, { logoURI: string; symbol: string; name: string }> | null = null;
 
-// Fetch Jupiter token list (Solana). Deduplicated across concurrent callers.
-async function fetchJupiterTokenList(): Promise<Record<string, JupMeta>> {
+// Fetch Jupiter token list (Solana)
+async function fetchJupiterTokenList(): Promise<Record<string, { logoURI: string; symbol: string; name: string }>> {
   if (jupiterTokenList) return jupiterTokenList;
-  if (jupiterTokenListPromise) return jupiterTokenListPromise;
-
-  jupiterTokenListPromise = (async () => {
-    try {
-      const response = await fetch(JUPITER_TOKEN_LIST_URL);
-      if (!response.ok) throw new Error(`Jupiter list ${response.status}`);
-      const tokens = await response.json();
-      const map: Record<string, JupMeta> = {};
-      if (Array.isArray(tokens)) {
-        for (const t of tokens) {
-          const addr = t.id ?? t.address;
-          if (!addr) continue;
-          map[addr] = {
-            logoURI: t.icon ?? t.logoURI ?? '',
-            symbol: t.symbol ?? '',
-            name: t.name ?? '',
-          };
-        }
-      }
-      jupiterTokenList = map;
-      return map;
-    } catch (error) {
-      console.warn('Jupiter token list fetch failed:', (error as Error).message);
-      return {};
-    } finally {
-      jupiterTokenListPromise = null;
-    }
-  })();
-
-  return jupiterTokenListPromise;
-}
-
-// Per-mint search fallback for tokens not in the verified list.
-async function searchJupiterMint(mint: string): Promise<JupMeta | null> {
+  
   try {
-    const r = await fetch(JUPITER_SEARCH_URL + encodeURIComponent(mint));
-    if (!r.ok) return null;
-    const data = await r.json();
-    if (!Array.isArray(data) || data.length === 0) return null;
-    const t = data.find((x: any) => (x.id ?? x.address) === mint) ?? data[0];
-    return {
-      logoURI: t.icon ?? t.logoURI ?? '',
-      symbol: t.symbol ?? '',
-      name: t.name ?? '',
-    };
-  } catch {
-    return null;
+    const response = await fetch(JUPITER_TOKEN_LIST_URL);
+    if (!response.ok) throw new Error('Failed to fetch Jupiter token list');
+    
+    const tokens = await response.json();
+    jupiterTokenList = {};
+    
+    for (const token of tokens) {
+      jupiterTokenList[token.address] = {
+        logoURI: token.logoURI || '',
+        symbol: token.symbol,
+        name: token.name,
+      };
+    }
+    
+    return jupiterTokenList;
+  } catch (error) {
+    console.error('Error fetching Jupiter token list:', error);
+    return {};
   }
 }
 
@@ -317,61 +286,4 @@ export async function batchFetchLogos(
 export async function getSolanaTokenMetadata(address: string): Promise<{ symbol: string; name: string; logoURI: string } | null> {
   const tokenList = await fetchJupiterTokenList();
   return tokenList[address] || null;
-}
-
-// Batch fetch full metadata (logo + symbol + name) for Solana mints.
-// Phase 1 hits the verified list (one request, covers most tokens).
-// Phase 2 runs per-mint search lookups in parallel for unknowns and streams
-// patches via the optional onPatch callback so the UI can update progressively.
-export type TokenMetaPatch = { logoURI?: string; symbol?: string; name?: string };
-
-export async function batchFetchSolanaMetadata(
-  mints: string[],
-  onPatch?: (patch: Record<string, TokenMetaPatch>) => void,
-): Promise<Record<string, TokenMetaPatch>> {
-  const out: Record<string, TokenMetaPatch> = {};
-  if (mints.length === 0) return out;
-
-  const list = await fetchJupiterTokenList();
-  const missing: string[] = [];
-  const phase1: Record<string, TokenMetaPatch> = {};
-  for (const mint of mints) {
-    const local = KNOWN_LOGOS[mint];
-    const fromList = list[mint];
-    if (fromList || local) {
-      const patch: TokenMetaPatch = {
-        logoURI: local || fromList?.logoURI || undefined,
-        symbol: fromList?.symbol || undefined,
-        name: fromList?.name || undefined,
-      };
-      out[mint] = patch;
-      phase1[mint] = patch;
-    } else {
-      missing.push(mint);
-    }
-  }
-  if (onPatch && Object.keys(phase1).length > 0) onPatch(phase1);
-
-  if (missing.length > 0) {
-    const CONCURRENCY = 6;
-    let cursor = 0;
-    const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
-      while (cursor < missing.length) {
-        const mint = missing[cursor++];
-        const meta = await searchJupiterMint(mint);
-        if (meta && (meta.logoURI || meta.symbol)) {
-          const patch: TokenMetaPatch = {
-            logoURI: meta.logoURI || undefined,
-            symbol: meta.symbol || undefined,
-            name: meta.name || undefined,
-          };
-          out[mint] = patch;
-          if (onPatch) onPatch({ [mint]: patch });
-        }
-      }
-    });
-    await Promise.all(workers);
-  }
-
-  return out;
 }
