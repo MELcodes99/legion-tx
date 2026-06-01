@@ -104,37 +104,68 @@ const KNOWN_LOGOS: Record<string, string> = {
   '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22': 'https://assets.coingecko.com/coins/images/27008/small/cbeth.png',
 };
 
-// Jupiter API for Solana token metadata
-const JUPITER_TOKEN_LIST_URL = 'https://token.jup.ag/strict';
+// Jupiter v2 lite-api works from the browser; the legacy token.jup.ag/strict
+// endpoint returns CORS / fetch errors. Use the verified-tags list.
+const JUPITER_TOKEN_LIST_URL = 'https://lite-api.jup.ag/tokens/v2/tag?query=verified';
+const JUPITER_SEARCH_URL = 'https://lite-api.jup.ag/tokens/v2/search?query=';
 
 // CoinGecko token info by platform
 const COINGECKO_API = 'https://api.coingecko.com/api/v3';
 
-let jupiterTokenList: Record<string, { logoURI: string; symbol: string; name: string }> | null = null;
+type JupMeta = { logoURI: string; symbol: string; name: string };
+let jupiterTokenList: Record<string, JupMeta> | null = null;
+let jupiterTokenListPromise: Promise<Record<string, JupMeta>> | null = null;
 
-// Fetch Jupiter token list (Solana)
-async function fetchJupiterTokenList(): Promise<Record<string, { logoURI: string; symbol: string; name: string }>> {
+// Fetch Jupiter token list (Solana). Deduplicated across concurrent callers.
+async function fetchJupiterTokenList(): Promise<Record<string, JupMeta>> {
   if (jupiterTokenList) return jupiterTokenList;
-  
-  try {
-    const response = await fetch(JUPITER_TOKEN_LIST_URL);
-    if (!response.ok) throw new Error('Failed to fetch Jupiter token list');
-    
-    const tokens = await response.json();
-    jupiterTokenList = {};
-    
-    for (const token of tokens) {
-      jupiterTokenList[token.address] = {
-        logoURI: token.logoURI || '',
-        symbol: token.symbol,
-        name: token.name,
-      };
+  if (jupiterTokenListPromise) return jupiterTokenListPromise;
+
+  jupiterTokenListPromise = (async () => {
+    try {
+      const response = await fetch(JUPITER_TOKEN_LIST_URL);
+      if (!response.ok) throw new Error(`Jupiter list ${response.status}`);
+      const tokens = await response.json();
+      const map: Record<string, JupMeta> = {};
+      if (Array.isArray(tokens)) {
+        for (const t of tokens) {
+          const addr = t.id ?? t.address;
+          if (!addr) continue;
+          map[addr] = {
+            logoURI: t.icon ?? t.logoURI ?? '',
+            symbol: t.symbol ?? '',
+            name: t.name ?? '',
+          };
+        }
+      }
+      jupiterTokenList = map;
+      return map;
+    } catch (error) {
+      console.warn('Jupiter token list fetch failed:', (error as Error).message);
+      return {};
+    } finally {
+      jupiterTokenListPromise = null;
     }
-    
-    return jupiterTokenList;
-  } catch (error) {
-    console.error('Error fetching Jupiter token list:', error);
-    return {};
+  })();
+
+  return jupiterTokenListPromise;
+}
+
+// Per-mint search fallback for tokens not in the verified list.
+async function searchJupiterMint(mint: string): Promise<JupMeta | null> {
+  try {
+    const r = await fetch(JUPITER_SEARCH_URL + encodeURIComponent(mint));
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    const t = data.find((x: any) => (x.id ?? x.address) === mint) ?? data[0];
+    return {
+      logoURI: t.icon ?? t.logoURI ?? '',
+      symbol: t.symbol ?? '',
+      name: t.name ?? '',
+    };
+  } catch {
+    return null;
   }
 }
 
