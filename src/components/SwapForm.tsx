@@ -238,6 +238,14 @@ export const SwapForm = () => {
     if (tokenIn) setAmountIn(String(tokenIn.balance));
   };
 
+  const handlePercent = (pct: number) => {
+    if (!tokenIn) return;
+    const value = tokenIn.balance * pct;
+    // Trim to token decimals to avoid float overflow
+    const fixed = Number(value.toFixed(Math.min(tokenIn.decimals, 9)));
+    setAmountIn(fixed > 0 ? String(fixed) : '');
+  };
+
   const handleSubmit = async () => {
     if (!tokenIn || !tokenOut || !quote || !publicKey || !signTransaction) return;
     setSubmitting(true);
