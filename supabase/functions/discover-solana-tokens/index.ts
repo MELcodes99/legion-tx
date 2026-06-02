@@ -19,28 +19,11 @@ const LIST_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 type TokenMeta = { symbol?: string; name?: string; logoURI?: string };
 
-const FAST_TOKEN_META: Record<string, TokenMeta> = {
-  So11111111111111111111111111111111111111112: { symbol: 'SOL', name: 'Solana' },
-  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: {
-    symbol: 'USDC',
-    name: 'USD Coin',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png',
-  },
-  Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: {
-    symbol: 'USDT',
-    name: 'Tether USD',
-    logoURI: 'https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg',
-  },
-  '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ': { symbol: 'USDF', name: 'USDF' },
-};
-
 let jupiterCache: { at: number; map: Map<string, TokenMeta> } | null = null;
 let legacyCache: { at: number; map: Map<string, TokenMeta> } | null = null;
 const metaplexCache = new Map<string, TokenMeta | null>(); // per-mint, persistent across invocations
-let jupiterInflight: Promise<Map<string, TokenMeta>> | null = null;
-let legacyInflight: Promise<Map<string, TokenMeta>> | null = null;
 
-async function fetchWithTimeout(url: string, ms = 1200): Promise<Response | null> {
+async function fetchWithTimeout(url: string, ms = 8000): Promise<Response | null> {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -54,11 +37,9 @@ async function fetchWithTimeout(url: string, ms = 1200): Promise<Response | null
 
 async function getJupiterMap(): Promise<Map<string, TokenMeta>> {
   if (jupiterCache && Date.now() - jupiterCache.at < LIST_TTL_MS) return jupiterCache.map;
-  if (jupiterInflight) return jupiterInflight;
-  jupiterInflight = (async () => {
   const map = new Map<string, TokenMeta>();
   try {
-    const r = await fetchWithTimeout(JUPITER_ALL_URL, 1200);
+    const r = await fetchWithTimeout(JUPITER_ALL_URL, 15_000);
     if (r?.ok) {
       const arr = await r.json();
       if (Array.isArray(arr)) {
@@ -75,19 +56,13 @@ async function getJupiterMap(): Promise<Map<string, TokenMeta>> {
   jupiterCache = { at: Date.now(), map };
   console.log(`Jupiter list loaded: ${map.size} tokens`);
   return map;
-  })().finally(() => {
-    jupiterInflight = null;
-  });
-  return jupiterInflight;
 }
 
 async function getLegacyMap(): Promise<Map<string, TokenMeta>> {
   if (legacyCache && Date.now() - legacyCache.at < LIST_TTL_MS) return legacyCache.map;
-  if (legacyInflight) return legacyInflight;
-  legacyInflight = (async () => {
   const map = new Map<string, TokenMeta>();
   try {
-    const r = await fetchWithTimeout(LEGACY_REGISTRY_URL, 1200);
+    const r = await fetchWithTimeout(LEGACY_REGISTRY_URL, 15_000);
     if (r?.ok) {
       const j = await r.json();
       const tokens = j?.tokens ?? [];
@@ -102,10 +77,6 @@ async function getLegacyMap(): Promise<Map<string, TokenMeta>> {
   }
   legacyCache = { at: Date.now(), map };
   return map;
-  })().finally(() => {
-    legacyInflight = null;
-  });
-  return legacyInflight;
 }
 
 // Decode a Metaplex Metadata account (Borsh-ish layout).
@@ -174,7 +145,6 @@ async function resolveMetaplex(mint: string): Promise<TokenMeta | null> {
 }
 
 async function resolveMintMeta(mint: string): Promise<TokenMeta | null> {
-  if (FAST_TOKEN_META[mint]) return FAST_TOKEN_META[mint];
   // Fast path only: Jupiter list (in-memory cached for 6h) — no on-chain Metaplex
   // or off-chain JSON fetches here. Frontend hydrates missing logos in the background
   // so this endpoint stays well under 1s.
@@ -198,7 +168,7 @@ const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
 async function rpcCall(endpoint: string, method: string, params: unknown[]): Promise<any> {
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), 3_000);
+  const timeout = setTimeout(() => ctrl.abort(), 10_000);
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
