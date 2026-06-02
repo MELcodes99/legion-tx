@@ -238,6 +238,14 @@ export const SwapForm = () => {
     if (tokenIn) setAmountIn(String(tokenIn.balance));
   };
 
+  const handlePercent = (pct: number) => {
+    if (!tokenIn) return;
+    const value = tokenIn.balance * pct;
+    // Trim to token decimals to avoid float overflow
+    const fixed = Number(value.toFixed(Math.min(tokenIn.decimals, 9)));
+    setAmountIn(fixed > 0 ? String(fixed) : '');
+  };
+
   const handleSubmit = async () => {
     if (!tokenIn || !tokenOut || !quote || !publicKey || !signTransaction) return;
     setSubmitting(true);
@@ -488,6 +496,20 @@ export const SwapForm = () => {
           <div className="text-right text-[11px] text-muted-foreground mt-1">
             {inputUsdValue > 0 ? `~$${inputUsdValue.toFixed(2)}` : '\u00A0'}
           </div>
+          {tokenIn && tokenIn.balance > 0 && (
+            <div className="flex gap-1.5 mt-2">
+              {[0.25, 0.5, 0.75, 1].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => handlePercent(p)}
+                  className="flex-1 text-[11px] font-medium py-1.5 rounded-md bg-secondary/60 hover:bg-secondary border border-white/[0.06] text-foreground/80 hover:text-foreground transition-colors"
+                >
+                  {p === 1 ? 'MAX' : `${p * 100}%`}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-center -my-2">

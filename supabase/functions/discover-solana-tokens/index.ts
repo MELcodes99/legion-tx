@@ -145,31 +145,15 @@ async function resolveMetaplex(mint: string): Promise<TokenMeta | null> {
 }
 
 async function resolveMintMeta(mint: string): Promise<TokenMeta | null> {
+  // Fast path only: Jupiter list (in-memory cached for 6h) — no on-chain Metaplex
+  // or off-chain JSON fetches here. Frontend hydrates missing logos in the background
+  // so this endpoint stays well under 1s.
   const jup = await getJupiterMap();
   const fromJup = jup.get(mint);
-  if (fromJup?.symbol && fromJup?.logoURI) return fromJup;
-
-  const fromChain = await resolveMetaplex(mint);
-  if (fromChain?.symbol || fromChain?.logoURI) {
-    // Merge with any partial jupiter hit
-    return {
-      symbol: fromChain.symbol || fromJup?.symbol,
-      name: fromChain.name || fromJup?.name,
-      logoURI: fromChain.logoURI || fromJup?.logoURI,
-    };
-  }
+  if (fromJup) return fromJup;
 
   const legacy = await getLegacyMap();
-  const fromLegacy = legacy.get(mint);
-  if (fromLegacy?.symbol || fromLegacy?.logoURI) {
-    return {
-      symbol: fromLegacy.symbol || fromJup?.symbol,
-      name: fromLegacy.name || fromJup?.name,
-      logoURI: fromLegacy.logoURI || fromJup?.logoURI,
-    };
-  }
-
-  return fromJup ?? null;
+  return legacy.get(mint) ?? null;
 }
 
 // Public endpoints that work from server IPs. Ankr/extrnode block server IPs.

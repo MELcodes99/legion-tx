@@ -1565,6 +1565,24 @@ export const MultiChainTransferForm = () => {
             <div className="space-y-2">
               <Label htmlFor="amount" className="text-sm">Amount ($)</Label>
               <Input id="amount" type="number" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} disabled={!hasWalletConnected || isLoading} className="bg-secondary/50 border-border/50 text-sm" />
+              {selectedDiscoveredToken && selectedDiscoveredToken.usdValue > 0 && (
+                <div className="flex gap-1.5">
+                  {[0.25, 0.5, 0.75, 1].map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      disabled={!hasWalletConnected || isLoading}
+                      onClick={() => {
+                        const usd = selectedDiscoveredToken.usdValue * p;
+                        setAmount(usd > 0 ? usd.toFixed(2) : '');
+                      }}
+                      className="flex-1 text-[11px] font-medium py-1.5 rounded-md bg-secondary/60 hover:bg-secondary border border-border/50 text-foreground/80 hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      {p === 1 ? 'MAX' : `${p * 100}%`}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {amount && parseFloat(amount) > 0 && (() => {
