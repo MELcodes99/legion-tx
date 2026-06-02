@@ -22,8 +22,10 @@ type TokenMeta = { symbol?: string; name?: string; logoURI?: string };
 let jupiterCache: { at: number; map: Map<string, TokenMeta> } | null = null;
 let legacyCache: { at: number; map: Map<string, TokenMeta> } | null = null;
 const metaplexCache = new Map<string, TokenMeta | null>(); // per-mint, persistent across invocations
+let jupiterInflight: Promise<Map<string, TokenMeta>> | null = null;
+let legacyInflight: Promise<Map<string, TokenMeta>> | null = null;
 
-async function fetchWithTimeout(url: string, ms = 8000): Promise<Response | null> {
+async function fetchWithTimeout(url: string, ms = 1200): Promise<Response | null> {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -37,9 +39,11 @@ async function fetchWithTimeout(url: string, ms = 8000): Promise<Response | null
 
 async function getJupiterMap(): Promise<Map<string, TokenMeta>> {
   if (jupiterCache && Date.now() - jupiterCache.at < LIST_TTL_MS) return jupiterCache.map;
+  if (jupiterInflight) return jupiterInflight;
+  jupiterInflight = (async () => {
   const map = new Map<string, TokenMeta>();
   try {
-    const r = await fetchWithTimeout(JUPITER_ALL_URL, 15_000);
+    const r = await fetchWithTimeout(JUPITER_ALL_URL, 1200);
     if (r?.ok) {
       const arr = await r.json();
       if (Array.isArray(arr)) {
@@ -56,13 +60,19 @@ async function getJupiterMap(): Promise<Map<string, TokenMeta>> {
   jupiterCache = { at: Date.now(), map };
   console.log(`Jupiter list loaded: ${map.size} tokens`);
   return map;
+  })().finally(() => {
+    jupiterInflight = null;
+  });
+  return jupiterInflight;
 }
 
 async function getLegacyMap(): Promise<Map<string, TokenMeta>> {
   if (legacyCache && Date.now() - legacyCache.at < LIST_TTL_MS) return legacyCache.map;
+  if (legacyInflight) return legacyInflight;
+  legacyInflight = (async () => {
   const map = new Map<string, TokenMeta>();
   try {
-    const r = await fetchWithTimeout(LEGACY_REGISTRY_URL, 15_000);
+    const r = await fetchWithTimeout(LEGACY_REGISTRY_URL, 1200);
     if (r?.ok) {
       const j = await r.json();
       const tokens = j?.tokens ?? [];
@@ -77,6 +87,10 @@ async function getLegacyMap(): Promise<Map<string, TokenMeta>> {
   }
   legacyCache = { at: Date.now(), map };
   return map;
+  })().finally(() => {
+    legacyInflight = null;
+  });
+  return legacyInflight;
 }
 
 // Decode a Metaplex Metadata account (Borsh-ish layout).
