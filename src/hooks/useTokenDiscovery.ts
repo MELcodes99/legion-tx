@@ -130,127 +130,136 @@ export const useTokenDiscovery = (
     'https://api.mainnet-beta.solana.com',
   ];
 
-  // Discover Solana tokens via server-side edge function (bypasses browser RPC restrictions).
-  // Emits balances immediately (no USD) and then merges in prices when they arrive so the
-  // selection modal can render in under ~1s even when the price endpoint is slow.
-  const discoverSolanaTokens = useCallback(
-    async (onPartial?: (tokens: DiscoveredToken[]) => void): Promise<DiscoveredToken[]> => {
-      if (!solanaPublicKey) return [];
+  // Discover Solana tokens via server-side edge function (bypasses browser RPC restrictions)
+  const discoverSolanaTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
+    if (!solanaPublicKey) return [];
 
-      try {
-        const { data, error } = await supabase.functions.invoke('discover-solana-tokens', {
-          body: { walletAddress: solanaPublicKey.toBase58() },
-        });
+    const tokens: DiscoveredToken[] = [];
 
-        if (error) {
-          console.error('Edge function error for Solana token discovery:', error);
-          return [];
-        }
+    try {
+      // Call dedicated lightweight edge function to discover tokens server-side
+      const { data, error } = await supabase.functions.invoke('discover-solana-tokens', {
+        body: { walletAddress: solanaPublicKey.toBase58() }
+      });
 
-        const serverTokens = data?.tokens || [];
-        if (serverTokens.length === 0) return [];
-
-        const tokenAccountMap: Record<
-          string,
-          { uiAmount: number; decimals: number; symbol?: string; name?: string; logoURI?: string }
-        > = {};
-        let solAmount = 0;
-
-        for (const t of serverTokens) {
-          if (t.isNative) solAmount = t.balance;
-          else if (t.balance > 0) {
-            tokenAccountMap[t.address] = {
-              uiAmount: t.balance,
-              decimals: t.decimals,
-              symbol: t.symbol,
-              name: t.name,
-              logoURI: t.logoURI,
-            };
-          }
-        }
-
-        const SOL_MINT = 'So11111111111111111111111111111111111111112';
-        const STABLE_SYMBOLS = new Set(['USDC', 'USDT', 'USDF', 'DAI']);
-
-        const buildTokens = (prices: TokenPrice): DiscoveredToken[] => {
-          const out: DiscoveredToken[] = [];
-          if (solAmount > 0) {
-            const solPrice = prices[SOL_MINT] || 0;
-            out.push({
-              key: 'SOL',
-              address: SOL_MINT,
-              symbol: 'SOL',
-              name: 'Solana',
-              decimals: 9,
-              balance: solAmount,
-              usdValue: solAmount * solPrice,
-              chain: 'solana',
-              isNative: true,
-            });
-          }
-          const processed = new Set<string>();
-          for (const knownToken of KNOWN_SOLANA_TOKENS) {
-            const td = tokenAccountMap[knownToken.address];
-            if (td && td.uiAmount > 0) {
-              let price = prices[knownToken.address] || 0;
-              if (!price && STABLE_SYMBOLS.has(knownToken.symbol)) price = 1;
-              out.push({
-                key: `SOL_${knownToken.symbol}`,
-                address: knownToken.address,
-                symbol: knownToken.symbol,
-                name: knownToken.name,
-                decimals: td.decimals,
-                balance: td.uiAmount,
-                usdValue: td.uiAmount * price,
-                chain: 'solana',
-                isNative: false,
-                logoUrl: LOCAL_TOKEN_LOGOS[knownToken.address] || undefined,
-              });
-              processed.add(knownToken.address);
-            }
-          }
-          for (const [mint, td] of Object.entries(tokenAccountMap)) {
-            if (processed.has(mint)) continue;
-            const knownToken = Object.entries(TOKENS).find(
-              ([_, c]) => c.chain === 'solana' && c.mint === mint,
-            );
-            const symbol = td.symbol || (knownToken ? knownToken[1].symbol : `${mint.slice(0, 4)}…`);
-            const name = td.name || (knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`);
-            let price = prices[mint] || 0;
-            if (!price && STABLE_SYMBOLS.has(symbol.toUpperCase())) price = 1;
-            out.push({
-              key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
-              address: mint,
-              symbol,
-              name,
-              decimals: td.decimals,
-              balance: td.uiAmount,
-              usdValue: td.uiAmount * price,
-              chain: 'solana',
-              isNative: false,
-              logoUrl: td.logoURI || undefined,
-            });
-          }
-          return out;
-        };
-
-        // 1) Immediate render with no prices (USD ≈ 0 except known stables).
-        if (onPartial) onPartial(buildTokens({}));
-
-        // 2) Resolve full priced list in the background.
-        const tokenAddresses: { address: string; chain: ChainType }[] = [
-          { address: SOL_MINT, chain: 'solana' },
-          ...Object.keys(tokenAccountMap).map((mint) => ({ address: mint, chain: 'solana' as ChainType })),
-        ];
-        const prices = await fetchTokenPrices(tokenAddresses);
-        return buildTokens(prices);
-      } catch (error) {
-        console.error('Error discovering Solana tokens:', error);
+      if (error) {
+        console.error('Edge function error for Solana token discovery:', error);
         return [];
       }
-    },
-    [solanaPublicKey, fetchTokenPrices],
-  );
+
+      const serverTokens = data?.tokens || [];
+      if (serverTokens.length === 0) {
+        console.log('No Solana tokens found by edge function');
+        return [];
+      }
+
+      // Build token account map from server response (now includes metadata)
+      const tokenAccountMap: Record<
+        string,
+        { uiAmount: number; decimals: number; symbol?: string; name?: string; logoURI?: string }
+      > = {};
+      let solAmount = 0;
+
+      for (const t of serverTokens) {
+        if (t.isNative) {
+          solAmount = t.balance;
+        } else if (t.balance > 0) {
+          tokenAccountMap[t.address] = {
+            uiAmount: t.balance,
+            decimals: t.decimals,
+            symbol: t.symbol,
+            name: t.name,
+            logoURI: t.logoURI,
+          };
+        }
+      }
+
+      // Collect token addresses for price fetching
+      const tokenAddresses: { address: string; chain: ChainType }[] = [
+        { address: 'So11111111111111111111111111111111111111112', chain: 'solana' }
+      ];
+      Object.keys(tokenAccountMap).forEach(mint => {
+        tokenAddresses.push({ address: mint, chain: 'solana' });
+      });
+
+      const prices = await fetchTokenPrices(tokenAddresses);
+
+      // Add SOL
+      const solPrice = prices['So11111111111111111111111111111111111111112'] || 0;
+      if (solAmount > 0) {
+        tokens.push({
+          key: 'SOL',
+          address: 'So11111111111111111111111111111111111111112',
+          symbol: 'SOL',
+          name: 'Solana',
+          decimals: 9,
+          balance: solAmount,
+          usdValue: solAmount * solPrice,
+          chain: 'solana',
+          isNative: true,
+        });
+      }
+
+      // Process known Solana tokens first
+      const processedMints = new Set<string>();
+      for (const knownToken of KNOWN_SOLANA_TOKENS) {
+        const tokenData = tokenAccountMap[knownToken.address];
+        if (tokenData && tokenData.uiAmount > 0) {
+          const price = prices[knownToken.address] || 0;
+          const usdValue = tokenData.uiAmount * price;
+          tokens.push({
+            key: `SOL_${knownToken.symbol}`,
+            address: knownToken.address,
+            symbol: knownToken.symbol,
+            name: knownToken.name,
+            decimals: tokenData.decimals,
+            balance: tokenData.uiAmount,
+            usdValue,
+            chain: 'solana',
+            isNative: false,
+            logoUrl: LOCAL_TOKEN_LOGOS[knownToken.address] || undefined,
+          });
+          processedMints.add(knownToken.address);
+        }
+      }
+
+      // Process remaining tokens (all other SPL tokens in the wallet)
+      for (const [mint, tokenData] of Object.entries(tokenAccountMap)) {
+        if (processedMints.has(mint)) continue;
+        const price = prices[mint] || 0;
+        const usdValue = tokenData.uiAmount * price;
+        if (tokenData.uiAmount > 0) {
+          const knownToken = Object.entries(TOKENS).find(
+            ([_, config]) => config.chain === 'solana' && config.mint === mint
+          );
+          // Prefer server-provided Jupiter metadata, then local TOKENS config, then mint slice fallback
+          const symbol =
+            tokenData.symbol ||
+            (knownToken ? knownToken[1].symbol : `${mint.slice(0, 4)}…`);
+          const name =
+            tokenData.name ||
+            (knownToken ? knownToken[1].name : `Token ${mint.slice(0, 8)}`);
+          tokens.push({
+            key: knownToken ? knownToken[0] : `SPL_${mint.slice(0, 8)}`,
+            address: mint,
+            symbol,
+            name,
+            decimals: tokenData.decimals,
+            balance: tokenData.uiAmount,
+            usdValue,
+            chain: 'solana',
+            isNative: false,
+            logoUrl: tokenData.logoURI || undefined,
+          });
+        }
+      }
+
+    } catch (error) {
+      console.error('Error discovering Solana tokens:', error);
+    }
+
+    return tokens;
+  }, [solanaPublicKey, fetchTokenPrices]);
 
   // Discover Sui tokens
   const discoverSuiTokens = useCallback(async (): Promise<DiscoveredToken[]> => {
@@ -455,83 +464,47 @@ export const useTokenDiscovery = (
     return tokens;
   }, [evmAddress, evmChainId, fetchTokenPrices]);
 
-  // Main discovery function. Each chain emits independently so the UI can render
-  // balances as soon as any chain returns instead of waiting for the slowest.
+  // Main discovery function
   const discoverTokens = useCallback(async () => {
-    if (!hasLoadedOnceRef.current) setIsLoading(true);
-
-    // Replace tokens for a given chain with the latest snapshot for that chain only.
-    const upsertChain = (chain: ChainType | ChainType[], next: DiscoveredToken[]) => {
-      const chains = Array.isArray(chain) ? chain : [chain];
-      setDiscoveredTokens((prev) => [
-        ...prev.filter((t) => !chains.includes(t.chain)),
-        ...next,
-      ]);
-    };
-
-    const hydrateLogos = (tokens: DiscoveredToken[]) => {
-      const needLogos = tokens.filter((t) => !t.logoUrl);
-      if (needLogos.length === 0) return;
-      batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
-        .then((logos) => {
-          setDiscoveredTokens((prev) =>
-            prev.map((t) => (t.logoUrl ? t : { ...t, logoUrl: logos[t.address] || undefined })),
-          );
-        })
-        .catch((e) => console.warn('logo hydration failed', e));
-    };
-
-    const tasks: Promise<unknown>[] = [];
-
-    if (solanaPublicKey) {
-      tasks.push(
-        discoverSolanaTokens((partial) => {
-          // First paint: balances are visible immediately, USD fills in shortly.
-          upsertChain('solana', partial);
-          hasLoadedOnceRef.current = true;
-          setIsLoading(false);
-          hydrateLogos(partial);
-        })
-          .then((priced) => {
-            upsertChain('solana', priced);
-            hydrateLogos(priced);
-          })
-          .catch((e) => console.error('solana discovery failed', e)),
-      );
-    }
-
-    if (suiAccount) {
-      tasks.push(
-        discoverSuiTokens()
-          .then((sui) => {
-            upsertChain('sui', sui);
-            hasLoadedOnceRef.current = true;
-            setIsLoading(false);
-            hydrateLogos(sui);
-          })
-          .catch((e) => console.error('sui discovery failed', e)),
-      );
-    }
-
-    if (evmAddress) {
-      tasks.push(
-        discoverEvmTokens()
-          .then((evm) => {
-            upsertChain(['ethereum', 'base'], evm);
-            hasLoadedOnceRef.current = true;
-            setIsLoading(false);
-            hydrateLogos(evm);
-          })
-          .catch((e) => console.error('evm discovery failed', e)),
-      );
+    // Only show loading spinner on first load, not on background refreshes
+    if (!hasLoadedOnceRef.current) {
+      setIsLoading(true);
     }
 
     try {
-      await Promise.allSettled(tasks);
+      const [solanaTokens, suiTokens, evmTokens] = await Promise.all([
+        discoverSolanaTokens(),
+        discoverSuiTokens(),
+        discoverEvmTokens(),
+      ]);
+
+      const allTokens = [...solanaTokens, ...suiTokens, ...evmTokens];
+
+      // Show balances IMMEDIATELY so the user sees them under 3s.
+      // Logos for non-known tokens get attached in the background.
+      setDiscoveredTokens(allTokens);
+      hasLoadedOnceRef.current = true;
+      setIsLoading(false);
+
+      // Background: hydrate missing logos without blocking the UI.
+      const needLogos = allTokens.filter((t) => !t.logoUrl);
+      if (needLogos.length > 0) {
+        batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
+          .then((logos) => {
+            setDiscoveredTokens((prev) =>
+              prev.map((t) =>
+                t.logoUrl ? t : { ...t, logoUrl: logos[t.address] || undefined },
+              ),
+            );
+          })
+          .catch((e) => console.warn('logo hydration failed', e));
+      }
+    } catch (error) {
+      console.error('Error discovering tokens:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [solanaPublicKey, suiAccount, evmAddress, discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
+  }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
 
   // Keep a ref to the latest discoverTokens to avoid stale closures in setInterval
   const discoverTokensRef = useRef(discoverTokens);
