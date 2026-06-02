@@ -455,47 +455,83 @@ export const useTokenDiscovery = (
     return tokens;
   }, [evmAddress, evmChainId, fetchTokenPrices]);
 
-  // Main discovery function
+  // Main discovery function. Each chain emits independently so the UI can render
+  // balances as soon as any chain returns instead of waiting for the slowest.
   const discoverTokens = useCallback(async () => {
-    // Only show loading spinner on first load, not on background refreshes
-    if (!hasLoadedOnceRef.current) {
-      setIsLoading(true);
+    if (!hasLoadedOnceRef.current) setIsLoading(true);
+
+    // Replace tokens for a given chain with the latest snapshot for that chain only.
+    const upsertChain = (chain: ChainType | ChainType[], next: DiscoveredToken[]) => {
+      const chains = Array.isArray(chain) ? chain : [chain];
+      setDiscoveredTokens((prev) => [
+        ...prev.filter((t) => !chains.includes(t.chain)),
+        ...next,
+      ]);
+    };
+
+    const hydrateLogos = (tokens: DiscoveredToken[]) => {
+      const needLogos = tokens.filter((t) => !t.logoUrl);
+      if (needLogos.length === 0) return;
+      batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
+        .then((logos) => {
+          setDiscoveredTokens((prev) =>
+            prev.map((t) => (t.logoUrl ? t : { ...t, logoUrl: logos[t.address] || undefined })),
+          );
+        })
+        .catch((e) => console.warn('logo hydration failed', e));
+    };
+
+    const tasks: Promise<unknown>[] = [];
+
+    if (solanaPublicKey) {
+      tasks.push(
+        discoverSolanaTokens((partial) => {
+          // First paint: balances are visible immediately, USD fills in shortly.
+          upsertChain('solana', partial);
+          hasLoadedOnceRef.current = true;
+          setIsLoading(false);
+          hydrateLogos(partial);
+        })
+          .then((priced) => {
+            upsertChain('solana', priced);
+            hydrateLogos(priced);
+          })
+          .catch((e) => console.error('solana discovery failed', e)),
+      );
+    }
+
+    if (suiAccount) {
+      tasks.push(
+        discoverSuiTokens()
+          .then((sui) => {
+            upsertChain('sui', sui);
+            hasLoadedOnceRef.current = true;
+            setIsLoading(false);
+            hydrateLogos(sui);
+          })
+          .catch((e) => console.error('sui discovery failed', e)),
+      );
+    }
+
+    if (evmAddress) {
+      tasks.push(
+        discoverEvmTokens()
+          .then((evm) => {
+            upsertChain(['ethereum', 'base'], evm);
+            hasLoadedOnceRef.current = true;
+            setIsLoading(false);
+            hydrateLogos(evm);
+          })
+          .catch((e) => console.error('evm discovery failed', e)),
+      );
     }
 
     try {
-      const [solanaTokens, suiTokens, evmTokens] = await Promise.all([
-        discoverSolanaTokens(),
-        discoverSuiTokens(),
-        discoverEvmTokens(),
-      ]);
-
-      const allTokens = [...solanaTokens, ...suiTokens, ...evmTokens];
-
-      // Show balances IMMEDIATELY so the user sees them under 3s.
-      // Logos for non-known tokens get attached in the background.
-      setDiscoveredTokens(allTokens);
-      hasLoadedOnceRef.current = true;
-      setIsLoading(false);
-
-      // Background: hydrate missing logos without blocking the UI.
-      const needLogos = allTokens.filter((t) => !t.logoUrl);
-      if (needLogos.length > 0) {
-        batchFetchLogos(needLogos.map((t) => ({ address: t.address, chain: t.chain })))
-          .then((logos) => {
-            setDiscoveredTokens((prev) =>
-              prev.map((t) =>
-                t.logoUrl ? t : { ...t, logoUrl: logos[t.address] || undefined },
-              ),
-            );
-          })
-          .catch((e) => console.warn('logo hydration failed', e));
-      }
-    } catch (error) {
-      console.error('Error discovering tokens:', error);
+      await Promise.allSettled(tasks);
     } finally {
       setIsLoading(false);
     }
-  }, [discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
+  }, [solanaPublicKey, suiAccount, evmAddress, discoverSolanaTokens, discoverSuiTokens, discoverEvmTokens]);
 
   // Keep a ref to the latest discoverTokens to avoid stale closures in setInterval
   const discoverTokensRef = useRef(discoverTokens);
