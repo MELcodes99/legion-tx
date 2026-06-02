@@ -80,6 +80,8 @@ async function fetchDexScreenerPrices(addresses: string[]): Promise<Record<strin
   if (filteredAddresses.length === 0) return prices;
   
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1800);
     // DexScreener API - free, no auth required
     const tokenAddresses = filteredAddresses.join(',');
     console.log('Fetching DexScreener prices for:', tokenAddresses);
@@ -87,9 +89,11 @@ async function fetchDexScreenerPrices(addresses: string[]): Promise<Record<strin
     const response = await fetch(
       `https://api.dexscreener.com/latest/dex/tokens/${tokenAddresses}`,
       {
-        headers: { 'Accept': 'application/json' }
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal,
       }
     );
+    clearTimeout(timeout);
     
     if (response.ok) {
       const data = await response.json();
@@ -137,13 +141,17 @@ async function fetchCoinGeckoPrices(geckoIds: string[]): Promise<Record<string, 
   if (geckoIds.length === 0) return prices;
   
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1800);
     const ids = geckoIds.join(',');
     const response = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
       {
-        headers: { 'Accept': 'application/json' }
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal,
       }
     );
+    clearTimeout(timeout);
 
     if (response.ok) {
       const data = await response.json();
