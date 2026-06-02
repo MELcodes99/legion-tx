@@ -17,13 +17,10 @@ interface Props {
 const isMintAddress = (s: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s.trim());
 
 const fmtPrice = (n?: number) => {
-  if (!n || !Number.isFinite(n) || n <= 0) return '';
+  if (!n || !Number.isFinite(n)) return '';
   if (n >= 1) return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
   if (n >= 0.01) return `$${n.toFixed(3)}`;
-  // Render small prices as plain decimals (e.g. $0.00327) — no scientific notation.
-  const magnitude = Math.max(0, -Math.floor(Math.log10(n)));
-  const digits = Math.min(20, magnitude + 3);
-  return `$${n.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 })}`;
+  return `$${n.toExponential(2)}`;
 };
 
 const rank = (t: JupToken, q: string) => {

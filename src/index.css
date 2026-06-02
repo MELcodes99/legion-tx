@@ -195,10 +195,3 @@
   /* Ensure all containers sit above background layers */
   #root { position: relative; z-index: 1; }
 }
-
-@layer base {
-  /* Prevent iOS Safari from auto-zooming on focused inputs (font-size must be >= 16px) */
-  input, select, textarea {
-    font-size: 16px;
-  }
-}
