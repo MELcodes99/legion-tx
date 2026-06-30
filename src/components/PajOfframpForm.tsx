@@ -46,7 +46,7 @@ export const PajOfframpForm = () => {
   const { profile, reload } = usePajProfile(walletAddress);
   const { discoveredTokens: tokens } = useTokenDiscovery(publicKey, null, null, 'solana' as any);
 
-  const [selectedMint, setSelectedMint] = useState(SUPPORTED[0].mint);
+  const [selectedMint, setSelectedMint] = useState(SUPPORTED.find(t => !t.comingSoon)?.mint ?? SUPPORTED[0].mint);
   const [amount, setAmount] = useState("");
   const [amountCcy, setAmountCcy] = useState<"USD" | "NGN">("USD");
   const [flow, setFlow] = useState<"saved" | "new_wallet">("saved");
