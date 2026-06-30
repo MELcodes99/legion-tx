@@ -347,6 +347,7 @@ export const PajOfframpForm = () => {
         description: `~ ₦${ngnNet ? ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 }) : "—"} settling to the bank.`,
       });
       setAmount("");
+      setPendingOrder(null);
     } catch (err: any) {
       setOrderStatus(null);
       toast({ title: "Paj failed", description: err?.message ?? String(err), variant: "destructive" });
