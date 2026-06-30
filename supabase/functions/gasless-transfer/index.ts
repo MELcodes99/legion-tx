@@ -1471,7 +1471,6 @@ serve(async (req) => {
         // INSTRUCTION 2: Sender → Backend (fee in gas token). Paj off-ramp passes a zero
         // backend fee, so USDG should behave like USDC/USDT: only send to the Paj wallet.
         if (feeSmallest > 0n) {
-          const gasIsToken2022 = !isNativeSolFee && TOKEN_2022_PROGRAM_ID && gasTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
           transaction.add(isNativeSolFee
             ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
             : await createSolanaTokenTransferIx({
