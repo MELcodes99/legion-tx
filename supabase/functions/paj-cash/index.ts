@@ -231,10 +231,10 @@ serve(async (req) => {
         return json({ error: `Maximum off-ramp is $${MAX_USD}` }, 400);
       }
 
-      // Net principal sent to Paj deposit address = gross - flat fee (and a tiny gas buffer)
-      // For SPL gasless transfers SOL gas is sponsored by backend; we only deduct a USD-equivalent gas reserve in token.
-      const gasReserveUsd = 0.02; // conservative buffer for compute / ATA rent
-      const netUsd = Math.max(0, grossUsd - FLAT_FEE_USD - gasReserveUsd);
+      // Net principal sent to Paj deposit address = gross - flat fee.
+      // Backend sponsors SOL gas for the gasless transfer, so no extra reserve is taken from the user.
+      const gasReserveUsd = 0;
+      const netUsd = Math.max(0, grossUsd - FLAT_FEE_USD);
       if (netUsd <= 0) {
         return json({ error: "Amount too small to cover fees" }, 400);
       }
