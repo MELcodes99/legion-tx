@@ -280,7 +280,7 @@ export const PajOfframpForm = () => {
         order = (create.data as any).order;
       }
       setActiveOrder(order);
-      setOrderStatus("INIT");
+      setOrderStatus("Loading");
       const grossTokenAmount = Number(order?.grossAmountToken ?? tokenAmount);
       const grossUsdValue = Number(order?.grossAmountUsd ?? usdValue);
       const orderTokenPrice = Number(order?.tokenPriceUsd ?? selected.price);
@@ -355,7 +355,7 @@ export const PajOfframpForm = () => {
 
       setOrderStatus("PAID");
       toast({
-        title: "Paj it sent!",
+        title: "Pajjed!",
         description: `~ ₦${ngnNet ? ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 }) : "—"} settling to the bank.`,
       });
       setAmount("");
