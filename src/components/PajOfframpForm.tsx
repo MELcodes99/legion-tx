@@ -341,9 +341,8 @@ export const PajOfframpForm = () => {
           decimals: selected.decimals,
           gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
-          feeUsdOverride: FLAT_FEE_USD,
+          feeUsdOverride: 0,
           feeTokenPriceUsd: orderTokenPrice,
-          feeAmountSmallest: amounts?.feeToBackend,
         },
       });
       if (submit.error) throw new Error(submit.error.message);
