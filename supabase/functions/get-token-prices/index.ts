@@ -53,6 +53,7 @@ const STABLECOINS = new Set([
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC Solana
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT Solana
   '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ', // USDF Solana
+  '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH', // USDG Solana (Global Dollar)
   '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC ETH
   '0xdAC17F958D2ee523a2206206994597C13D831ec7', // USDT ETH
   '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC Base
@@ -262,6 +263,29 @@ serve(async (req) => {
     // Merge DexScreener prices
     for (const [address, price] of Object.entries(dexScreenerPrices)) {
       prices[address] = price;
+    }
+
+    // For JUP and BONK, prefer Jupiter's official price API (DexScreener picks wrong pairs)
+    const JUP_MINT = 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN';
+    const BONK_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    const jupOverrides = [JUP_MINT, BONK_MINT].filter(m => solanaTokens.includes(m));
+    if (jupOverrides.length > 0) {
+      try {
+        const r = await fetch(`https://lite-api.jup.ag/price/v3?ids=${jupOverrides.join(',')}`);
+        if (r.ok) {
+          const data = await r.json();
+          for (const mint of jupOverrides) {
+            const p = data?.[mint]?.usdPrice ?? data?.data?.[mint]?.price;
+            const num = typeof p === 'string' ? parseFloat(p) : p;
+            if (typeof num === 'number' && !isNaN(num) && num > 0) {
+              prices[mint] = num;
+              console.log(`Jupiter price override for ${mint}: $${num}`);
+            }
+          }
+        }
+      } catch (e) {
+        console.log('Jupiter price override fetch failed:', e);
+      }
     }
 
     // For SOL native token, use CoinGecko if not found

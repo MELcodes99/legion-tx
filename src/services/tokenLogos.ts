@@ -14,6 +14,7 @@ import monLogo from '@/assets/mon-logo.jpeg';
 import skrLogo from '@/assets/skr-logo.jpeg';
 import usdfLogo from '@/assets/usdf-logo.jpeg';
 import usdtLogo from '@/assets/usdt-logo.png';
+import usdgLogoAsset from '@/assets/usdg-logo.jpg.asset.json';
 
 // Token logo cache to avoid repeated fetches
 const logoCache: Record<string, string> = {};
@@ -32,6 +33,7 @@ export const SOLANA_TOKEN_MINTS = {
   MON: 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2',
   SKR: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3',
   USDF: '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ',
+  USDG: '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH',
 };
 
 // Local logos for new Solana tokens
@@ -48,6 +50,7 @@ export const LOCAL_TOKEN_LOGOS: Record<string, string> = {
   [SOLANA_TOKEN_MINTS.MON]: monLogo,
   [SOLANA_TOKEN_MINTS.SKR]: skrLogo,
   [SOLANA_TOKEN_MINTS.USDF]: usdfLogo,
+  [SOLANA_TOKEN_MINTS.USDG]: usdgLogoAsset.url,
 };
 
 // Known token logos (fallback)
