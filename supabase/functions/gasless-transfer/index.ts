@@ -333,6 +333,7 @@ const CHAIN_CONFIG = {
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
       'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3': { name: 'SKR', decimals: 6 },
       '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ': { name: 'USDF', decimals: 6 },
+      '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH': { name: 'USDG', decimals: 6 },
     }
   },
   sui: {
@@ -1159,7 +1160,7 @@ serve(async (req) => {
         const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
         if (feeTokenInfo) {
           // Map token name to CoinGecko ID
-          if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF') {
+          if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF' || feeTokenInfo.name === 'USDG') {
             feeTokenSymbol = 'usd-coin';
           } else if (feeTokenInfo.name === 'USDT') {
             feeTokenSymbol = 'tether';
@@ -2758,7 +2759,7 @@ serve(async (req) => {
           const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
           if (feeTokenInfo) {
             // Map token name to CoinGecko ID
-            if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF') {
+            if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF' || feeTokenInfo.name === 'USDG') {
               feeTokenSymbol = 'usd-coin';
             } else if (feeTokenInfo.name === 'USDT') {
               feeTokenSymbol = 'tether';
