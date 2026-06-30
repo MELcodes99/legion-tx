@@ -299,9 +299,10 @@ export const PajOfframpForm = () => {
           decimals: selected.decimals,
           gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
-          feeUsdOverride: FLAT_FEE_USD,
+          // Paj collects the $0.30 fee on their side via businessUSDCFee.
+          // Backend only sponsors SOL gas — no token fee split.
+          feeUsdOverride: 0,
           feeTokenPriceUsd: orderTokenPrice,
-          deductFeeFromTokenAmount: true,
         },
       });
       if (build.error) throw new Error(build.error.message);
@@ -340,9 +341,8 @@ export const PajOfframpForm = () => {
           decimals: selected.decimals,
           gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
-          feeUsdOverride: FLAT_FEE_USD,
+          feeUsdOverride: 0,
           feeTokenPriceUsd: orderTokenPrice,
-          feeAmountSmallest: amounts?.feeToBackend,
         },
       });
       if (submit.error) throw new Error(submit.error.message);
