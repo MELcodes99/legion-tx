@@ -432,8 +432,12 @@ export const PajOfframpForm = () => {
               type="button"
               onClick={() => {
                 if (!selected) return;
-                const usd = selected.balance * selected.price;
-                setAmount(String(amountCcy === "USD" ? usd.toFixed(2) : (rate ? Math.floor(usd * rate) : usd.toFixed(2))));
+                const usdBal = selected.balance * selected.price;
+                // Leave room for the flat fee so the typed amount = recipient amount.
+                const receiveUsd = Math.max(0, usdBal - FLAT_FEE_USD);
+                setAmount(String(amountCcy === "USD"
+                  ? receiveUsd.toFixed(2)
+                  : (rate ? Math.floor(receiveUsd * rate) : receiveUsd.toFixed(2))));
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20"
             >
@@ -443,10 +447,10 @@ export const PajOfframpForm = () => {
           <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
             <span>
               {amountCcy === "USD"
-                ? (rateLoading ? "Fetching rate…" : ngnGross ? `≈ ₦${ngnGross.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "")
-                : `≈ $${usdValue.toFixed(2)}`}
+                ? (rateLoading ? "Fetching rate…" : ngnNet ? `≈ ₦${ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 })} to bank` : "")
+                : `≈ $${usdValue.toFixed(2)} to bank`}
             </span>
-            <span>{tokenAmount > 0 ? `${tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selected?.symbol}` : ""}</span>
+            <span>{tokenAmount > 0 ? `Debit ${tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selected?.symbol}` : ""}</span>
           </div>
         </div>
 
