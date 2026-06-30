@@ -2560,7 +2560,9 @@ serve(async (req) => {
           // Skip strict validation for non-whitelisted tokens
 
           // Calculate expected amounts
-          const feeAmountUSD = CHAIN_CONFIG.solana.gasFee;
+          const feeAmountUSD = (typeof feeUsdOverride === 'number' && feeUsdOverride >= 0)
+            ? feeUsdOverride
+            : CHAIN_CONFIG.solana.gasFee;
           const feeTokenMint = gasToken || mint;
           
           let feeTokenSymbol: string;
