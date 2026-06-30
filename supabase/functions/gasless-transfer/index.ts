@@ -44,6 +44,7 @@ async function loadSolanaSdk() {
       getOrCreateAssociatedTokenAccount: (splToken as any).getOrCreateAssociatedTokenAccount,
       getAssociatedTokenAddress: (splToken as any).getAssociatedTokenAddress,
       createTransferInstruction: (splToken as any).createTransferInstruction,
+      createTransferCheckedInstruction: (splToken as any).createTransferCheckedInstruction,
       createAssociatedTokenAccountInstruction: (splToken as any).createAssociatedTokenAccountInstruction,
       TOKEN_PROGRAM_ID: (splToken as any).TOKEN_PROGRAM_ID,
       TOKEN_2022_PROGRAM_ID: (splToken as any).TOKEN_2022_PROGRAM_ID,
