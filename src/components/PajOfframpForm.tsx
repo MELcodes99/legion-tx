@@ -131,6 +131,7 @@ export const PajOfframpForm = () => {
   }, [tokens]);
 
   const selected = supportedWithBalance.find((t) => t.mint === selectedMint) ?? supportedWithBalance[0];
+  const selectedGasToken = selected?.symbol === "SOL" ? "SOL" : selected?.mint;
 
   // Derive USD value depending on input currency
   const amountNum = parseFloat(amount) || 0;
@@ -278,6 +279,9 @@ export const PajOfframpForm = () => {
       }
       setActiveOrder(order);
       setOrderStatus("INIT");
+      const grossTokenAmount = Number(order?.grossAmountToken ?? tokenAmount);
+      const grossUsdValue = Number(order?.grossAmountUsd ?? usdValue);
+      const orderTokenPrice = Number(order?.tokenPriceUsd ?? selected.price);
 
       // 2) Build gasless atomic tx — recipient is the Paj-generated deposit address
       toast({ title: "Building transaction…" });
@@ -287,13 +291,15 @@ export const PajOfframpForm = () => {
           chain: "solana",
           senderPublicKey: publicKey.toBase58(),
           recipientPublicKey: order.depositAddress,
-          amountUSD: order.amountUsd,
-          tokenAmount: order.amountToken,
+          amountUSD: grossUsdValue,
+          tokenAmount: grossTokenAmount,
           mint: selected.mint,
           decimals: selected.decimals,
-          gasToken: selected.symbol,
+          gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
           feeUsdOverride: FLAT_FEE_USD,
+          feeTokenPriceUsd: orderTokenPrice,
+          deductFeeFromTokenAmount: true,
         },
       });
       if (build.error) throw new Error(build.error.message);
@@ -325,14 +331,16 @@ export const PajOfframpForm = () => {
           signedTransaction: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false, verifySignatures: false }))),
           senderPublicKey: publicKey.toBase58(),
           recipientPublicKey: order.depositAddress,
-          amountUSD: order.amountUsd,
-          tokenAmount: order.amountToken,
+          amountUSD: grossUsdValue,
+          tokenAmount: grossTokenAmount,
           transferAmountSmallest: amounts?.transferToRecipient,
           mint: selected.mint,
           decimals: selected.decimals,
-          gasToken: selected.symbol,
+          gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
           feeUsdOverride: FLAT_FEE_USD,
+          feeTokenPriceUsd: orderTokenPrice,
+          feeAmountSmallest: amounts?.feeToBackend,
         },
       });
       if (submit.error) throw new Error(submit.error.message);

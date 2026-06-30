@@ -865,6 +865,8 @@ serve(async (req) => {
         gasToken,
         tokenSymbol,
         feeUsdOverride,
+        feeTokenPriceUsd,
+        deductFeeFromTokenAmount,
       } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
@@ -877,6 +879,8 @@ serve(async (req) => {
         gasToken?: string;
         tokenSymbol?: string;
         feeUsdOverride?: number;
+        feeTokenPriceUsd?: number;
+        deductFeeFromTokenAmount?: boolean;
       };
 
       // Support both old (amount) and new (amountUSD/tokenAmount) API
@@ -1047,8 +1051,12 @@ serve(async (req) => {
           feeTokenSymbol = 'sui';
         }
         
-        // Fetch token price and calculate fee in token amount
-        const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+        // Fetch token price and calculate fee in token amount. Paj off-ramp can pass
+        // the already-discovered token price so the flat $0.30 fee is denominated in
+        // the selected token, including non-whitelisted SPL tokens.
+        const tokenPrice = (typeof feeTokenPriceUsd === 'number' && feeTokenPriceUsd > 0)
+          ? feeTokenPriceUsd
+          : await fetchTokenPrice(feeTokenSymbol);
         const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
         
         console.log('Fee calculation:', {
@@ -1096,7 +1104,8 @@ serve(async (req) => {
         // 2. Sender → Backend (fee amount in gas token)
         // Backend pays network gas fees from its SOL balance
         
-        const transferAmountSmallest = BigInt(Math.round(effectiveTokenAmount * Math.pow(10, decimals)));
+        const grossAmountSmallest = BigInt(Math.round(effectiveTokenAmount * Math.pow(10, decimals)));
+        let transferAmountSmallest = grossAmountSmallest;
         
         // Determine gas token info
         const buildGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
@@ -1106,15 +1115,31 @@ serve(async (req) => {
         
         // Calculate fee in gas token's smallest units
         const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+        const usesSameTokenForGas = gasTokenMint === mint;
+
+        // Paj off-ramp passes the user's gross amount here. For that flow, debit the
+        // gross amount once, then split it atomically as: net → Paj deposit address
+        // and flat fee → backend. Example: $5 USDC becomes $4.70 to Paj + $0.30 fee.
+        if (deductFeeFromTokenAmount && usesSameTokenForGas) {
+          if (grossAmountSmallest <= feeSmallest) {
+            return new Response(
+              JSON.stringify({ error: 'Amount too small to cover fees' }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          transferAmountSmallest = grossAmountSmallest - feeSmallest;
+        }
+        const recipientTokenAmount = Number(transferAmountSmallest) / Math.pow(10, decimals);
         
         console.log('Solana transaction with separate gas payment:', {
           chain: 'solana',
           transferToken: mint,
           gasToken: gasTokenMint,
           amountUSD: effectiveAmountUSD,
-          tokenAmount: effectiveTokenAmount,
-          userSendsToRecipient: `${effectiveTokenAmount} (${transferAmountSmallest.toString()} smallest units)`,
+          grossTokenAmount: effectiveTokenAmount,
+          userSendsToRecipient: `${recipientTokenAmount} (${transferAmountSmallest.toString()} smallest units)`,
           userSendsToBackend: `$${feeAmountUSD} fee (${feeSmallest.toString()} smallest units in ${buildGasTokenConfig?.symbol || 'transfer token'})`,
+          totalUserDebit: usesSameTokenForGas ? `${effectiveTokenAmount} (${grossAmountSmallest.toString()} smallest units)` : 'transfer token + separate fee token',
           networkGasPaidBy: 'backend SOL balance',
         });
 
@@ -1144,7 +1169,6 @@ serve(async (req) => {
         });
 
         // CRITICAL: Validate sender has sufficient balance for both transfer and fee
-        const usesSameTokenForGas = gasTokenMint === mint;
         // Use passed tokenSymbol for display, fallback to ALLOWED_TOKENS or 'Token'
         const transferTokenName = tokenSymbol || ALLOWED_TOKENS[mint]?.name || 'Token';
         
@@ -1330,11 +1354,12 @@ serve(async (req) => {
           JSON.stringify({
             transaction: base64Tx,
             backendWallet: backendWallet.publicKey.toBase58(),
-            message: `Atomic transaction: Send ${effectiveTokenAmount} ${transferTokenName} ($${effectiveAmountUSD}) to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
+            message: `Atomic transaction: Debit ${effectiveTokenAmount} ${transferTokenName}, split into ${recipientTokenAmount} to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
             amounts: {
               transferToRecipient: transferAmountSmallest.toString(),
               tokenAmount: transferAmountSmallest.toString(),
               feeToBackend: feeSmallest.toString(),
+              totalDebit: usesSameTokenForGas ? grossAmountSmallest.toString() : undefined,
               feeUSD: feeAmountUSD,
               amountUSD: effectiveAmountUSD,
               networkGasPayer: 'backend',
@@ -2496,7 +2521,7 @@ serve(async (req) => {
 
     // Action: Submit atomic tx (User signed + backend co-signs)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol, feeUsdOverride } = body as {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, feeAmountSmallest: passedFeeAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol, feeUsdOverride, feeTokenPriceUsd } = body as {
         signedTransaction: string;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         mint?: string;
@@ -2506,11 +2531,13 @@ serve(async (req) => {
         tokenAmount?: number;
         decimals?: number;
         transferAmountSmallest?: string | number;
+        feeAmountSmallest?: string | number;
         senderPublicKey?: string;
         recipientPublicKey?: string;
         userSignature?: string;
         tokenSymbol?: string;
         feeUsdOverride?: number;
+        feeTokenPriceUsd?: number;
       };
 
       if (!signedTransaction) {
@@ -2594,8 +2621,11 @@ serve(async (req) => {
             feeTokenSymbol = 'sui';
           }
           
-          // Convert USD fee to token amount using current price
-          const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+          // Convert USD fee to token amount using current price, or the same
+          // client-discovered token price used when building the Paj off-ramp tx.
+          const tokenPrice = (typeof feeTokenPriceUsd === 'number' && feeTokenPriceUsd > 0)
+            ? feeTokenPriceUsd
+            : await fetchTokenPrice(feeTokenSymbol);
           const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
           
           // Use the exact amount passed from build_atomic_tx if available (avoids rounding mismatches)
@@ -2616,7 +2646,10 @@ serve(async (req) => {
           const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
           const gasTokenMintVal = gasTokenConfig ? gasTokenConfig.mint : mint;
           const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenDecimals;
-          const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+          const calculatedFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+          const feeSmallest = passedFeeAmount
+            ? BigInt(passedFeeAmount.toString())
+            : calculatedFeeSmallest;
           // The transaction is built first, then the wallet signs, then we submit.
           // Re-fetching token price during submit can move by a few base units and
           // incorrectly reject the exact backend-built fee instruction. Accept the
