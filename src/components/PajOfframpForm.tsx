@@ -144,30 +144,24 @@ export const PajOfframpForm = () => {
     setSubmitting(true);
     setOrderStatus("Creating order…");
     try {
-      // Path B: for new wallet flow, we still need bank info — prompt to add via modal.
-      // For v1 we reuse profile bank details as the destination bank for Path B (typical flow:
-      // user is sending to another Paj user that they've configured locally).
-      if (flow === "new_wallet" && !profile) {
-        throw new Error("Set up a Paj profile first so we know which bank to send to.");
-      }
+      if (!profile) throw new Error("Add bank details first.");
 
       // 1) Create Paj order — returns deposit address.
       const create = await supabase.functions.invoke("paj-cash", {
         body: {
           action: "create_order",
           walletAddress: publicKey.toBase58(),
-          flow,
+          flow: "saved",
           mint: selected.mint,
           tokenSymbol: selected.symbol,
           decimals: selected.decimals,
-          amountToken: amountNum,
+          amountToken: tokenAmount,
           tokenPriceUsd: selected.price,
-          // Path B uses the profile's bank (so funds settle to the user's known bank)
           bankId: profile?.bank_id,
           bankName: profile?.bank_name,
           accountNumber: profile?.bank_account_number,
           accountName: profile?.bank_account_name,
-          pajWalletAddress: flow === "saved" ? profile?.paj_wallet_address : destWallet.trim(),
+          pajWalletAddress: profile?.paj_wallet_address,
         },
       });
       if (create.error) throw new Error(create.error.message);
@@ -233,7 +227,6 @@ export const PajOfframpForm = () => {
       if (submit.error) throw new Error(submit.error.message);
       const sig = (submit.data as any)?.signature;
 
-      // 5) Record signature on the Paj order
       await supabase.functions.invoke("paj-cash", {
         body: { action: "record_tx", orderId: order.id, signature: sig },
       });
