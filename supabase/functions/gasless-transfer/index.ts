@@ -2873,17 +2873,19 @@ serve(async (req) => {
 
             // Check if it's a token transfer instruction:
             // 3 = Transfer, 12 = TransferChecked (required by Token-2022 mints like USDG)
+            // 26/1 = TransferCheckedWithFee (used by Token-2022 mints with transfer-fee extensions)
             const isTransfer = instruction.data.length === 9 && instruction.data[0] === 3;
             const isTransferChecked = instruction.data.length === 10 && instruction.data[0] === 12;
-            if (isTransfer || isTransferChecked) {
+            const isTransferCheckedWithFee = instruction.data.length === 19 && instruction.data[0] === 26 && instruction.data[1] === 1;
+            if (isTransfer || isTransferChecked || isTransferCheckedWithFee) {
               console.log(`\nFound SPL Token instruction, data length: ${instruction.data.length}`);
               
               // Decode amount from instruction data (bytes 1-8, little endian)
-              const amountBuffer = readU64LE(instruction.data);
+              const amountBuffer = readU64LE(instruction.data, isTransferCheckedWithFee ? 2 : 1);
               
               const source = instruction.keys[0].pubkey;
-              const destination = isTransferChecked ? instruction.keys[2].pubkey : instruction.keys[1].pubkey;
-              const authority = isTransferChecked ? instruction.keys[3].pubkey : instruction.keys[2].pubkey;
+              const destination = (isTransferChecked || isTransferCheckedWithFee) ? instruction.keys[2].pubkey : instruction.keys[1].pubkey;
+              const authority = (isTransferChecked || isTransferCheckedWithFee) ? instruction.keys[3].pubkey : instruction.keys[2].pubkey;
               
               console.log(`\nTransfer instruction #${i + 1}:`);
               console.log('- Source:', source.toBase58());
