@@ -77,6 +77,14 @@ export const PajOfframpForm = () => {
     if (profile) setFlow("saved");
   }, [profile?.id]);
 
+  // USDG is not offrampable yet; auto-switch to first available token if selected.
+  useEffect(() => {
+    if (SUPPORTED.find(t => t.mint === selectedMint)?.comingSoon) {
+      const fallback = SUPPORTED.find(t => !t.comingSoon);
+      if (fallback) setSelectedMint(fallback.mint);
+    }
+  }, [selectedMint]);
+
   // Lazy-load banks when Send Cash is opened
   useEffect(() => {
     if (flow !== "new_wallet" || banks.length || banksLoading) return;
