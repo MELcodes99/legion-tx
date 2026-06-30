@@ -734,6 +734,30 @@ export type Database = {
         }
         Relationships: []
       }
+      paj_session_cache: {
+        Row: {
+          expires_at: string | null
+          id: number
+          recipient: string
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          expires_at?: string | null
+          id?: number
+          recipient: string
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          expires_at?: string | null
+          id?: number
+          recipient?: string
+          token?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       platform_stats: {
         Row: {
           created_at: string
