@@ -612,20 +612,25 @@ export const PajOfframpForm = () => {
           className="w-full h-11 bg-gradient-to-r from-primary to-accent hover:opacity-90"
         >
           {submitting ? (
-            <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {orderStatus ?? "Pajing…"}</span>
+            <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> {(!orderStatus || orderStatus === "INIT") ? "Loading" : orderStatus}</span>
           ) : validation ? validation : (
             <span className="inline-flex items-center gap-2">Paj It <ArrowRight className="w-4 h-4" /></span>
           )}
         </Button>
 
-        {activeOrder && orderStatus && !submitting && (
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs">
-            <div className="font-semibold text-emerald-300">Order {orderStatus}</div>
-            <div className="text-muted-foreground mt-0.5">
-              ${activeOrder.amountUsd?.toFixed(2)} → ₦{activeOrder.fiatAmount?.toLocaleString("en-NG", { maximumFractionDigits: 0 })}
+        {activeOrder && orderStatus && !submitting && (() => {
+          const displayStatus = orderStatus === "INIT" ? "Loading" : orderStatus;
+          const netUsdDisplay = activeOrder.amountUsd ?? 0;
+          const liveNgn = rate ? netUsdDisplay * rate : null;
+          return (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs">
+              <div className="font-semibold text-emerald-300">Order {displayStatus}</div>
+              <div className="text-muted-foreground mt-0.5">
+                ${netUsdDisplay.toFixed(2)} → ₦{(liveNgn ?? activeOrder.fiatAmount ?? 0).toLocaleString("en-NG", { maximumFractionDigits: 0 })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {walletAddress && (
