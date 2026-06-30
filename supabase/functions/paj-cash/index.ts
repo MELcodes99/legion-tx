@@ -231,10 +231,12 @@ serve(async (req) => {
         return json({ error: `Maximum off-ramp is $${MAX_USD}` }, 400);
       }
 
-      // Net principal sent to Paj deposit address = gross - flat fee.
-      // Backend sponsors SOL gas for the gasless transfer, so no extra reserve is taken from the user.
+      // Paj withholds the flat fee on its side via `businessUSDCFee`, so we
+      // forward the FULL gross amount to the Paj deposit address. The user's
+      // wallet is debited once (gross) and Paj nets out the $0.30 before
+      // settling to the bank. Backend takes NO token fee — only sponsors gas.
       const gasReserveUsd = 0;
-      const netUsd = Math.max(0, grossUsd - FLAT_FEE_USD);
+      const netUsd = Math.max(0, grossUsd - FLAT_FEE_USD); // for display/fiat estimation
       if (netUsd <= 0) {
         return json({ error: "Amount too small to cover fees" }, 400);
       }
