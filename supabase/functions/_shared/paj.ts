@@ -161,6 +161,27 @@ export const paj = {
   rateByAmount: (amount: number) =>
     pajFetch<any>({ method: "GET", path: `/pub/rate/${amount}` }),
 
+  // Live per-token off-ramp quote — same endpoint app.paj.cash uses.
+  // Returns { amount, currency, fiatAmount, rate, usdcValue, tokenRate, mint }
+  offrampValue: (params: { amount?: number; mint: string; currency?: string; chain?: string }) => {
+    const qs = new URLSearchParams({
+      amount: String(params.amount ?? 1),
+      mint: params.mint,
+      currency: (params.currency ?? "NGN"),
+      chain: (params.chain ?? "SOLANA"),
+    }).toString();
+    return pajFetch<{
+      amount: number;
+      currency: string;
+      fiatAmount: number;
+      rate: number;
+      usdcValue: number;
+      tokenRate: number;
+      mint: string;
+    }>({ method: "GET", path: `/rates/offramp-value?${qs}` });
+  },
+
+
   createOfframp: (
     token: string,
     payload: {
