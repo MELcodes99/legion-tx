@@ -214,6 +214,113 @@ function readU64LE(data: Uint8Array, offset = 1): bigint {
   return value;
 }
 
+async function createSolanaTokenTransferIx(params: {
+  connection: any;
+  source: any;
+  mint: any;
+  destination: any;
+  authority: any;
+  amount: bigint;
+  decimals: number;
+  programId: any;
+  token2022ProgramId: any;
+  createTransferInstruction: any;
+  createTransferCheckedInstruction: any;
+  createTransferCheckedWithFeeInstruction: any;
+  createTransferCheckedWithTransferHookInstruction: any;
+  createTransferCheckedWithFeeAndTransferHookInstruction: any;
+  getMint: any;
+  getTransferFeeConfig: any;
+  calculateEpochFee: any;
+  getExtensionTypes: any;
+  ExtensionType: any;
+}) {
+  const isToken2022 = params.token2022ProgramId && params.programId?.equals(params.token2022ProgramId);
+  if (!isToken2022) {
+    return params.createTransferInstruction(
+      params.source,
+      params.destination,
+      params.authority,
+      params.amount,
+      [],
+      params.programId
+    );
+  }
+
+  const mintInfo = await params.getMint(params.connection, params.mint, 'confirmed', params.programId);
+  const extensionTypes = params.getExtensionTypes && mintInfo?.tlvData
+    ? params.getExtensionTypes(mintInfo.tlvData)
+    : [];
+  const hasTransferFee = !!params.getTransferFeeConfig?.(mintInfo);
+  const hasTransferHook = !!params.ExtensionType && extensionTypes.includes(params.ExtensionType.TransferHook);
+  let expectedTransferFee = 0n;
+
+  if (hasTransferFee && params.calculateEpochFee) {
+    const epochInfo = await params.connection.getEpochInfo('confirmed');
+    expectedTransferFee = params.calculateEpochFee(
+      params.getTransferFeeConfig(mintInfo),
+      BigInt(epochInfo.epoch),
+      params.amount
+    );
+  }
+
+  if (hasTransferFee && hasTransferHook && params.createTransferCheckedWithFeeAndTransferHookInstruction) {
+    return await params.createTransferCheckedWithFeeAndTransferHookInstruction(
+      params.connection,
+      params.source,
+      params.mint,
+      params.destination,
+      params.authority,
+      params.amount,
+      params.decimals,
+      expectedTransferFee,
+      [],
+      'confirmed',
+      params.programId
+    );
+  }
+
+  if (hasTransferHook && params.createTransferCheckedWithTransferHookInstruction) {
+    return await params.createTransferCheckedWithTransferHookInstruction(
+      params.connection,
+      params.source,
+      params.mint,
+      params.destination,
+      params.authority,
+      params.amount,
+      params.decimals,
+      [],
+      'confirmed',
+      params.programId
+    );
+  }
+
+  if (hasTransferFee && params.createTransferCheckedWithFeeInstruction) {
+    return params.createTransferCheckedWithFeeInstruction(
+      params.source,
+      params.mint,
+      params.destination,
+      params.authority,
+      params.amount,
+      params.decimals,
+      expectedTransferFee,
+      [],
+      params.programId
+    );
+  }
+
+  return params.createTransferCheckedInstruction(
+    params.source,
+    params.mint,
+    params.destination,
+    params.authority,
+    params.amount,
+    params.decimals,
+    [],
+    params.programId
+  );
+}
+
 // Token configuration for multi-chain support
 const CHAIN_CONFIG = {
   solana: {
