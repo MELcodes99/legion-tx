@@ -15,13 +15,18 @@ import { PajBankAccountModal, PajBank } from "@/components/PajBankAccountModal";
 import usdgLogoAsset from "@/assets/usdg-logo.jpg.asset.json";
 
 
-// Tokens explicitly listed in the spec, in display order.
-const SUPPORTED = [
+const SUPPORTED: {
+  symbol: string;
+  mint: string;
+  decimals: number;
+  logo: string;
+  comingSoon?: boolean;
+}[] = [
   { symbol: "USDC", mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6, logo: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png" },
   { symbol: "USDT", mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6, logo: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg" },
   { symbol: "JUP",  mint: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", decimals: 6, logo: "https://static.jup.ag/jup/icon.png" },
   { symbol: "BONK", mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", decimals: 5, logo: "https://arweave.net/hQiPZOsRZXGXBJd_82PhVdlM_hACsT_q6wqwf5cSY7I" },
-  { symbol: "USDG", mint: "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH", decimals: 6, logo: usdgLogoAsset.url },
+  { symbol: "USDG", mint: "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH", decimals: 6, logo: usdgLogoAsset.url, comingSoon: true },
   { symbol: "SOL",  mint: "So11111111111111111111111111111111111111112", decimals: 9, logo: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png" },
 ];
 
@@ -41,7 +46,7 @@ export const PajOfframpForm = () => {
   const { profile, reload } = usePajProfile(walletAddress);
   const { discoveredTokens: tokens } = useTokenDiscovery(publicKey, null, null, 'solana' as any);
 
-  const [selectedMint, setSelectedMint] = useState(SUPPORTED[0].mint);
+  const [selectedMint, setSelectedMint] = useState(SUPPORTED.find(t => !t.comingSoon)?.mint ?? SUPPORTED[0].mint);
   const [amount, setAmount] = useState("");
   const [amountCcy, setAmountCcy] = useState<"USD" | "NGN">("USD");
   const [flow, setFlow] = useState<"saved" | "new_wallet">("saved");
@@ -71,6 +76,14 @@ export const PajOfframpForm = () => {
   useEffect(() => {
     if (profile) setFlow("saved");
   }, [profile?.id]);
+
+  // USDG is not offrampable yet; auto-switch to first available token if selected.
+  useEffect(() => {
+    if (SUPPORTED.find(t => t.mint === selectedMint)?.comingSoon) {
+      const fallback = SUPPORTED.find(t => !t.comingSoon);
+      if (fallback) setSelectedMint(fallback.mint);
+    }
+  }, [selectedMint]);
 
   // Lazy-load banks when Send Cash is opened
   useEffect(() => {
@@ -389,11 +402,16 @@ export const PajOfframpForm = () => {
             </SelectTrigger>
             <SelectContent>
               {supportedWithBalance.map((t) => (
-                <SelectItem key={t.mint} value={t.mint}>
-                  <span className="inline-flex items-center gap-2">
+                <SelectItem key={t.mint} value={t.mint} disabled={!!t.comingSoon}>
+                  <span className={`inline-flex items-center gap-2 ${t.comingSoon ? "opacity-50" : ""}`}>
                     {t.logoUrl && <img src={t.logoUrl} alt="" className="w-4 h-4 rounded-full" />}
                     <span className="font-medium">{t.symbol}</span>
                     <span className="text-xs text-muted-foreground">${t.usdBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    {t.comingSoon && (
+                      <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                        Coming Soon
+                      </span>
+                    )}
                   </span>
                 </SelectItem>
               ))}
