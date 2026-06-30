@@ -98,15 +98,40 @@ serve(async (req) => {
     }
 
     if (action === "get_rate") {
-      // Paj's /pub/rate/{amount} often returns 404 ("No active rate found"); the
-      // reliable endpoint is /pub/rate which returns both on/off-ramp rates.
-      // For off-ramp we always want offRampRate.rate (NGN per USD).
+      // Live per-token off-ramp quote — same endpoint app.paj.cash uses.
+      // When the caller passes a token mint, return the exact NGN payout per 1 token
+      // (this matches what Paj will actually credit to the bank). Otherwise fall back
+      // to the global USD→NGN off-ramp rate from /pub/rate.
+      const { mint, chain, currency, amount } = body as {
+        mint?: string; chain?: string; currency?: string; amount?: number;
+      };
+      try {
+        if (mint) {
+          const quote = await paj.offrampValue({
+            amount: amount && amount > 0 ? amount : 1,
+            mint,
+            chain: (chain || "SOLANA").toUpperCase(),
+            currency: currency || "NGN",
+          });
+          // `rate` here = NGN per 1 USD (Paj's live off-ramp rate); `tokenRate` = NGN per 1 token.
+          return json({
+            rate: quote.rate,
+            tokenRate: quote.tokenRate,
+            fiatAmount: quote.fiatAmount,
+            usdcValue: quote.usdcValue,
+            raw: quote,
+          });
+        }
+      } catch (_e) {
+        // fall through to /pub/rate
+      }
       const all = await paj.allRates();
       const offRamp = all?.offRampRate?.rate ?? all?.offRamp?.rate ?? null;
       const onRamp = all?.onRampRate?.rate ?? all?.onRamp?.rate ?? null;
       const numeric = typeof offRamp === "number" ? offRamp : (typeof onRamp === "number" ? onRamp : null);
       return json({ rate: numeric, raw: all });
     }
+
 
     if (action === "get_profile") {
       const { walletAddress } = body;

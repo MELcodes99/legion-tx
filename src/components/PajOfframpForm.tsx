@@ -139,14 +139,22 @@ export const PajOfframpForm = () => {
   const ngnGross = rate ? usdValue * rate : null;
   const ngnNet = rate ? netUsd * rate : null;
 
-  // Live NGN rate — refetch whenever USD value changes meaningfully
+  // Live NGN rate — use Paj's per-token off-ramp quote (same endpoint app.paj.cash uses)
+  // so the displayed rate is exactly what Paj will pay out.
   const rateAbortRef = useRef<number>(0);
   useEffect(() => {
-    if (!usdValue) { setRate(null); return; }
     const id = ++rateAbortRef.current;
     setRateLoading(true);
     supabase.functions
-      .invoke("paj-cash", { body: { action: "get_rate", amount: Math.max(1, Math.round(usdValue)) } })
+      .invoke("paj-cash", {
+        body: {
+          action: "get_rate",
+          mint: selectedMint,
+          chain: "SOLANA",
+          currency: "NGN",
+          amount: usdValue && usdValue > 0 ? Math.max(1, Math.round(usdValue)) : 1,
+        },
+      })
       .then(({ data }) => {
         if (id !== rateAbortRef.current) return;
         const r = (data as any)?.rate;
@@ -155,7 +163,8 @@ export const PajOfframpForm = () => {
       })
       .catch(() => {})
       .finally(() => { if (id === rateAbortRef.current) setRateLoading(false); });
-  }, [usdValue]);
+  }, [selectedMint, usdValue]);
+
 
   // Poll order status while pending
   useEffect(() => {
