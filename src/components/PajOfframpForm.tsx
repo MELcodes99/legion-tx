@@ -586,10 +586,18 @@ export const PajOfframpForm = () => {
 
         {/* Summary */}
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-xs space-y-1">
+          <div className="flex justify-between"><span className="text-muted-foreground">Recipient amount</span><span>${netUsd.toFixed(2)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Flat fee</span><span>${FLAT_FEE_USD.toFixed(2)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Network gas</span><span className="text-emerald-400">Sponsored</span></div>
           {rate && <div className="flex justify-between"><span className="text-muted-foreground">NGN rate</span><span>₦{rate.toLocaleString()}/$</span></div>}
           <div className="flex justify-between pt-1 border-t border-white/5">
+            <span className="text-muted-foreground">Total debit</span>
+            <span className="font-semibold">
+              ${grossUsd.toFixed(2)}
+              {tokenAmount > 0 && <span className="text-muted-foreground font-normal"> ({tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} {selected?.symbol})</span>}
+            </span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-muted-foreground">You receive in bank</span>
             <span className="font-semibold text-emerald-300">
               {ngnNet ? `₦${ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "—"}
