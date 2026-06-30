@@ -133,15 +133,17 @@ export const PajOfframpForm = () => {
   const selected = supportedWithBalance.find((t) => t.mint === selectedMint) ?? supportedWithBalance[0];
   const selectedGasToken = selected?.symbol === "SOL" ? "SOL" : selected?.mint;
 
-  // Derive USD value depending on input currency
+  // The user's typed amount = what the RECIPIENT receives (net).
+  // Total wallet debit = recipient amount + flat fee. Fee stays with backend.
   const amountNum = parseFloat(amount) || 0;
   const usdValue = amountCcy === "USD"
     ? amountNum
     : (rate && rate > 0 ? amountNum / rate : 0);
-  const tokenAmount = selected?.price ? usdValue / selected.price : 0;
-  const netUsd = Math.max(0, usdValue - FLAT_FEE_USD);
-  const ngnGross = rate ? usdValue * rate : null;
+  const netUsd = usdValue;                                   // recipient gets
+  const grossUsd = usdValue > 0 ? usdValue + FLAT_FEE_USD : 0; // wallet debit
+  const tokenAmount = selected?.price ? grossUsd / selected.price : 0; // gross token debit
   const ngnNet = rate ? netUsd * rate : null;
+  const ngnGross = rate ? grossUsd * rate : null;
 
   // Live NGN rate — use Paj's per-token off-ramp quote (same endpoint app.paj.cash uses)
   // so the displayed rate is exactly what Paj will pay out.
@@ -430,8 +432,12 @@ export const PajOfframpForm = () => {
               type="button"
               onClick={() => {
                 if (!selected) return;
-                const usd = selected.balance * selected.price;
-                setAmount(String(amountCcy === "USD" ? usd.toFixed(2) : (rate ? Math.floor(usd * rate) : usd.toFixed(2))));
+                const usdBal = selected.balance * selected.price;
+                // Leave room for the flat fee so the typed amount = recipient amount.
+                const receiveUsd = Math.max(0, usdBal - FLAT_FEE_USD);
+                setAmount(String(amountCcy === "USD"
+                  ? receiveUsd.toFixed(2)
+                  : (rate ? Math.floor(receiveUsd * rate) : receiveUsd.toFixed(2))));
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20"
             >
@@ -441,10 +447,10 @@ export const PajOfframpForm = () => {
           <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
             <span>
               {amountCcy === "USD"
-                ? (rateLoading ? "Fetching rate…" : ngnGross ? `≈ ₦${ngnGross.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "")
-                : `≈ $${usdValue.toFixed(2)}`}
+                ? (rateLoading ? "Fetching rate…" : ngnNet ? `≈ ₦${ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 })} to bank` : "")
+                : `≈ $${usdValue.toFixed(2)} to bank`}
             </span>
-            <span>{tokenAmount > 0 ? `${tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selected?.symbol}` : ""}</span>
+            <span>{tokenAmount > 0 ? `Debit ${tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selected?.symbol}` : ""}</span>
           </div>
         </div>
 
@@ -580,10 +586,18 @@ export const PajOfframpForm = () => {
 
         {/* Summary */}
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-xs space-y-1">
+          <div className="flex justify-between"><span className="text-muted-foreground">Recipient amount</span><span>${netUsd.toFixed(2)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Flat fee</span><span>${FLAT_FEE_USD.toFixed(2)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Network gas</span><span className="text-emerald-400">Sponsored</span></div>
           {rate && <div className="flex justify-between"><span className="text-muted-foreground">NGN rate</span><span>₦{rate.toLocaleString()}/$</span></div>}
           <div className="flex justify-between pt-1 border-t border-white/5">
+            <span className="text-muted-foreground">Total debit</span>
+            <span className="font-semibold">
+              ${grossUsd.toFixed(2)}
+              {tokenAmount > 0 && <span className="text-muted-foreground font-normal"> ({tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} {selected?.symbol})</span>}
+            </span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-muted-foreground">You receive in bank</span>
             <span className="font-semibold text-emerald-300">
               {ngnNet ? `₦${ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "—"}
