@@ -6,12 +6,12 @@ import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Loader2, ChevronDown, Wallet, ArrowRight, Plus } from "lucide-react";
+import { Loader2, Wallet, ArrowRight, Plus, Search, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useTokenDiscovery } from "@/hooks/useTokenDiscovery";
 import { usePajProfile } from "@/hooks/usePajProfile";
-import { PajBankAccountModal } from "@/components/PajBankAccountModal";
+import { PajBankAccountModal, PajBank } from "@/components/PajBankAccountModal";
 import usdgLogoAsset from "@/assets/usdg-logo.jpg.asset.json";
 
 
@@ -43,12 +43,22 @@ export const PajOfframpForm = () => {
 
   const [selectedMint, setSelectedMint] = useState(SUPPORTED[0].mint);
   const [amount, setAmount] = useState("");
+  const [amountCcy, setAmountCcy] = useState<"USD" | "NGN">("USD");
   const [flow, setFlow] = useState<"saved" | "new_wallet">("saved");
-  const [destWallet, setDestWallet] = useState("");
   const [bankModalOpen, setBankModalOpen] = useState(false);
 
   const [rate, setRate] = useState<number | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
+
+  // "Send Cash" inline bank picker
+  const [banks, setBanks] = useState<PajBank[]>([]);
+  const [banksLoading, setBanksLoading] = useState(false);
+  const [bankQuery, setBankQuery] = useState("");
+  const [sendCashBank, setSendCashBank] = useState<PajBank | null>(null);
+  const [sendCashAcct, setSendCashAcct] = useState("");
+  const [sendCashName, setSendCashName] = useState<string | null>(null);
+  const [sendCashResolving, setSendCashResolving] = useState(false);
+  const [sendCashError, setSendCashError] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [activeOrder, setActiveOrder] = useState<any>(null);
@@ -58,6 +68,47 @@ export const PajOfframpForm = () => {
   useEffect(() => {
     if (profile) setFlow("saved");
   }, [profile?.id]);
+
+  // Lazy-load banks when Send Cash is opened
+  useEffect(() => {
+    if (flow !== "new_wallet" || banks.length || banksLoading) return;
+    setBanksLoading(true);
+    supabase.functions
+      .invoke("paj-cash", { body: { action: "list_banks" } })
+      .then(({ data }) => setBanks((data as any)?.banks ?? []))
+      .catch(() => {})
+      .finally(() => setBanksLoading(false));
+  }, [flow, banks.length, banksLoading]);
+
+  // Auto-resolve account name for Send Cash
+  useEffect(() => {
+    setSendCashName(null);
+    setSendCashError(null);
+    if (!sendCashBank || sendCashAcct.length < 10) return;
+    const t = setTimeout(async () => {
+      setSendCashResolving(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("paj-cash", {
+          body: { action: "resolve_account", bankId: sendCashBank.id, accountNumber: sendCashAcct },
+        });
+        if (error) throw error;
+        const name = (data as any)?.resolved?.accountName;
+        if (!name) throw new Error("Could not resolve account");
+        setSendCashName(name);
+      } catch (err: any) {
+        setSendCashError(err.message || "Invalid account number");
+      } finally {
+        setSendCashResolving(false);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [sendCashBank, sendCashAcct]);
+
+  const filteredBanks = useMemo(() => {
+    const q = bankQuery.trim().toLowerCase();
+    if (!q) return banks.slice(0, 60);
+    return banks.filter((b) => b.name.toLowerCase().includes(q) || b.code?.toLowerCase().includes(q)).slice(0, 60);
+  }, [banks, bankQuery]);
 
   // Build a balance/price map for the supported tokens from discovery
   const supportedWithBalance = useMemo(() => {
@@ -78,12 +129,17 @@ export const PajOfframpForm = () => {
 
   const selected = supportedWithBalance.find((t) => t.mint === selectedMint) ?? supportedWithBalance[0];
 
+  // Derive USD value depending on input currency
   const amountNum = parseFloat(amount) || 0;
-  const usdValue = amountNum * (selected?.price ?? 0);
+  const usdValue = amountCcy === "USD"
+    ? amountNum
+    : (rate && rate > 0 ? amountNum / rate : 0);
+  const tokenAmount = selected?.price ? usdValue / selected.price : 0;
   const netUsd = Math.max(0, usdValue - FLAT_FEE_USD - 0.02);
-  const ngnEstimate = rate ? netUsd * rate : null;
+  const ngnGross = rate ? usdValue * rate : null;
+  const ngnNet = rate ? netUsd * rate : null;
 
-  // Live NGN rate
+  // Live NGN rate — refetch whenever USD value changes meaningfully
   const rateAbortRef = useRef<number>(0);
   useEffect(() => {
     if (!usdValue) { setRate(null); return; }
@@ -94,7 +150,6 @@ export const PajOfframpForm = () => {
       .then(({ data }) => {
         if (id !== rateAbortRef.current) return;
         const r = (data as any)?.rate;
-        // Paj returns either { rate: number } or numeric — be defensive
         const numeric = typeof r === "number" ? r : (r?.rate ?? r?.value ?? null);
         setRate(typeof numeric === "number" ? numeric : null);
       })
@@ -128,9 +183,9 @@ export const PajOfframpForm = () => {
     if (!amountNum) return "Enter an amount";
     if (usdValue < MIN_USD) return `Minimum is $${MIN_USD.toFixed(2)}`;
     if (usdValue > MAX_USD) return `Maximum is $${MAX_USD.toFixed(0)}`;
-    if (amountNum > (selected.balance || 0)) return "Insufficient balance";
+    if (tokenAmount > (selected.balance || 0) + 1e-6) return "Insufficient balance";
     if (flow === "saved" && !profile) return "Add a Paj account first";
-    if (flow === "new_wallet" && destWallet.trim().length < 32) return "Enter destination wallet";
+    if (flow === "new_wallet" && (!sendCashBank || !sendCashName)) return "Enter recipient bank details";
     return null;
   })();
 
@@ -139,13 +194,6 @@ export const PajOfframpForm = () => {
     setSubmitting(true);
     setOrderStatus("Creating order…");
     try {
-      // Path B: for new wallet flow, we still need bank info — prompt to add via modal.
-      // For v1 we reuse profile bank details as the destination bank for Path B (typical flow:
-      // user is sending to another Paj user that they've configured locally).
-      if (flow === "new_wallet" && !profile) {
-        throw new Error("Set up a Paj profile first so we know which bank to send to.");
-      }
-
       // 1) Create Paj order — returns deposit address.
       const create = await supabase.functions.invoke("paj-cash", {
         body: {
@@ -155,14 +203,14 @@ export const PajOfframpForm = () => {
           mint: selected.mint,
           tokenSymbol: selected.symbol,
           decimals: selected.decimals,
-          amountToken: amountNum,
+          amountToken: tokenAmount,
           tokenPriceUsd: selected.price,
-          // Path B uses the profile's bank (so funds settle to the user's known bank)
-          bankId: profile?.bank_id,
-          bankName: profile?.bank_name,
-          accountNumber: profile?.bank_account_number,
-          accountName: profile?.bank_account_name,
-          pajWalletAddress: flow === "saved" ? profile?.paj_wallet_address : destWallet.trim(),
+          // Saved flow pulls bank from profile; Send Cash uses the inline picker.
+          bankId: flow === "saved" ? profile?.bank_id : sendCashBank?.id,
+          bankName: flow === "saved" ? profile?.bank_name : sendCashBank?.name,
+          accountNumber: flow === "saved" ? profile?.bank_account_number : sendCashAcct,
+          accountName: flow === "saved" ? profile?.bank_account_name : sendCashName,
+          pajWalletAddress: flow === "saved" ? profile?.paj_wallet_address : null,
         },
       });
       if (create.error) throw new Error(create.error.message);
@@ -171,7 +219,7 @@ export const PajOfframpForm = () => {
       setActiveOrder(order);
       setOrderStatus("INIT");
 
-      // 2) Build gasless atomic tx via existing gasless-transfer endpoint
+      // 2) Build gasless atomic tx — recipient is the Paj-generated deposit address
       toast({ title: "Building transaction…" });
       const build = await supabase.functions.invoke("gasless-transfer", {
         body: {
@@ -236,7 +284,7 @@ export const PajOfframpForm = () => {
       setOrderStatus("PAID");
       toast({
         title: "Paj it sent!",
-        description: `~ ₦${ngnEstimate ? ngnEstimate.toLocaleString("en-NG", { maximumFractionDigits: 0 }) : "—"} settling to your bank.`,
+        description: `~ ₦${ngnNet ? ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 }) : "—"} settling to the bank.`,
       });
       setAmount("");
     } catch (err: any) {
@@ -281,28 +329,51 @@ export const PajOfframpForm = () => {
         </div>
 
         <div>
-          <label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Amount</label>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Amount</label>
+            <div className="inline-flex rounded-md border border-white/10 overflow-hidden text-[11px]">
+              <button
+                type="button"
+                onClick={() => setAmountCcy("USD")}
+                className={`px-2 py-0.5 ${amountCcy === "USD" ? "bg-primary/30 text-white" : "text-muted-foreground hover:bg-white/5"}`}
+              >USD</button>
+              <button
+                type="button"
+                onClick={() => setAmountCcy("NGN")}
+                className={`px-2 py-0.5 ${amountCcy === "NGN" ? "bg-primary/30 text-white" : "text-muted-foreground hover:bg-white/5"}`}
+              >NGN</button>
+            </div>
+          </div>
           <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+              {amountCcy === "USD" ? "$" : "₦"}
+            </span>
             <Input
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               placeholder="0.00"
               inputMode="decimal"
-              className="bg-white/5 border-white/10 h-11 pr-20 text-base"
+              className="bg-white/5 border-white/10 h-11 pl-7 pr-20 text-base"
             />
             <button
               type="button"
-              onClick={() => selected && setAmount(String(selected.balance))}
+              onClick={() => {
+                if (!selected) return;
+                const usd = selected.balance * selected.price;
+                setAmount(String(amountCcy === "USD" ? usd.toFixed(2) : (rate ? Math.floor(usd * rate) : usd.toFixed(2))));
+              }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20"
             >
               MAX
             </button>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>≈ ${usdValue.toFixed(2)}</span>
             <span>
-              {rateLoading ? "Fetching rate…" : ngnEstimate ? `≈ ₦${ngnEstimate.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : ""}
+              {amountCcy === "USD"
+                ? (rateLoading ? "Fetching rate…" : ngnGross ? `≈ ₦${ngnGross.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "")
+                : `≈ $${usdValue.toFixed(2)}`}
             </span>
+            <span>{tokenAmount > 0 ? `${tokenAmount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selected?.symbol}` : ""}</span>
           </div>
         </div>
 
@@ -329,18 +400,63 @@ export const PajOfframpForm = () => {
                 flow === "new_wallet" ? "border-primary/60 bg-primary/10" : "border-white/10 bg-white/[0.02]"
               }`}
             >
-              <div className="font-semibold">Different wallet</div>
-              <div className="text-muted-foreground">Paste address</div>
+              <div className="font-semibold">Send Cash</div>
+              <div className="text-muted-foreground">Enter bank details</div>
             </button>
           </div>
+
           {flow === "new_wallet" && (
-            <Input
-              value={destWallet}
-              onChange={(e) => setDestWallet(e.target.value)}
-              placeholder="Recipient Solana wallet"
-              className="mt-2 bg-white/5 border-white/10 font-mono text-xs"
-            />
+            <div className="mt-3 space-y-2 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Bank</label>
+                <div className="relative mt-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <Input
+                    value={sendCashBank ? sendCashBank.name : bankQuery}
+                    onChange={(e) => { setSendCashBank(null); setBankQuery(e.target.value); }}
+                    placeholder={banksLoading ? "Loading banks…" : "Search bank"}
+                    className="pl-8 h-9 bg-white/5 border-white/10 text-xs"
+                    disabled={banksLoading}
+                  />
+                </div>
+                {!sendCashBank && bankQuery && (
+                  <div className="mt-1 max-h-36 overflow-y-auto rounded-md border border-white/10 bg-background/80 divide-y divide-white/5">
+                    {filteredBanks.map((b) => (
+                      <button
+                        key={b.id}
+                        onClick={() => { setSendCashBank(b); setBankQuery(""); }}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-white/5"
+                      >
+                        {b.logo ? <img src={b.logo} alt="" className="w-4 h-4 rounded-full object-cover" /> : <div className="w-4 h-4 rounded-full bg-white/10" />}
+                        <span className="text-xs">{b.name}</span>
+                      </button>
+                    ))}
+                    {filteredBanks.length === 0 && <div className="px-2 py-2 text-[11px] text-muted-foreground">No banks match</div>}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Account number</label>
+                <Input
+                  value={sendCashAcct}
+                  onChange={(e) => setSendCashAcct(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                  placeholder="10-digit NUBAN"
+                  inputMode="numeric"
+                  className="mt-1 h-9 bg-white/5 border-white/10 text-xs"
+                  disabled={!sendCashBank}
+                />
+                <div className="mt-1 min-h-[16px] text-[11px]">
+                  {sendCashResolving && <span className="inline-flex items-center gap-1 text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Resolving…</span>}
+                  {sendCashName && !sendCashResolving && <span className="inline-flex items-center gap-1 text-emerald-400"><Check className="w-3 h-3" /> {sendCashName}</span>}
+                  {sendCashError && !sendCashResolving && <span className="text-rose-400">{sendCashError}</span>}
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Paj will generate a one-time deposit wallet address. Your tokens go there, naira lands in this bank.
+              </p>
+            </div>
           )}
+
           {flow === "saved" && !profile && (
             <button
               onClick={() => setBankModalOpen(true)}
@@ -350,7 +466,7 @@ export const PajOfframpForm = () => {
               <Plus className="w-3 h-3" /> Add Paj account (bank + wallet)
             </button>
           )}
-          {profile && (
+          {flow === "saved" && profile && (
             <div className="mt-2 text-[11px] text-muted-foreground flex items-center justify-between">
               <span>{profile.bank_name} • {profile.bank_account_name}</span>
               <button onClick={() => setBankModalOpen(true)} className="underline">Edit</button>
@@ -362,8 +478,14 @@ export const PajOfframpForm = () => {
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-xs space-y-1">
           <div className="flex justify-between"><span className="text-muted-foreground">Flat fee</span><span>${FLAT_FEE_USD.toFixed(2)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Network gas</span><span className="text-emerald-400">Sponsored</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Net to bank</span><span>${netUsd.toFixed(2)}</span></div>
           {rate && <div className="flex justify-between"><span className="text-muted-foreground">NGN rate</span><span>₦{rate.toLocaleString()}/$</span></div>}
+          <div className="flex justify-between pt-1 border-t border-white/5">
+            <span className="text-muted-foreground">You receive in bank</span>
+            <span className="font-semibold text-emerald-300">
+              {ngnNet ? `₦${ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "—"}
+              <span className="text-muted-foreground font-normal"> (${netUsd.toFixed(2)})</span>
+            </span>
+          </div>
         </div>
 
         <Button
