@@ -611,6 +611,129 @@ export type Database = {
         }
         Relationships: []
       }
+      paj_orders: {
+        Row: {
+          amount_sent: number
+          bank_account_name: string | null
+          bank_account_number: string | null
+          bank_id: string | null
+          bank_name: string | null
+          created_at: string
+          deposit_address: string
+          fee_usd: number
+          fiat_amount: number | null
+          flow: string
+          gas_fee_deducted: number
+          id: string
+          paj_order_id: string | null
+          paj_wallet_address: string | null
+          rate: number | null
+          status: string
+          token_mint: string
+          token_symbol: string | null
+          transaction_type: string
+          tx_hash: string | null
+          updated_at: string
+          usdc_amount: number | null
+          user_wallet_address: string
+          webhook_payload: Json | null
+        }
+        Insert: {
+          amount_sent: number
+          bank_account_name?: string | null
+          bank_account_number?: string | null
+          bank_id?: string | null
+          bank_name?: string | null
+          created_at?: string
+          deposit_address: string
+          fee_usd?: number
+          fiat_amount?: number | null
+          flow: string
+          gas_fee_deducted?: number
+          id?: string
+          paj_order_id?: string | null
+          paj_wallet_address?: string | null
+          rate?: number | null
+          status?: string
+          token_mint: string
+          token_symbol?: string | null
+          transaction_type?: string
+          tx_hash?: string | null
+          updated_at?: string
+          usdc_amount?: number | null
+          user_wallet_address: string
+          webhook_payload?: Json | null
+        }
+        Update: {
+          amount_sent?: number
+          bank_account_name?: string | null
+          bank_account_number?: string | null
+          bank_id?: string | null
+          bank_name?: string | null
+          created_at?: string
+          deposit_address?: string
+          fee_usd?: number
+          fiat_amount?: number | null
+          flow?: string
+          gas_fee_deducted?: number
+          id?: string
+          paj_order_id?: string | null
+          paj_wallet_address?: string | null
+          rate?: number | null
+          status?: string
+          token_mint?: string
+          token_symbol?: string | null
+          transaction_type?: string
+          tx_hash?: string | null
+          updated_at?: string
+          usdc_amount?: number | null
+          user_wallet_address?: string
+          webhook_payload?: Json | null
+        }
+        Relationships: []
+      }
+      paj_profiles: {
+        Row: {
+          bank_account_name: string
+          bank_account_number: string
+          bank_id: string
+          bank_logo: string | null
+          bank_name: string
+          created_at: string
+          id: string
+          paj_bank_account_id: string
+          paj_wallet_address: string
+          updated_at: string
+          user_wallet_address: string
+        }
+        Insert: {
+          bank_account_name: string
+          bank_account_number: string
+          bank_id: string
+          bank_logo?: string | null
+          bank_name: string
+          created_at?: string
+          id?: string
+          paj_bank_account_id: string
+          paj_wallet_address: string
+          updated_at?: string
+          user_wallet_address: string
+        }
+        Update: {
+          bank_account_name?: string
+          bank_account_number?: string
+          bank_id?: string
+          bank_logo?: string | null
+          bank_name?: string
+          created_at?: string
+          id?: string
+          paj_bank_account_id?: string
+          paj_wallet_address?: string
+          updated_at?: string
+          user_wallet_address?: string
+        }
+        Relationships: []
+      }
       platform_stats: {
         Row: {
           created_at: string
@@ -1360,7 +1483,18 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      paj_volume_stats: {
+        Row: {
+          bucket: string | null
+          fees_usd: number | null
+          gas_recovered: number | null
+          period: string | null
+          unique_users: number | null
+          volume_ngn: number | null
+          volume_usd: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       cleanup_old_rate_limits: { Args: never; Returns: undefined }
