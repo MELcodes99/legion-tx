@@ -133,15 +133,17 @@ export const PajOfframpForm = () => {
   const selected = supportedWithBalance.find((t) => t.mint === selectedMint) ?? supportedWithBalance[0];
   const selectedGasToken = selected?.symbol === "SOL" ? "SOL" : selected?.mint;
 
-  // Derive USD value depending on input currency
+  // The user's typed amount = what the RECIPIENT receives (net).
+  // Total wallet debit = recipient amount + flat fee. Fee stays with backend.
   const amountNum = parseFloat(amount) || 0;
   const usdValue = amountCcy === "USD"
     ? amountNum
     : (rate && rate > 0 ? amountNum / rate : 0);
-  const tokenAmount = selected?.price ? usdValue / selected.price : 0;
-  const netUsd = Math.max(0, usdValue - FLAT_FEE_USD);
-  const ngnGross = rate ? usdValue * rate : null;
+  const netUsd = usdValue;                                   // recipient gets
+  const grossUsd = usdValue > 0 ? usdValue + FLAT_FEE_USD : 0; // wallet debit
+  const tokenAmount = selected?.price ? grossUsd / selected.price : 0; // gross token debit
   const ngnNet = rate ? netUsd * rate : null;
+  const ngnGross = rate ? grossUsd * rate : null;
 
   // Live NGN rate — use Paj's per-token off-ramp quote (same endpoint app.paj.cash uses)
   // so the displayed rate is exactly what Paj will pay out.
