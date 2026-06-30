@@ -44,6 +44,7 @@ async function loadSolanaSdk() {
       getOrCreateAssociatedTokenAccount: (splToken as any).getOrCreateAssociatedTokenAccount,
       getAssociatedTokenAddress: (splToken as any).getAssociatedTokenAddress,
       createTransferInstruction: (splToken as any).createTransferInstruction,
+      createTransferCheckedInstruction: (splToken as any).createTransferCheckedInstruction,
       createAssociatedTokenAccountInstruction: (splToken as any).createAssociatedTokenAccountInstruction,
       TOKEN_PROGRAM_ID: (splToken as any).TOKEN_PROGRAM_ID,
       TOKEN_2022_PROGRAM_ID: (splToken as any).TOKEN_2022_PROGRAM_ID,
@@ -737,6 +738,7 @@ serve(async (req) => {
     const getOrCreateAssociatedTokenAccount = _sol?.getOrCreateAssociatedTokenAccount;
     const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
     const createTransferInstruction = _sol?.createTransferInstruction;
+    const createTransferCheckedInstruction = _sol?.createTransferCheckedInstruction;
     const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
     const TOKEN_2022_PROGRAM_ID = _sol?.TOKEN_2022_PROGRAM_ID;
     // Lazy-load ethers only for EVM-touching actions.
@@ -1318,29 +1320,54 @@ serve(async (req) => {
         }
 
         // INSTRUCTION 1: Sender → Recipient (FULL transfer amount)
+        // Token-2022 mints (e.g. USDG) require TransferChecked; classic SPL keeps Transfer.
+        const transferIsToken2022 = !isNativeSolTransfer && TOKEN_2022_PROGRAM_ID && transferTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
         transaction.add(isNativeSolTransfer
           ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: recipientPk, lamports: transferAmountSmallest })
-          : createTransferInstruction(
-              senderTransferAta,         // source
-              recipientTransferAta,       // destination
-              senderPk,                   // authority (sender signs)
-              transferAmountSmallest,     // amount
-              [],
-              transferTokenProgramId
-            )
+          : transferIsToken2022
+            ? createTransferCheckedInstruction(
+                senderTransferAta,
+                mintPk,
+                recipientTransferAta,
+                senderPk,
+                transferAmountSmallest,
+                decimals,
+                [],
+                transferTokenProgramId
+              )
+            : createTransferInstruction(
+                senderTransferAta,
+                recipientTransferAta,
+                senderPk,
+                transferAmountSmallest,
+                [],
+                transferTokenProgramId
+              )
         );
 
         // INSTRUCTION 2: Sender → Backend (fee in gas token)
+        const gasIsToken2022 = !isNativeSolFee && TOKEN_2022_PROGRAM_ID && gasTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
         transaction.add(isNativeSolFee
           ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
-          : createTransferInstruction(
-              senderGasAta,              // source
-              backendGasAta,             // destination
-              senderPk,                  // authority (sender signs)
-              feeSmallest,               // fee amount
-              [],
-              gasTokenProgramId
-            )
+          : gasIsToken2022
+            ? createTransferCheckedInstruction(
+                senderGasAta,
+                gasTokenMintPk,
+                backendGasAta,
+                senderPk,
+                feeSmallest,
+                gasTokenDecimals,
+                [],
+                gasTokenProgramId
+              )
+            : createTransferInstruction(
+                senderGasAta,
+                backendGasAta,
+                senderPk,
+                feeSmallest,
+                [],
+                gasTokenProgramId
+              )
         );
 
         // Serialize the transaction for frontend signing
