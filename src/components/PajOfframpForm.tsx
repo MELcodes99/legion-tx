@@ -279,89 +279,89 @@ export const PajOfframpForm = () => {
         </div>
 
         <div>
-          <label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Amount</label>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Amount</label>
+            <div className="inline-flex rounded-md bg-white/5 border border-white/10 p-0.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setCurrency("USD")}
+                className={`px-2 py-0.5 rounded ${currency === "USD" ? "bg-primary/30 text-white" : "text-muted-foreground"}`}
+              >USD</button>
+              <button
+                type="button"
+                onClick={() => setCurrency("NGN")}
+                className={`px-2 py-0.5 rounded ${currency === "NGN" ? "bg-primary/30 text-white" : "text-muted-foreground"}`}
+              >NGN</button>
+            </div>
+          </div>
           <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+              {currency === "USD" ? "$" : "₦"}
+            </span>
             <Input
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               placeholder="0.00"
               inputMode="decimal"
-              className="bg-white/5 border-white/10 h-11 pr-20 text-base"
+              className="bg-white/5 border-white/10 h-11 pl-7 pr-20 text-base"
             />
             <button
               type="button"
-              onClick={() => selected && setAmount(String(selected.balance))}
+              onClick={() => {
+                if (!selected) return;
+                const usd = selected.usdBalance;
+                setAmount(String(currency === "USD" ? usd.toFixed(2) : Math.floor((rate ?? 0) * usd)));
+              }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] px-2 py-1 rounded bg-white/10 hover:bg-white/20"
             >
               MAX
             </button>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>≈ ${usdValue.toFixed(2)}</span>
             <span>
-              {rateLoading ? "Fetching rate…" : ngnEstimate ? `≈ ₦${ngnEstimate.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : ""}
+              {currency === "USD"
+                ? (rateLoading ? "Fetching rate…" : grossNgn ? `≈ ₦${grossNgn.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "")
+                : `≈ $${usdValue.toFixed(2)}`}
             </span>
+            <span>≈ {tokenAmount.toFixed(selected?.decimals && selected.decimals < 6 ? 2 : 4)} {selected?.symbol}</span>
           </div>
         </div>
 
-        {/* Destination */}
+        {/* Destination — Send Cash */}
         <div>
-          <label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Destination</label>
-          <div className="mt-1 grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setFlow("saved")}
-              className={`rounded-lg border px-3 py-2 text-xs text-left ${
-                flow === "saved" ? "border-primary/60 bg-primary/10" : "border-white/10 bg-white/[0.02]"
-              }`}
-            >
-              <div className="font-semibold">Saved Paj wallet</div>
-              <div className="text-muted-foreground truncate">
-                {profile?.paj_wallet_address
-                  ? `${profile.paj_wallet_address.slice(0,4)}…${profile.paj_wallet_address.slice(-4)}`
-                  : "Not set"}
-              </div>
-            </button>
-            <button
-              onClick={() => setFlow("new_wallet")}
-              className={`rounded-lg border px-3 py-2 text-xs text-left ${
-                flow === "new_wallet" ? "border-primary/60 bg-primary/10" : "border-white/10 bg-white/[0.02]"
-              }`}
-            >
-              <div className="font-semibold">Different wallet</div>
-              <div className="text-muted-foreground">Paste address</div>
-            </button>
-          </div>
-          {flow === "new_wallet" && (
-            <Input
-              value={destWallet}
-              onChange={(e) => setDestWallet(e.target.value)}
-              placeholder="Recipient Solana wallet"
-              className="mt-2 bg-white/5 border-white/10 font-mono text-xs"
-            />
-          )}
-          {flow === "saved" && !profile && (
+          <label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Send Cash</label>
+          {!profile ? (
             <button
               onClick={() => setBankModalOpen(true)}
               disabled={!walletAddress}
-              className="mt-2 w-full inline-flex items-center justify-center gap-1 text-xs px-3 py-2 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/15"
+              className="mt-1 w-full inline-flex items-center justify-center gap-1 text-xs px-3 py-3 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/15"
             >
-              <Plus className="w-3 h-3" /> Add Paj account (bank + wallet)
+              <Plus className="w-3 h-3" /> Enter bank details
             </button>
-          )}
-          {profile && (
-            <div className="mt-2 text-[11px] text-muted-foreground flex items-center justify-between">
-              <span>{profile.bank_name} • {profile.bank_account_name}</span>
-              <button onClick={() => setBankModalOpen(true)} className="underline">Edit</button>
+          ) : (
+            <div className="mt-1 rounded-lg border border-white/10 bg-white/[0.02] p-3 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold">{profile.bank_account_name}</div>
+                  <div className="text-muted-foreground">{profile.bank_name} • {profile.bank_account_number}</div>
+                </div>
+                <button onClick={() => setBankModalOpen(true)} className="underline text-[11px]">Edit</button>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Summary */}
+        {/* Summary — what you'll receive */}
         <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3 text-xs space-y-1">
           <div className="flex justify-between"><span className="text-muted-foreground">Flat fee</span><span>${FLAT_FEE_USD.toFixed(2)}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Network gas</span><span className="text-emerald-400">Sponsored</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Net to bank</span><span>${netUsd.toFixed(2)}</span></div>
           {rate && <div className="flex justify-between"><span className="text-muted-foreground">NGN rate</span><span>₦{rate.toLocaleString()}/$</span></div>}
+          <div className="pt-2 mt-1 border-t border-white/10 flex justify-between items-baseline">
+            <span className="text-muted-foreground">You receive</span>
+            <span className="text-base font-bold" style={{ color: "#1E5BFF" }}>
+              {ngnEstimate ? `₦${ngnEstimate.toLocaleString("en-NG", { maximumFractionDigits: 0 })}` : "—"}
+            </span>
+          </div>
         </div>
 
         <Button
