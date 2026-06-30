@@ -1,0 +1,1 @@
+ALTER VIEW public.paj_volume_stats SET (security_invoker = on);

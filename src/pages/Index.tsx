@@ -1,6 +1,7 @@
 import { MultiWalletProvider } from "@/components/MultiWalletProvider";
 import { UnifiedWalletButton } from "@/components/UnifiedWalletButton";
 import { TransferOrSwapPanel } from "@/components/TransferOrSwapPanel";
+import { PajOfframpSection } from "@/components/PajOfframpSection";
 
 import { FAQ } from "@/components/FAQ";
 import { PromoCarousel } from "@/components/PromoCarousel";
@@ -117,6 +118,9 @@ const Index = () => {
                 <TransferOrSwapPanel />
               </div>
             </div>
+
+            {/* Paj Cash Off-ramp */}
+            <PajOfframpSection />
 
             {/* Features */}
             <section className="mt-20 md:mt-28">

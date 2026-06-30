@@ -15,3 +15,8 @@ verify_jwt = false
 [functions.record-swap]
 verify_jwt = false
 
+[functions.paj-cash]
+verify_jwt = false
+
+[functions.paj-webhook]
+verify_jwt = false
