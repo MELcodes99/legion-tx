@@ -252,28 +252,30 @@ export const PajOfframpForm = () => {
     setSubmitting(true);
     setOrderStatus("Creating order…");
     try {
-      // 1) Create Paj order — returns deposit address.
-      const create = await supabase.functions.invoke("paj-cash", {
-        body: {
-          action: "create_order",
-          walletAddress: publicKey.toBase58(),
-          flow,
-          mint: selected.mint,
-          tokenSymbol: selected.symbol,
-          decimals: selected.decimals,
-          amountToken: tokenAmount,
-          tokenPriceUsd: selected.price,
-          // Saved flow pulls bank from profile; Send Cash uses the inline picker.
-          bankId: flow === "saved" ? profile?.bank_id : sendCashBank?.id,
-          bankName: flow === "saved" ? profile?.bank_name : sendCashBank?.name,
-          accountNumber: flow === "saved" ? profile?.bank_account_number : sendCashAcct,
-          accountName: flow === "saved" ? profile?.bank_account_name : sendCashName,
-          pajWalletAddress: flow === "saved" ? profile?.paj_wallet_address : null,
-        },
-      });
-      if (create.error) throw new Error(create.error.message);
-      if ((create.data as any)?.error) throw new Error((create.data as any).error);
-      const order = (create.data as any).order;
+      // 1) Use pre-created Send Cash order if present, else create one (Top Up flow).
+      let order = pendingOrder;
+      if (!order) {
+        const create = await supabase.functions.invoke("paj-cash", {
+          body: {
+            action: "create_order",
+            walletAddress: publicKey.toBase58(),
+            flow,
+            mint: selected.mint,
+            tokenSymbol: selected.symbol,
+            decimals: selected.decimals,
+            amountToken: tokenAmount,
+            tokenPriceUsd: selected.price,
+            bankId: flow === "saved" ? profile?.bank_id : sendCashBank?.id,
+            bankName: flow === "saved" ? profile?.bank_name : sendCashBank?.name,
+            accountNumber: flow === "saved" ? profile?.bank_account_number : sendCashAcct,
+            accountName: flow === "saved" ? profile?.bank_account_name : sendCashName,
+            pajWalletAddress: flow === "saved" ? profile?.paj_wallet_address : null,
+          },
+        });
+        if (create.error) throw new Error(create.error.message);
+        if ((create.data as any)?.error) throw new Error((create.data as any).error);
+        order = (create.data as any).order;
+      }
       setActiveOrder(order);
       setOrderStatus("INIT");
 
