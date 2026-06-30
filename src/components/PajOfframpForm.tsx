@@ -135,7 +135,7 @@ export const PajOfframpForm = () => {
     ? amountNum
     : (rate && rate > 0 ? amountNum / rate : 0);
   const tokenAmount = selected?.price ? usdValue / selected.price : 0;
-  const netUsd = Math.max(0, usdValue - FLAT_FEE_USD - 0.02);
+  const netUsd = Math.max(0, usdValue - FLAT_FEE_USD);
   const ngnGross = rate ? usdValue * rate : null;
   const ngnNet = rate ? netUsd * rate : null;
 
