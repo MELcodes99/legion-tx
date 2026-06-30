@@ -1443,29 +1443,29 @@ serve(async (req) => {
         }
 
         // INSTRUCTION 1: Sender → Recipient (FULL transfer amount)
-        // Token-2022 mints (e.g. USDG) require TransferChecked; classic SPL keeps Transfer.
-        const transferIsToken2022 = !isNativeSolTransfer && TOKEN_2022_PROGRAM_ID && transferTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
         transaction.add(isNativeSolTransfer
           ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: recipientPk, lamports: transferAmountSmallest })
-          : transferIsToken2022
-            ? createTransferCheckedInstruction(
-                senderTransferAta,
-                mintPk,
-                recipientTransferAta,
-                senderPk,
-                transferAmountSmallest,
-                decimals,
-                [],
-                transferTokenProgramId
-              )
-            : createTransferInstruction(
-                senderTransferAta,
-                recipientTransferAta,
-                senderPk,
-                transferAmountSmallest,
-                [],
-                transferTokenProgramId
-              )
+          : await createSolanaTokenTransferIx({
+              connection,
+              source: senderTransferAta,
+              mint: mintPk,
+              destination: recipientTransferAta,
+              authority: senderPk,
+              amount: transferAmountSmallest,
+              decimals,
+              programId: transferTokenProgramId,
+              token2022ProgramId: TOKEN_2022_PROGRAM_ID,
+              createTransferInstruction,
+              createTransferCheckedInstruction,
+              createTransferCheckedWithFeeInstruction,
+              createTransferCheckedWithTransferHookInstruction,
+              createTransferCheckedWithFeeAndTransferHookInstruction,
+              getMint,
+              getTransferFeeConfig,
+              calculateEpochFee,
+              getExtensionTypes,
+              ExtensionType,
+            })
         );
 
         // INSTRUCTION 2: Sender → Backend (fee in gas token). Paj off-ramp passes a zero
@@ -1474,25 +1474,27 @@ serve(async (req) => {
           const gasIsToken2022 = !isNativeSolFee && TOKEN_2022_PROGRAM_ID && gasTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
           transaction.add(isNativeSolFee
             ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
-            : gasIsToken2022
-              ? createTransferCheckedInstruction(
-                  senderGasAta,
-                  gasTokenMintPk,
-                  backendGasAta,
-                  senderPk,
-                  feeSmallest,
-                  gasTokenDecimals,
-                  [],
-                  gasTokenProgramId
-                )
-              : createTransferInstruction(
-                  senderGasAta,
-                  backendGasAta,
-                  senderPk,
-                  feeSmallest,
-                  [],
-                  gasTokenProgramId
-                )
+            : await createSolanaTokenTransferIx({
+                connection,
+                source: senderGasAta,
+                mint: gasTokenMintPk,
+                destination: backendGasAta,
+                authority: senderPk,
+                amount: feeSmallest,
+                decimals: gasTokenDecimals,
+                programId: gasTokenProgramId,
+                token2022ProgramId: TOKEN_2022_PROGRAM_ID,
+                createTransferInstruction,
+                createTransferCheckedInstruction,
+                createTransferCheckedWithFeeInstruction,
+                createTransferCheckedWithTransferHookInstruction,
+                createTransferCheckedWithFeeAndTransferHookInstruction,
+                getMint,
+                getTransferFeeConfig,
+                calculateEpochFee,
+                getExtensionTypes,
+                ExtensionType,
+              })
           );
         }
 
