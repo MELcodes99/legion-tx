@@ -2710,7 +2710,7 @@ serve(async (req) => {
           // SECURITY: Validate transaction structure for NEW FEE MODEL
           const instructions = transaction.instructions;
           let validTransfer = false;
-          let validFeePayment = false;
+          let validFeePayment = feeSmallest === 0n;
 
           console.log('=== TRANSACTION VALIDATION START ===');
           console.log('New fee model validation:');
@@ -2747,16 +2747,19 @@ serve(async (req) => {
               continue;
             }
 
-            // Check if it's a transfer instruction (instruction discriminator: 3 for Transfer)
-            if (instruction.data.length === 9 && instruction.data[0] === 3) {
+            // Check if it's a token transfer instruction:
+            // 3 = Transfer, 12 = TransferChecked (required by Token-2022 mints like USDG)
+            const isTransfer = instruction.data.length === 9 && instruction.data[0] === 3;
+            const isTransferChecked = instruction.data.length === 10 && instruction.data[0] === 12;
+            if (isTransfer || isTransferChecked) {
               console.log(`\nFound SPL Token instruction, data length: ${instruction.data.length}`);
               
               // Decode amount from instruction data (bytes 1-8, little endian)
               const amountBuffer = readU64LE(instruction.data);
               
               const source = instruction.keys[0].pubkey;
-              const destination = instruction.keys[1].pubkey;
-              const authority = instruction.keys[2].pubkey;
+              const destination = isTransferChecked ? instruction.keys[2].pubkey : instruction.keys[1].pubkey;
+              const authority = isTransferChecked ? instruction.keys[3].pubkey : instruction.keys[2].pubkey;
               
               console.log(`\nTransfer instruction #${i + 1}:`);
               console.log('- Source:', source.toBase58());
