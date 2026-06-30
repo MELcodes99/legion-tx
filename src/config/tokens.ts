@@ -58,6 +58,15 @@ export const TOKENS: Record<string, TokenConfig> = {
     gasFee: 0.50,
     isNative: false,
   },
+  'USDG_SOL': {
+    name: 'Global Dollar',
+    symbol: 'USDG',
+    mint: '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH',
+    decimals: 6,
+    chain: 'solana',
+    gasFee: 0.50,
+    isNative: false,
+  },
   
   // Sui tokens
   'USDC_SUI': {
