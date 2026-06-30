@@ -14,6 +14,7 @@ import monLogo from '@/assets/mon-logo.jpeg';
 import skrLogo from '@/assets/skr-logo.jpeg';
 import usdfLogo from '@/assets/usdf-logo.jpeg';
 import usdtLogo from '@/assets/usdt-logo.png';
+import usdgLogoAsset from '@/assets/usdg-logo.jpg.asset.json';
 
 // Token logo cache to avoid repeated fetches
 const logoCache: Record<string, string> = {};
