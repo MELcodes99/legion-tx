@@ -98,13 +98,14 @@ serve(async (req) => {
     }
 
     if (action === "get_rate") {
-      const { amount } = body;
-      if (typeof amount === "number" && amount > 0) {
-        const r = await paj.rateByAmount(amount);
-        return json({ rate: r });
-      }
-      const r = await paj.allRates();
-      return json({ rate: r });
+      // Paj's /pub/rate/{amount} often returns 404 ("No active rate found"); the
+      // reliable endpoint is /pub/rate which returns both on/off-ramp rates.
+      // For off-ramp we always want offRampRate.rate (NGN per USD).
+      const all = await paj.allRates();
+      const offRamp = all?.offRampRate?.rate ?? all?.offRamp?.rate ?? null;
+      const onRamp = all?.onRampRate?.rate ?? all?.onRamp?.rate ?? null;
+      const numeric = typeof offRamp === "number" ? offRamp : (typeof onRamp === "number" ? onRamp : null);
+      return json({ rate: numeric, raw: all });
     }
 
     if (action === "get_profile") {
