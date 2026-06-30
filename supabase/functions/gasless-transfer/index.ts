@@ -866,6 +866,7 @@ serve(async (req) => {
         tokenSymbol,
         feeUsdOverride,
         feeTokenPriceUsd,
+        deductFeeFromTokenAmount,
       } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
@@ -879,6 +880,7 @@ serve(async (req) => {
         tokenSymbol?: string;
         feeUsdOverride?: number;
         feeTokenPriceUsd?: number;
+        deductFeeFromTokenAmount?: boolean;
       };
 
       // Support both old (amount) and new (amountUSD/tokenAmount) API
@@ -1102,7 +1104,8 @@ serve(async (req) => {
         // 2. Sender → Backend (fee amount in gas token)
         // Backend pays network gas fees from its SOL balance
         
-        const transferAmountSmallest = BigInt(Math.round(effectiveTokenAmount * Math.pow(10, decimals)));
+        const grossAmountSmallest = BigInt(Math.round(effectiveTokenAmount * Math.pow(10, decimals)));
+        let transferAmountSmallest = grossAmountSmallest;
         
         // Determine gas token info
         const buildGasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
@@ -1112,15 +1115,31 @@ serve(async (req) => {
         
         // Calculate fee in gas token's smallest units
         const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+        const usesSameTokenForGas = gasTokenMint === mint;
+
+        // Paj off-ramp passes the user's gross amount here. For that flow, debit the
+        // gross amount once, then split it atomically as: net → Paj deposit address
+        // and flat fee → backend. Example: $5 USDC becomes $4.70 to Paj + $0.30 fee.
+        if (deductFeeFromTokenAmount && usesSameTokenForGas) {
+          if (grossAmountSmallest <= feeSmallest) {
+            return new Response(
+              JSON.stringify({ error: 'Amount too small to cover fees' }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          transferAmountSmallest = grossAmountSmallest - feeSmallest;
+        }
+        const recipientTokenAmount = Number(transferAmountSmallest) / Math.pow(10, decimals);
         
         console.log('Solana transaction with separate gas payment:', {
           chain: 'solana',
           transferToken: mint,
           gasToken: gasTokenMint,
           amountUSD: effectiveAmountUSD,
-          tokenAmount: effectiveTokenAmount,
-          userSendsToRecipient: `${effectiveTokenAmount} (${transferAmountSmallest.toString()} smallest units)`,
+          grossTokenAmount: effectiveTokenAmount,
+          userSendsToRecipient: `${recipientTokenAmount} (${transferAmountSmallest.toString()} smallest units)`,
           userSendsToBackend: `$${feeAmountUSD} fee (${feeSmallest.toString()} smallest units in ${buildGasTokenConfig?.symbol || 'transfer token'})`,
+          totalUserDebit: usesSameTokenForGas ? `${effectiveTokenAmount} (${grossAmountSmallest.toString()} smallest units)` : 'transfer token + separate fee token',
           networkGasPaidBy: 'backend SOL balance',
         });
 
@@ -1150,7 +1169,6 @@ serve(async (req) => {
         });
 
         // CRITICAL: Validate sender has sufficient balance for both transfer and fee
-        const usesSameTokenForGas = gasTokenMint === mint;
         // Use passed tokenSymbol for display, fallback to ALLOWED_TOKENS or 'Token'
         const transferTokenName = tokenSymbol || ALLOWED_TOKENS[mint]?.name || 'Token';
         
@@ -1336,11 +1354,12 @@ serve(async (req) => {
           JSON.stringify({
             transaction: base64Tx,
             backendWallet: backendWallet.publicKey.toBase58(),
-            message: `Atomic transaction: Send ${effectiveTokenAmount} ${transferTokenName} ($${effectiveAmountUSD}) to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
+            message: `Atomic transaction: Debit ${effectiveTokenAmount} ${transferTokenName}, split into ${recipientTokenAmount} to recipient + $${feeAmountUSD} fee to backend. Backend pays network gas.`,
             amounts: {
               transferToRecipient: transferAmountSmallest.toString(),
               tokenAmount: transferAmountSmallest.toString(),
               feeToBackend: feeSmallest.toString(),
+              totalDebit: usesSameTokenForGas ? grossAmountSmallest.toString() : undefined,
               feeUSD: feeAmountUSD,
               amountUSD: effectiveAmountUSD,
               networkGasPayer: 'backend',
