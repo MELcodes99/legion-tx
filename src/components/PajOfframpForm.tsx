@@ -67,8 +67,10 @@ export const PajOfframpForm = () => {
         ...s,
         balance: d?.balance ?? 0,
         price: d ? (d.balance > 0 ? d.usdValue / d.balance : 0) : 0,
-        logoUrl: d?.logoUrl,
+        logoUrl: d?.logoUrl || s.logo,
+        usdBalance: d?.usdValue ?? 0,
       };
+
     });
   }, [tokens]);
 
