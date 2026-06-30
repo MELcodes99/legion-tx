@@ -50,6 +50,7 @@ export const LOCAL_TOKEN_LOGOS: Record<string, string> = {
   [SOLANA_TOKEN_MINTS.MON]: monLogo,
   [SOLANA_TOKEN_MINTS.SKR]: skrLogo,
   [SOLANA_TOKEN_MINTS.USDF]: usdfLogo,
+  [SOLANA_TOKEN_MINTS.USDG]: usdgLogoAsset.url,
 };
 
 // Known token logos (fallback)
