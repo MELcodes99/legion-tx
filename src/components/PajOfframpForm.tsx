@@ -131,6 +131,7 @@ export const PajOfframpForm = () => {
   }, [tokens]);
 
   const selected = supportedWithBalance.find((t) => t.mint === selectedMint) ?? supportedWithBalance[0];
+  const selectedGasToken = selected?.symbol === "SOL" ? "SOL" : selected?.mint;
 
   // Derive USD value depending on input currency
   const amountNum = parseFloat(amount) || 0;
@@ -291,9 +292,10 @@ export const PajOfframpForm = () => {
           tokenAmount: order.amountToken,
           mint: selected.mint,
           decimals: selected.decimals,
-          gasToken: selected.symbol,
+          gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
           feeUsdOverride: FLAT_FEE_USD,
+          feeTokenPriceUsd: selected.price,
         },
       });
       if (build.error) throw new Error(build.error.message);
@@ -330,9 +332,11 @@ export const PajOfframpForm = () => {
           transferAmountSmallest: amounts?.transferToRecipient,
           mint: selected.mint,
           decimals: selected.decimals,
-          gasToken: selected.symbol,
+          gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
           feeUsdOverride: FLAT_FEE_USD,
+          feeTokenPriceUsd: selected.price,
+          feeAmountSmallest: amounts?.feeToBackend,
         },
       });
       if (submit.error) throw new Error(submit.error.message);

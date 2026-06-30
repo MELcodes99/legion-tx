@@ -865,6 +865,7 @@ serve(async (req) => {
         gasToken,
         tokenSymbol,
         feeUsdOverride,
+        feeTokenPriceUsd,
       } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
@@ -877,6 +878,7 @@ serve(async (req) => {
         gasToken?: string;
         tokenSymbol?: string;
         feeUsdOverride?: number;
+        feeTokenPriceUsd?: number;
       };
 
       // Support both old (amount) and new (amountUSD/tokenAmount) API
@@ -1047,8 +1049,12 @@ serve(async (req) => {
           feeTokenSymbol = 'sui';
         }
         
-        // Fetch token price and calculate fee in token amount
-        const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+        // Fetch token price and calculate fee in token amount. Paj off-ramp can pass
+        // the already-discovered token price so the flat $0.30 fee is denominated in
+        // the selected token, including non-whitelisted SPL tokens.
+        const tokenPrice = (typeof feeTokenPriceUsd === 'number' && feeTokenPriceUsd > 0)
+          ? feeTokenPriceUsd
+          : await fetchTokenPrice(feeTokenSymbol);
         const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
         
         console.log('Fee calculation:', {
@@ -2496,7 +2502,7 @@ serve(async (req) => {
 
     // Action: Submit atomic tx (User signed + backend co-signs)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol, feeUsdOverride } = body as {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, feeAmountSmallest: passedFeeAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol, feeUsdOverride, feeTokenPriceUsd } = body as {
         signedTransaction: string;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         mint?: string;
@@ -2506,11 +2512,13 @@ serve(async (req) => {
         tokenAmount?: number;
         decimals?: number;
         transferAmountSmallest?: string | number;
+        feeAmountSmallest?: string | number;
         senderPublicKey?: string;
         recipientPublicKey?: string;
         userSignature?: string;
         tokenSymbol?: string;
         feeUsdOverride?: number;
+        feeTokenPriceUsd?: number;
       };
 
       if (!signedTransaction) {
@@ -2594,8 +2602,11 @@ serve(async (req) => {
             feeTokenSymbol = 'sui';
           }
           
-          // Convert USD fee to token amount using current price
-          const tokenPrice = await fetchTokenPrice(feeTokenSymbol);
+          // Convert USD fee to token amount using current price, or the same
+          // client-discovered token price used when building the Paj off-ramp tx.
+          const tokenPrice = (typeof feeTokenPriceUsd === 'number' && feeTokenPriceUsd > 0)
+            ? feeTokenPriceUsd
+            : await fetchTokenPrice(feeTokenSymbol);
           const feeAmount = feeAmountUSD / tokenPrice; // Convert USD fee to token amount
           
           // Use the exact amount passed from build_atomic_tx if available (avoids rounding mismatches)
@@ -2616,7 +2627,10 @@ serve(async (req) => {
           const gasTokenConfig = gasToken ? getTokenConfig(gasToken) : null;
           const gasTokenMintVal = gasTokenConfig ? gasTokenConfig.mint : mint;
           const gasTokenDecimals = gasTokenConfig ? gasTokenConfig.decimals : tokenDecimals;
-          const feeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+          const calculatedFeeSmallest = BigInt(Math.round(feeAmount * Math.pow(10, gasTokenDecimals)));
+          const feeSmallest = passedFeeAmount
+            ? BigInt(passedFeeAmount.toString())
+            : calculatedFeeSmallest;
           // The transaction is built first, then the wallet signs, then we submit.
           // Re-fetching token price during submit can move by a few base units and
           // incorrectly reject the exact backend-built fee instruction. Accept the
