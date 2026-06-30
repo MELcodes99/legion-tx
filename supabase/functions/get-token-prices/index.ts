@@ -265,6 +265,29 @@ serve(async (req) => {
       prices[address] = price;
     }
 
+    // For JUP and BONK, prefer Jupiter's official price API (DexScreener picks wrong pairs)
+    const JUP_MINT = 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN';
+    const BONK_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+    const jupOverrides = [JUP_MINT, BONK_MINT].filter(m => solanaTokens.includes(m));
+    if (jupOverrides.length > 0) {
+      try {
+        const r = await fetch(`https://lite-api.jup.ag/price/v3?ids=${jupOverrides.join(',')}`);
+        if (r.ok) {
+          const data = await r.json();
+          for (const mint of jupOverrides) {
+            const p = data?.[mint]?.usdPrice ?? data?.data?.[mint]?.price;
+            const num = typeof p === 'string' ? parseFloat(p) : p;
+            if (typeof num === 'number' && !isNaN(num) && num > 0) {
+              prices[mint] = num;
+              console.log(`Jupiter price override for ${mint}: $${num}`);
+            }
+          }
+        }
+      } catch (e) {
+        console.log('Jupiter price override fetch failed:', e);
+      }
+    }
+
     // For SOL native token, use CoinGecko if not found
     const solAddress = 'So11111111111111111111111111111111111111112';
     if (!prices[solAddress] && solanaTokens.includes(solAddress)) {
