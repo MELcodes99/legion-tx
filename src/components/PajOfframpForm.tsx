@@ -402,11 +402,16 @@ export const PajOfframpForm = () => {
             </SelectTrigger>
             <SelectContent>
               {supportedWithBalance.map((t) => (
-                <SelectItem key={t.mint} value={t.mint}>
-                  <span className="inline-flex items-center gap-2">
+                <SelectItem key={t.mint} value={t.mint} disabled={!!t.comingSoon}>
+                  <span className={`inline-flex items-center gap-2 ${t.comingSoon ? "opacity-50" : ""}`}>
                     {t.logoUrl && <img src={t.logoUrl} alt="" className="w-4 h-4 rounded-full" />}
                     <span className="font-medium">{t.symbol}</span>
                     <span className="text-xs text-muted-foreground">${t.usdBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    {t.comingSoon && (
+                      <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                        Coming Soon
+                      </span>
+                    )}
                   </span>
                 </SelectItem>
               ))}
