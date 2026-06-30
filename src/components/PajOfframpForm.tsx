@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Wallet, ArrowRight, Plus, Search, Check } from "lucide-react";
+import { Loader2, Wallet, ArrowRight, Plus, Search, Check, Copy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useTokenDiscovery } from "@/hooks/useTokenDiscovery";
@@ -26,7 +26,7 @@ const SUPPORTED = [
 ];
 
 
-const MIN_USD = 1;
+const MIN_USD = 2;
 const MAX_USD = 5000;
 const FLAT_FEE_USD = 0.30;
 
@@ -63,6 +63,9 @@ export const PajOfframpForm = () => {
   const [submitting, setSubmitting] = useState(false);
   const [activeOrder, setActiveOrder] = useState<any>(null);
   const [orderStatus, setOrderStatus] = useState<string | null>(null);
+  const [pendingOrder, setPendingOrder] = useState<any>(null); // pre-created Send Cash order
+  const [generatingAddr, setGeneratingAddr] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // If a saved profile exists, default to "saved" flow
   useEffect(() => {
@@ -186,6 +189,11 @@ export const PajOfframpForm = () => {
     return () => { cancelled = true; };
   }, [activeOrder?.id]);
 
+  // Reset pre-generated deposit address whenever inputs change
+  useEffect(() => {
+    setPendingOrder(null);
+  }, [flow, selectedMint, amount, amountCcy, sendCashBank?.id, sendCashAcct, sendCashName]);
+
   const validation = (() => {
     if (!publicKey) return "Connect your Solana wallet";
     if (!selected) return "Select a token";
@@ -195,36 +203,79 @@ export const PajOfframpForm = () => {
     if (tokenAmount > (selected.balance || 0) + 1e-6) return "Insufficient balance";
     if (flow === "saved" && !profile) return "Add a Paj account first";
     if (flow === "new_wallet" && (!sendCashBank || !sendCashName)) return "Enter recipient bank details";
+    if (flow === "new_wallet" && !pendingOrder) return "Generate deposit wallet";
     return null;
   })();
+
+  const handleGenerateAddress = async () => {
+    if (!publicKey || !selected || !sendCashBank || !sendCashName) return;
+    setGeneratingAddr(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("paj-cash", {
+        body: {
+          action: "create_order",
+          walletAddress: publicKey.toBase58(),
+          flow: "new_wallet",
+          mint: selected.mint,
+          tokenSymbol: selected.symbol,
+          decimals: selected.decimals,
+          amountToken: tokenAmount,
+          tokenPriceUsd: selected.price,
+          bankId: sendCashBank.id,
+          bankName: sendCashBank.name,
+          accountNumber: sendCashAcct,
+          accountName: sendCashName,
+        },
+      });
+      if (error) throw new Error(error.message);
+      if ((data as any)?.error) throw new Error((data as any).error);
+      setPendingOrder((data as any).order);
+      toast({ title: "Deposit address ready" });
+    } catch (err: any) {
+      toast({ title: "Could not generate address", description: err?.message ?? String(err), variant: "destructive" });
+    } finally {
+      setGeneratingAddr(false);
+    }
+  };
+
+  const copyDepositAddr = async () => {
+    if (!pendingOrder?.depositAddress) return;
+    try {
+      await navigator.clipboard.writeText(pendingOrder.depositAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
 
   const handlePajIt = async () => {
     if (validation || !publicKey || !signTransaction || !selected) return;
     setSubmitting(true);
     setOrderStatus("Creating order…");
     try {
-      // 1) Create Paj order — returns deposit address.
-      const create = await supabase.functions.invoke("paj-cash", {
-        body: {
-          action: "create_order",
-          walletAddress: publicKey.toBase58(),
-          flow,
-          mint: selected.mint,
-          tokenSymbol: selected.symbol,
-          decimals: selected.decimals,
-          amountToken: tokenAmount,
-          tokenPriceUsd: selected.price,
-          // Saved flow pulls bank from profile; Send Cash uses the inline picker.
-          bankId: flow === "saved" ? profile?.bank_id : sendCashBank?.id,
-          bankName: flow === "saved" ? profile?.bank_name : sendCashBank?.name,
-          accountNumber: flow === "saved" ? profile?.bank_account_number : sendCashAcct,
-          accountName: flow === "saved" ? profile?.bank_account_name : sendCashName,
-          pajWalletAddress: flow === "saved" ? profile?.paj_wallet_address : null,
-        },
-      });
-      if (create.error) throw new Error(create.error.message);
-      if ((create.data as any)?.error) throw new Error((create.data as any).error);
-      const order = (create.data as any).order;
+      // 1) Use pre-created Send Cash order if present, else create one (Top Up flow).
+      let order = pendingOrder;
+      if (!order) {
+        const create = await supabase.functions.invoke("paj-cash", {
+          body: {
+            action: "create_order",
+            walletAddress: publicKey.toBase58(),
+            flow,
+            mint: selected.mint,
+            tokenSymbol: selected.symbol,
+            decimals: selected.decimals,
+            amountToken: tokenAmount,
+            tokenPriceUsd: selected.price,
+            bankId: flow === "saved" ? profile?.bank_id : sendCashBank?.id,
+            bankName: flow === "saved" ? profile?.bank_name : sendCashBank?.name,
+            accountNumber: flow === "saved" ? profile?.bank_account_number : sendCashAcct,
+            accountName: flow === "saved" ? profile?.bank_account_name : sendCashName,
+            pajWalletAddress: flow === "saved" ? profile?.paj_wallet_address : null,
+          },
+        });
+        if (create.error) throw new Error(create.error.message);
+        if ((create.data as any)?.error) throw new Error((create.data as any).error);
+        order = (create.data as any).order;
+      }
       setActiveOrder(order);
       setOrderStatus("INIT");
 
@@ -296,6 +347,7 @@ export const PajOfframpForm = () => {
         description: `~ ₦${ngnNet ? ngnNet.toLocaleString("en-NG", { maximumFractionDigits: 0 }) : "—"} settling to the bank.`,
       });
       setAmount("");
+      setPendingOrder(null);
     } catch (err: any) {
       setOrderStatus(null);
       toast({ title: "Paj failed", description: err?.message ?? String(err), variant: "destructive" });
@@ -396,7 +448,7 @@ export const PajOfframpForm = () => {
                 flow === "saved" ? "border-primary/60 bg-primary/10" : "border-white/10 bg-white/[0.02]"
               }`}
             >
-              <div className="font-semibold">Saved Paj wallet</div>
+              <div className="font-semibold">Top Up</div>
               <div className="text-muted-foreground truncate">
                 {profile?.paj_wallet_address
                   ? `${profile.paj_wallet_address.slice(0,4)}…${profile.paj_wallet_address.slice(-4)}`
@@ -463,6 +515,39 @@ export const PajOfframpForm = () => {
               <p className="text-[10px] text-muted-foreground">
                 Paj will generate a one-time deposit wallet address. Your tokens go there, naira lands in this bank.
               </p>
+
+              {/* Generate / show deposit address */}
+              {sendCashName && amountNum > 0 && usdValue >= MIN_USD && !pendingOrder && (
+                <Button
+                  type="button"
+                  onClick={handleGenerateAddress}
+                  disabled={generatingAddr}
+                  className="w-full h-9 text-xs bg-white/10 hover:bg-white/20"
+                >
+                  {generatingAddr ? (
+                    <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Generating…</span>
+                  ) : "Generate deposit wallet"}
+                </Button>
+              )}
+              {pendingOrder?.depositAddress && (
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2 space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Send tokens to</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="text-[11px] break-all">{pendingOrder.depositAddress}</code>
+                    <button
+                      type="button"
+                      onClick={copyDepositAddr}
+                      className="shrink-0 inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                    >
+                      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Click <span className="font-semibold">Paj It</span> below to sign and send.
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

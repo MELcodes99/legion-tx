@@ -32,7 +32,7 @@ import {
 
 const PAJ_WEBHOOK_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/paj-webhook?secret=${Deno.env.get("PAJ_WEBHOOK_SECRET")}`;
 const FLAT_FEE_USD = 0.30;
-const MIN_USD = 1;
+const MIN_USD = 2;
 const MAX_USD = 5000;
 
 // ---- In-memory cache for banks (6h) ----
