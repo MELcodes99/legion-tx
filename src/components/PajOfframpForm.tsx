@@ -448,7 +448,7 @@ export const PajOfframpForm = () => {
                 flow === "saved" ? "border-primary/60 bg-primary/10" : "border-white/10 bg-white/[0.02]"
               }`}
             >
-              <div className="font-semibold">Saved Paj wallet</div>
+              <div className="font-semibold">Top Up</div>
               <div className="text-muted-foreground truncate">
                 {profile?.paj_wallet_address
                   ? `${profile.paj_wallet_address.slice(0,4)}…${profile.paj_wallet_address.slice(-4)}`
@@ -515,6 +515,39 @@ export const PajOfframpForm = () => {
               <p className="text-[10px] text-muted-foreground">
                 Paj will generate a one-time deposit wallet address. Your tokens go there, naira lands in this bank.
               </p>
+
+              {/* Generate / show deposit address */}
+              {sendCashName && amountNum > 0 && usdValue >= MIN_USD && !pendingOrder && (
+                <Button
+                  type="button"
+                  onClick={handleGenerateAddress}
+                  disabled={generatingAddr}
+                  className="w-full h-9 text-xs bg-white/10 hover:bg-white/20"
+                >
+                  {generatingAddr ? (
+                    <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Generating…</span>
+                  ) : "Generate deposit wallet"}
+                </Button>
+              )}
+              {pendingOrder?.depositAddress && (
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2 space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Send tokens to</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <code className="text-[11px] break-all">{pendingOrder.depositAddress}</code>
+                    <button
+                      type="button"
+                      onClick={copyDepositAddr}
+                      className="shrink-0 inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                    >
+                      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Click <span className="font-semibold">Paj It</span> below to sign and send.
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
