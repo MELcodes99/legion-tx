@@ -15,13 +15,14 @@ import { PajBankAccountModal } from "@/components/PajBankAccountModal";
 
 // Tokens explicitly listed in the spec, in display order.
 const SUPPORTED = [
-  { symbol: "USDC", mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 },
-  { symbol: "USDT", mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6 },
-  { symbol: "JUP",  mint: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", decimals: 6 },
-  { symbol: "BONK", mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", decimals: 5 },
-  { symbol: "USDG", mint: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo", decimals: 6 },
-  { symbol: "SOL",  mint: "So11111111111111111111111111111111111111112", decimals: 9 },
+  { symbol: "USDC", mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6, logo: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png" },
+  { symbol: "USDT", mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6, logo: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg" },
+  { symbol: "JUP",  mint: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", decimals: 6, logo: "https://static.jup.ag/jup/icon.png" },
+  { symbol: "BONK", mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", decimals: 5, logo: "https://arweave.net/hQiPZOsRZXGXBJd_82PhVdlM_hACsT_q6wqwf5cSY7I" },
+  { symbol: "USDG", mint: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo", decimals: 6, logo: "https://assets.coingecko.com/coins/images/51281/standard/Global_Dollar.png" },
+  { symbol: "SOL",  mint: "So11111111111111111111111111111111111111112", decimals: 9, logo: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png" },
 ];
+
 
 const MIN_USD = 1;
 const MAX_USD = 5000;
@@ -66,8 +67,10 @@ export const PajOfframpForm = () => {
         ...s,
         balance: d?.balance ?? 0,
         price: d ? (d.balance > 0 ? d.usdValue / d.balance : 0) : 0,
-        logoUrl: d?.logoUrl,
+        logoUrl: d?.logoUrl || s.logo,
+        usdBalance: d?.usdValue ?? 0,
       };
+
     });
   }, [tokens]);
 
@@ -244,36 +247,14 @@ export const PajOfframpForm = () => {
 
   return (
     <div className="surface-card backdrop-blur-xl bg-white/[0.03] border-white/10 p-5 md:p-6 rounded-2xl shadow-2xl">
-      {/* Balances strip */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Your balances</div>
+      {/* Wallet indicator */}
+      <div className="flex items-center justify-end mb-4">
         <div className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
           <Wallet className="w-3 h-3" /> {walletAddress ? `${walletAddress.slice(0,4)}…${walletAddress.slice(-4)}` : "Not connected"}
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2 mb-5">
-        {supportedWithBalance.map((t) => (
-          <button
-            key={t.mint}
-            onClick={() => setSelectedMint(t.mint)}
-            className={`rounded-lg border px-2 py-2 text-left transition ${
-              selectedMint === t.mint
-                ? "border-primary/60 bg-primary/10"
-                : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]"
-            }`}
-          >
-            <div className="flex items-center gap-1.5">
-              {t.logoUrl ? (
-                <img src={t.logoUrl} alt={t.symbol} className="w-4 h-4 rounded-full" />
-              ) : <div className="w-4 h-4 rounded-full bg-white/10" />}
-              <span className="text-xs font-semibold">{t.symbol}</span>
-            </div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground truncate">
-              {t.balance ? t.balance.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "0"}
-            </div>
-          </button>
-        ))}
-      </div>
+
+
 
       {/* Token selector + amount */}
       <div className="space-y-3">
@@ -289,7 +270,7 @@ export const PajOfframpForm = () => {
                   <span className="inline-flex items-center gap-2">
                     {t.logoUrl && <img src={t.logoUrl} alt="" className="w-4 h-4 rounded-full" />}
                     <span className="font-medium">{t.symbol}</span>
-                    <span className="text-xs text-muted-foreground">bal {t.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                    <span className="text-xs text-muted-foreground">${t.usdBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </span>
                 </SelectItem>
               ))}
