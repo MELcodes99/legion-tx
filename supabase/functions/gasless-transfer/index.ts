@@ -44,16 +44,7 @@ async function loadSolanaSdk() {
       getOrCreateAssociatedTokenAccount: (splToken as any).getOrCreateAssociatedTokenAccount,
       getAssociatedTokenAddress: (splToken as any).getAssociatedTokenAddress,
       createTransferInstruction: (splToken as any).createTransferInstruction,
-      createTransferCheckedInstruction: (splToken as any).createTransferCheckedInstruction,
-      createTransferCheckedWithFeeInstruction: (splToken as any).createTransferCheckedWithFeeInstruction,
-      createTransferCheckedWithFeeAndTransferHookInstruction: (splToken as any).createTransferCheckedWithFeeAndTransferHookInstruction,
-      createTransferCheckedWithTransferHookInstruction: (splToken as any).createTransferCheckedWithTransferHookInstruction,
       createAssociatedTokenAccountInstruction: (splToken as any).createAssociatedTokenAccountInstruction,
-      getMint: (splToken as any).getMint,
-      getTransferFeeConfig: (splToken as any).getTransferFeeConfig,
-      calculateEpochFee: (splToken as any).calculateEpochFee,
-      getExtensionTypes: (splToken as any).getExtensionTypes,
-      ExtensionType: (splToken as any).ExtensionType,
       TOKEN_PROGRAM_ID: (splToken as any).TOKEN_PROGRAM_ID,
       TOKEN_2022_PROGRAM_ID: (splToken as any).TOKEN_2022_PROGRAM_ID,
     };
@@ -214,113 +205,6 @@ function readU64LE(data: Uint8Array, offset = 1): bigint {
   return value;
 }
 
-async function createSolanaTokenTransferIx(params: {
-  connection: any;
-  source: any;
-  mint: any;
-  destination: any;
-  authority: any;
-  amount: bigint;
-  decimals: number;
-  programId: any;
-  token2022ProgramId: any;
-  createTransferInstruction: any;
-  createTransferCheckedInstruction: any;
-  createTransferCheckedWithFeeInstruction: any;
-  createTransferCheckedWithTransferHookInstruction: any;
-  createTransferCheckedWithFeeAndTransferHookInstruction: any;
-  getMint: any;
-  getTransferFeeConfig: any;
-  calculateEpochFee: any;
-  getExtensionTypes: any;
-  ExtensionType: any;
-}) {
-  const isToken2022 = params.token2022ProgramId && params.programId?.equals(params.token2022ProgramId);
-  if (!isToken2022) {
-    return params.createTransferInstruction(
-      params.source,
-      params.destination,
-      params.authority,
-      params.amount,
-      [],
-      params.programId
-    );
-  }
-
-  const mintInfo = await params.getMint(params.connection, params.mint, 'confirmed', params.programId);
-  const extensionTypes = params.getExtensionTypes && mintInfo?.tlvData
-    ? params.getExtensionTypes(mintInfo.tlvData)
-    : [];
-  const hasTransferFee = !!params.getTransferFeeConfig?.(mintInfo);
-  const hasTransferHook = !!params.ExtensionType && extensionTypes.includes(params.ExtensionType.TransferHook);
-  let expectedTransferFee = 0n;
-
-  if (hasTransferFee && params.calculateEpochFee) {
-    const epochInfo = await params.connection.getEpochInfo('confirmed');
-    expectedTransferFee = params.calculateEpochFee(
-      params.getTransferFeeConfig(mintInfo),
-      BigInt(epochInfo.epoch),
-      params.amount
-    );
-  }
-
-  if (hasTransferFee && hasTransferHook && params.createTransferCheckedWithFeeAndTransferHookInstruction) {
-    return await params.createTransferCheckedWithFeeAndTransferHookInstruction(
-      params.connection,
-      params.source,
-      params.mint,
-      params.destination,
-      params.authority,
-      params.amount,
-      params.decimals,
-      expectedTransferFee,
-      [],
-      'confirmed',
-      params.programId
-    );
-  }
-
-  if (hasTransferHook && params.createTransferCheckedWithTransferHookInstruction) {
-    return await params.createTransferCheckedWithTransferHookInstruction(
-      params.connection,
-      params.source,
-      params.mint,
-      params.destination,
-      params.authority,
-      params.amount,
-      params.decimals,
-      [],
-      'confirmed',
-      params.programId
-    );
-  }
-
-  if (hasTransferFee && params.createTransferCheckedWithFeeInstruction) {
-    return params.createTransferCheckedWithFeeInstruction(
-      params.source,
-      params.mint,
-      params.destination,
-      params.authority,
-      params.amount,
-      params.decimals,
-      expectedTransferFee,
-      [],
-      params.programId
-    );
-  }
-
-  return params.createTransferCheckedInstruction(
-    params.source,
-    params.mint,
-    params.destination,
-    params.authority,
-    params.amount,
-    params.decimals,
-    [],
-    params.programId
-  );
-}
-
 // Token configuration for multi-chain support
 const CHAIN_CONFIG = {
   solana: {
@@ -333,7 +217,6 @@ const CHAIN_CONFIG = {
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB': { name: 'USDT', decimals: 6 },
       'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3': { name: 'SKR', decimals: 6 },
       '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ': { name: 'USDF', decimals: 6 },
-      '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH': { name: 'USDG', decimals: 6 },
     }
   },
   sui: {
@@ -854,15 +737,6 @@ serve(async (req) => {
     const getOrCreateAssociatedTokenAccount = _sol?.getOrCreateAssociatedTokenAccount;
     const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
     const createTransferInstruction = _sol?.createTransferInstruction;
-    const createTransferCheckedInstruction = _sol?.createTransferCheckedInstruction;
-    const createTransferCheckedWithFeeInstruction = _sol?.createTransferCheckedWithFeeInstruction;
-    const createTransferCheckedWithFeeAndTransferHookInstruction = _sol?.createTransferCheckedWithFeeAndTransferHookInstruction;
-    const createTransferCheckedWithTransferHookInstruction = _sol?.createTransferCheckedWithTransferHookInstruction;
-    const getMint = _sol?.getMint;
-    const getTransferFeeConfig = _sol?.getTransferFeeConfig;
-    const calculateEpochFee = _sol?.calculateEpochFee;
-    const getExtensionTypes = _sol?.getExtensionTypes;
-    const ExtensionType = _sol?.ExtensionType;
     const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
     const TOKEN_2022_PROGRAM_ID = _sol?.TOKEN_2022_PROGRAM_ID;
     // Lazy-load ethers only for EVM-touching actions.
@@ -1160,7 +1034,7 @@ serve(async (req) => {
         const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
         if (feeTokenInfo) {
           // Map token name to CoinGecko ID
-          if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF' || feeTokenInfo.name === 'USDG') {
+          if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF') {
             feeTokenSymbol = 'usd-coin';
           } else if (feeTokenInfo.name === 'USDT') {
             feeTokenSymbol = 'tether';
@@ -1403,8 +1277,8 @@ serve(async (req) => {
           }
         }
 
-        // Ensure backend's gas token ATA exists for SPL gas tokens only when a token fee is actually collected.
-        if (!isNativeSolFee && feeSmallest > 0n) {
+        // Ensure backend's gas token ATA exists for SPL gas tokens (native SOL fee uses backend wallet directly)
+        if (!isNativeSolFee) {
           await getOrCreateAssociatedTokenAccount(
             connection,
             backendWallet,
@@ -1446,57 +1320,28 @@ serve(async (req) => {
         // INSTRUCTION 1: Sender → Recipient (FULL transfer amount)
         transaction.add(isNativeSolTransfer
           ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: recipientPk, lamports: transferAmountSmallest })
-          : await createSolanaTokenTransferIx({
-              connection,
-              source: senderTransferAta,
-              mint: mintPk,
-              destination: recipientTransferAta,
-              authority: senderPk,
-              amount: transferAmountSmallest,
-              decimals,
-              programId: transferTokenProgramId,
-              token2022ProgramId: TOKEN_2022_PROGRAM_ID,
-              createTransferInstruction,
-              createTransferCheckedInstruction,
-              createTransferCheckedWithFeeInstruction,
-              createTransferCheckedWithTransferHookInstruction,
-              createTransferCheckedWithFeeAndTransferHookInstruction,
-              getMint,
-              getTransferFeeConfig,
-              calculateEpochFee,
-              getExtensionTypes,
-              ExtensionType,
-            })
+          : createTransferInstruction(
+              senderTransferAta,         // source
+              recipientTransferAta,       // destination
+              senderPk,                   // authority (sender signs)
+              transferAmountSmallest,     // amount
+              [],
+              transferTokenProgramId
+            )
         );
 
-        // INSTRUCTION 2: Sender → Backend (fee in gas token). Paj off-ramp passes a zero
-        // backend fee, so USDG should behave like USDC/USDT: only send to the Paj wallet.
-        if (feeSmallest > 0n) {
-          transaction.add(isNativeSolFee
-            ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
-            : await createSolanaTokenTransferIx({
-                connection,
-                source: senderGasAta,
-                mint: gasTokenMintPk,
-                destination: backendGasAta,
-                authority: senderPk,
-                amount: feeSmallest,
-                decimals: gasTokenDecimals,
-                programId: gasTokenProgramId,
-                token2022ProgramId: TOKEN_2022_PROGRAM_ID,
-                createTransferInstruction,
-                createTransferCheckedInstruction,
-                createTransferCheckedWithFeeInstruction,
-                createTransferCheckedWithTransferHookInstruction,
-                createTransferCheckedWithFeeAndTransferHookInstruction,
-                getMint,
-                getTransferFeeConfig,
-                calculateEpochFee,
-                getExtensionTypes,
-                ExtensionType,
-              })
-          );
-        }
+        // INSTRUCTION 2: Sender → Backend (fee in gas token)
+        transaction.add(isNativeSolFee
+          ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
+          : createTransferInstruction(
+              senderGasAta,              // source
+              backendGasAta,             // destination
+              senderPk,                  // authority (sender signs)
+              feeSmallest,               // fee amount
+              [],
+              gasTokenProgramId
+            )
+        );
 
         // Serialize the transaction for frontend signing
         const serialized = transaction.serialize({ 
@@ -2759,7 +2604,7 @@ serve(async (req) => {
           const feeTokenInfo = ALLOWED_TOKENS[actualFeeTokenMint as keyof typeof ALLOWED_TOKENS];
           if (feeTokenInfo) {
             // Map token name to CoinGecko ID
-            if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF' || feeTokenInfo.name === 'USDG') {
+            if (feeTokenInfo.name === 'USDC' || feeTokenInfo.name === 'USDF') {
               feeTokenSymbol = 'usd-coin';
             } else if (feeTokenInfo.name === 'USDT') {
               feeTokenSymbol = 'tether';
@@ -2835,7 +2680,7 @@ serve(async (req) => {
           // SECURITY: Validate transaction structure for NEW FEE MODEL
           const instructions = transaction.instructions;
           let validTransfer = false;
-          let validFeePayment = feeSmallest === 0n;
+          let validFeePayment = false;
 
           console.log('=== TRANSACTION VALIDATION START ===');
           console.log('New fee model validation:');
@@ -2872,21 +2717,16 @@ serve(async (req) => {
               continue;
             }
 
-            // Check if it's a token transfer instruction:
-            // 3 = Transfer, 12 = TransferChecked (required by Token-2022 mints like USDG)
-            // 26/1 = TransferCheckedWithFee (used by Token-2022 mints with transfer-fee extensions)
-            const isTransfer = instruction.data.length === 9 && instruction.data[0] === 3;
-            const isTransferChecked = instruction.data.length === 10 && instruction.data[0] === 12;
-            const isTransferCheckedWithFee = instruction.data.length === 19 && instruction.data[0] === 26 && instruction.data[1] === 1;
-            if (isTransfer || isTransferChecked || isTransferCheckedWithFee) {
+            // Check if it's a transfer instruction (instruction discriminator: 3 for Transfer)
+            if (instruction.data.length === 9 && instruction.data[0] === 3) {
               console.log(`\nFound SPL Token instruction, data length: ${instruction.data.length}`);
               
               // Decode amount from instruction data (bytes 1-8, little endian)
-              const amountBuffer = readU64LE(instruction.data, isTransferCheckedWithFee ? 2 : 1);
+              const amountBuffer = readU64LE(instruction.data);
               
               const source = instruction.keys[0].pubkey;
-              const destination = (isTransferChecked || isTransferCheckedWithFee) ? instruction.keys[2].pubkey : instruction.keys[1].pubkey;
-              const authority = (isTransferChecked || isTransferCheckedWithFee) ? instruction.keys[3].pubkey : instruction.keys[2].pubkey;
+              const destination = instruction.keys[1].pubkey;
+              const authority = instruction.keys[2].pubkey;
               
               console.log(`\nTransfer instruction #${i + 1}:`);
               console.log('- Source:', source.toBase58());

@@ -113,26 +113,20 @@ export const PajOfframpForm = () => {
     return banks.filter((b) => b.name.toLowerCase().includes(q) || b.code?.toLowerCase().includes(q)).slice(0, 60);
   }, [banks, bankQuery]);
 
-  // Build a balance/price map for the supported tokens from discovery.
-  // Stablecoins fall back to $1 if discovery hasn't priced them yet, so users
-  // can off-ramp them (e.g. USDG) without waiting for price hydration.
-  const STABLE_SYMBOLS = new Set(["USDC", "USDT", "USDG", "USDF"]);
+  // Build a balance/price map for the supported tokens from discovery
   const supportedWithBalance = useMemo(() => {
     return SUPPORTED.map((s) => {
       const d = tokens.find(
         (t) => (t.address === s.mint) || (s.symbol === "SOL" && t.isNative && t.chain === "solana"),
       );
-      const balance = d?.balance ?? 0;
-      let price = d && balance > 0 ? d.usdValue / balance : 0;
-      if (!price && STABLE_SYMBOLS.has(s.symbol)) price = 1;
-      const usdBalance = d?.usdValue ?? (STABLE_SYMBOLS.has(s.symbol) ? balance : 0);
       return {
         ...s,
-        balance,
-        price,
+        balance: d?.balance ?? 0,
+        price: d ? (d.balance > 0 ? d.usdValue / d.balance : 0) : 0,
         logoUrl: d?.logoUrl || s.logo,
-        usdBalance,
+        usdBalance: d?.usdValue ?? 0,
       };
+
     });
   }, [tokens]);
 

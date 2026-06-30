@@ -266,9 +266,8 @@ serve(async (req) => {
         }
       }
 
-      // Create the Paj off-ramp order. Send Cash must use Paj's per-order deposit
-      // address, while Top Up must use the user's saved Paj wallet address.
-      // We send the FULL gross; Paj nets out businessUSDCFee.
+      // Create the Paj off-ramp order — returns the deposit address we send tokens to.
+      // We send the FULL gross to the deposit address; Paj nets out businessUSDCFee.
       const order = await paj.createOfframp(sessionToken, {
         bank: finalBankId,
         accountNumber: finalAccountNumber,
@@ -280,11 +279,6 @@ serve(async (req) => {
         businessUSDCFee: FLAT_FEE_USD,
       });
 
-      const transferAddress = flow === "saved" ? finalPajWallet : order.address;
-      if (!transferAddress) {
-        return json({ error: "No saved Paj wallet address" }, 400);
-      }
-
       // Persist to paj_orders (status will progress via webhook).
       const supa = supabaseAdmin();
       const { data: dbOrder, error: insertErr } = await supa
@@ -293,7 +287,7 @@ serve(async (req) => {
           paj_order_id: order.id,
           user_wallet_address: walletAddress,
           paj_wallet_address: finalPajWallet ?? null,
-          deposit_address: transferAddress,
+          deposit_address: order.address,
           flow: flow === "saved" ? "PATH_A_SAVED" : "PATH_B_NEW_WALLET",
           bank_id: finalBankId ?? null,
           bank_name: finalBankName ?? null,
@@ -318,9 +312,7 @@ serve(async (req) => {
         order: {
           id: dbOrder?.id,
           pajOrderId: order.id,
-          depositAddress: transferAddress,
-          pajDepositAddress: order.address,
-          pajWalletAddress: finalPajWallet ?? null,
+          depositAddress: order.address,
           grossAmountToken: amountToken,
           grossAmountUsd: grossUsd,
           amountToken: netToken,
