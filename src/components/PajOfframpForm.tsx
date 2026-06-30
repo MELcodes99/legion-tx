@@ -270,7 +270,7 @@ export const PajOfframpForm = () => {
                   <span className="inline-flex items-center gap-2">
                     {t.logoUrl && <img src={t.logoUrl} alt="" className="w-4 h-4 rounded-full" />}
                     <span className="font-medium">{t.symbol}</span>
-                    <span className="text-xs text-muted-foreground">bal {t.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                    <span className="text-xs text-muted-foreground">${t.usdBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                   </span>
                 </SelectItem>
               ))}
