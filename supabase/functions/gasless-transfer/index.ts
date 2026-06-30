@@ -751,6 +751,8 @@ serve(async (req) => {
     const getMint = _sol?.getMint;
     const getTransferFeeConfig = _sol?.getTransferFeeConfig;
     const calculateEpochFee = _sol?.calculateEpochFee;
+    const getExtensionTypes = _sol?.getExtensionTypes;
+    const ExtensionType = _sol?.ExtensionType;
     const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
     const TOKEN_2022_PROGRAM_ID = _sol?.TOKEN_2022_PROGRAM_ID;
     // Lazy-load ethers only for EVM-touching actions.
