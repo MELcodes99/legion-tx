@@ -189,6 +189,11 @@ export const PajOfframpForm = () => {
     return () => { cancelled = true; };
   }, [activeOrder?.id]);
 
+  // Reset pre-generated deposit address whenever inputs change
+  useEffect(() => {
+    setPendingOrder(null);
+  }, [flow, selectedMint, amount, amountCcy, sendCashBank?.id, sendCashAcct, sendCashName]);
+
   const validation = (() => {
     if (!publicKey) return "Connect your Solana wallet";
     if (!selected) return "Select a token";
@@ -198,8 +203,49 @@ export const PajOfframpForm = () => {
     if (tokenAmount > (selected.balance || 0) + 1e-6) return "Insufficient balance";
     if (flow === "saved" && !profile) return "Add a Paj account first";
     if (flow === "new_wallet" && (!sendCashBank || !sendCashName)) return "Enter recipient bank details";
+    if (flow === "new_wallet" && !pendingOrder) return "Generate deposit wallet";
     return null;
   })();
+
+  const handleGenerateAddress = async () => {
+    if (!publicKey || !selected || !sendCashBank || !sendCashName) return;
+    setGeneratingAddr(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("paj-cash", {
+        body: {
+          action: "create_order",
+          walletAddress: publicKey.toBase58(),
+          flow: "new_wallet",
+          mint: selected.mint,
+          tokenSymbol: selected.symbol,
+          decimals: selected.decimals,
+          amountToken: tokenAmount,
+          tokenPriceUsd: selected.price,
+          bankId: sendCashBank.id,
+          bankName: sendCashBank.name,
+          accountNumber: sendCashAcct,
+          accountName: sendCashName,
+        },
+      });
+      if (error) throw new Error(error.message);
+      if ((data as any)?.error) throw new Error((data as any).error);
+      setPendingOrder((data as any).order);
+      toast({ title: "Deposit address ready" });
+    } catch (err: any) {
+      toast({ title: "Could not generate address", description: err?.message ?? String(err), variant: "destructive" });
+    } finally {
+      setGeneratingAddr(false);
+    }
+  };
+
+  const copyDepositAddr = async () => {
+    if (!pendingOrder?.depositAddress) return;
+    try {
+      await navigator.clipboard.writeText(pendingOrder.depositAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
 
   const handlePajIt = async () => {
     if (validation || !publicKey || !signTransaction || !selected) return;
