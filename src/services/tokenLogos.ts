@@ -33,6 +33,7 @@ export const SOLANA_TOKEN_MINTS = {
   MON: 'CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2',
   SKR: 'SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3',
   USDF: '5AMAA9JV9H97YYVxx8F6FsCMmTwXSuTTQneiup4RYAUQ',
+  USDG: '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH',
 };
 
 // Local logos for new Solana tokens
