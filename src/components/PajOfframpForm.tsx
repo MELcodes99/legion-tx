@@ -279,6 +279,9 @@ export const PajOfframpForm = () => {
       }
       setActiveOrder(order);
       setOrderStatus("INIT");
+      const grossTokenAmount = Number(order?.grossAmountToken ?? tokenAmount);
+      const grossUsdValue = Number(order?.grossAmountUsd ?? usdValue);
+      const orderTokenPrice = Number(order?.tokenPriceUsd ?? selected.price);
 
       // 2) Build gasless atomic tx — recipient is the Paj-generated deposit address
       toast({ title: "Building transaction…" });
@@ -288,14 +291,14 @@ export const PajOfframpForm = () => {
           chain: "solana",
           senderPublicKey: publicKey.toBase58(),
           recipientPublicKey: order.depositAddress,
-          amountUSD: usdValue,
-          tokenAmount,
+          amountUSD: grossUsdValue,
+          tokenAmount: grossTokenAmount,
           mint: selected.mint,
           decimals: selected.decimals,
           gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
           feeUsdOverride: FLAT_FEE_USD,
-          feeTokenPriceUsd: selected.price,
+          feeTokenPriceUsd: orderTokenPrice,
           deductFeeFromTokenAmount: true,
         },
       });
@@ -328,15 +331,15 @@ export const PajOfframpForm = () => {
           signedTransaction: btoa(String.fromCharCode(...signed.serialize({ requireAllSignatures: false, verifySignatures: false }))),
           senderPublicKey: publicKey.toBase58(),
           recipientPublicKey: order.depositAddress,
-          amountUSD: usdValue,
-          tokenAmount,
+          amountUSD: grossUsdValue,
+          tokenAmount: grossTokenAmount,
           transferAmountSmallest: amounts?.transferToRecipient,
           mint: selected.mint,
           decimals: selected.decimals,
           gasToken: selectedGasToken,
           tokenSymbol: selected.symbol,
           feeUsdOverride: FLAT_FEE_USD,
-          feeTokenPriceUsd: selected.price,
+          feeTokenPriceUsd: orderTokenPrice,
           feeAmountSmallest: amounts?.feeToBackend,
         },
       });
