@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Wallet, ArrowRight, Plus, Search, Check } from "lucide-react";
+import { Loader2, Wallet, ArrowRight, Plus, Search, Check, Copy } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useTokenDiscovery } from "@/hooks/useTokenDiscovery";
@@ -63,6 +63,9 @@ export const PajOfframpForm = () => {
   const [submitting, setSubmitting] = useState(false);
   const [activeOrder, setActiveOrder] = useState<any>(null);
   const [orderStatus, setOrderStatus] = useState<string | null>(null);
+  const [pendingOrder, setPendingOrder] = useState<any>(null); // pre-created Send Cash order
+  const [generatingAddr, setGeneratingAddr] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // If a saved profile exists, default to "saved" flow
   useEffect(() => {
