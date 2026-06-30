@@ -247,36 +247,14 @@ export const PajOfframpForm = () => {
 
   return (
     <div className="surface-card backdrop-blur-xl bg-white/[0.03] border-white/10 p-5 md:p-6 rounded-2xl shadow-2xl">
-      {/* Balances strip */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Your balances</div>
+      {/* Wallet indicator */}
+      <div className="flex items-center justify-end mb-4">
         <div className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
           <Wallet className="w-3 h-3" /> {walletAddress ? `${walletAddress.slice(0,4)}…${walletAddress.slice(-4)}` : "Not connected"}
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2 mb-5">
-        {supportedWithBalance.map((t) => (
-          <button
-            key={t.mint}
-            onClick={() => setSelectedMint(t.mint)}
-            className={`rounded-lg border px-2 py-2 text-left transition ${
-              selectedMint === t.mint
-                ? "border-primary/60 bg-primary/10"
-                : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]"
-            }`}
-          >
-            <div className="flex items-center gap-1.5">
-              {t.logoUrl ? (
-                <img src={t.logoUrl} alt={t.symbol} className="w-4 h-4 rounded-full" />
-              ) : <div className="w-4 h-4 rounded-full bg-white/10" />}
-              <span className="text-xs font-semibold">{t.symbol}</span>
-            </div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground truncate">
-              {t.balance ? t.balance.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "0"}
-            </div>
-          </button>
-        ))}
-      </div>
+
+
 
       {/* Token selector + amount */}
       <div className="space-y-3">
