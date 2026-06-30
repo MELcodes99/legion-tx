@@ -12,6 +12,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTokenDiscovery } from "@/hooks/useTokenDiscovery";
 import { usePajProfile } from "@/hooks/usePajProfile";
 import { PajBankAccountModal } from "@/components/PajBankAccountModal";
+import usdgLogoAsset from "@/assets/usdg-logo.jpg.asset.json";
+
 
 // Tokens explicitly listed in the spec, in display order.
 const SUPPORTED = [
