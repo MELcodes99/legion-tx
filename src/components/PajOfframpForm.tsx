@@ -79,28 +79,33 @@ export const PajOfframpForm = () => {
   const selected = supportedWithBalance.find((t) => t.mint === selectedMint) ?? supportedWithBalance[0];
 
   const amountNum = parseFloat(amount) || 0;
-  const usdValue = amountNum * (selected?.price ?? 0);
+  // Amount is entered in either USD or NGN. Convert to USD canonical.
+  const usdValue = currency === "USD"
+    ? amountNum
+    : (rate && rate > 0 ? amountNum / rate : 0);
+  const tokenAmount = selected?.price ? usdValue / selected.price : 0;
   const netUsd = Math.max(0, usdValue - FLAT_FEE_USD - 0.02);
   const ngnEstimate = rate ? netUsd * rate : null;
+  const grossNgn = rate ? usdValue * rate : null;
 
-  // Live NGN rate
+  // Live NGN rate — fetch on amount change (USD-equivalent)
   const rateAbortRef = useRef<number>(0);
   useEffect(() => {
-    if (!usdValue) { setRate(null); return; }
+    const queryUsd = currency === "USD" ? amountNum : Math.max(1, Math.round((amountNum || 1) / 1500));
+    if (!queryUsd) { return; }
     const id = ++rateAbortRef.current;
     setRateLoading(true);
     supabase.functions
-      .invoke("paj-cash", { body: { action: "get_rate", amount: Math.max(1, Math.round(usdValue)) } })
+      .invoke("paj-cash", { body: { action: "get_rate", amount: Math.max(1, Math.round(queryUsd)) } })
       .then(({ data }) => {
         if (id !== rateAbortRef.current) return;
         const r = (data as any)?.rate;
-        // Paj returns either { rate: number } or numeric — be defensive
         const numeric = typeof r === "number" ? r : (r?.rate ?? r?.value ?? null);
         setRate(typeof numeric === "number" ? numeric : null);
       })
       .catch(() => {})
       .finally(() => { if (id === rateAbortRef.current) setRateLoading(false); });
-  }, [usdValue]);
+  }, [amountNum, currency]);
 
   // Poll order status while pending
   useEffect(() => {
@@ -126,11 +131,11 @@ export const PajOfframpForm = () => {
     if (!publicKey) return "Connect your Solana wallet";
     if (!selected) return "Select a token";
     if (!amountNum) return "Enter an amount";
+    if (currency === "NGN" && !rate) return "Fetching rate…";
     if (usdValue < MIN_USD) return `Minimum is $${MIN_USD.toFixed(2)}`;
     if (usdValue > MAX_USD) return `Maximum is $${MAX_USD.toFixed(0)}`;
-    if (amountNum > (selected.balance || 0)) return "Insufficient balance";
-    if (flow === "saved" && !profile) return "Add a Paj account first";
-    if (flow === "new_wallet" && destWallet.trim().length < 32) return "Enter destination wallet";
+    if (tokenAmount > (selected.balance || 0)) return "Insufficient balance";
+    if (!profile) return "Add bank details first";
     return null;
   })();
 
