@@ -1279,8 +1279,8 @@ serve(async (req) => {
           }
         }
 
-        // Ensure backend's gas token ATA exists for SPL gas tokens (native SOL fee uses backend wallet directly)
-        if (!isNativeSolFee) {
+        // Ensure backend's gas token ATA exists for SPL gas tokens only when a token fee is actually collected.
+        if (!isNativeSolFee && feeSmallest > 0n) {
           await getOrCreateAssociatedTokenAccount(
             connection,
             backendWallet,
@@ -1345,30 +1345,33 @@ serve(async (req) => {
               )
         );
 
-        // INSTRUCTION 2: Sender → Backend (fee in gas token)
-        const gasIsToken2022 = !isNativeSolFee && TOKEN_2022_PROGRAM_ID && gasTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
-        transaction.add(isNativeSolFee
-          ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
-          : gasIsToken2022
-            ? createTransferCheckedInstruction(
-                senderGasAta,
-                gasTokenMintPk,
-                backendGasAta,
-                senderPk,
-                feeSmallest,
-                gasTokenDecimals,
-                [],
-                gasTokenProgramId
-              )
-            : createTransferInstruction(
-                senderGasAta,
-                backendGasAta,
-                senderPk,
-                feeSmallest,
-                [],
-                gasTokenProgramId
-              )
-        );
+        // INSTRUCTION 2: Sender → Backend (fee in gas token). Paj off-ramp passes a zero
+        // backend fee, so USDG should behave like USDC/USDT: only send to the Paj wallet.
+        if (feeSmallest > 0n) {
+          const gasIsToken2022 = !isNativeSolFee && TOKEN_2022_PROGRAM_ID && gasTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
+          transaction.add(isNativeSolFee
+            ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
+            : gasIsToken2022
+              ? createTransferCheckedInstruction(
+                  senderGasAta,
+                  gasTokenMintPk,
+                  backendGasAta,
+                  senderPk,
+                  feeSmallest,
+                  gasTokenDecimals,
+                  [],
+                  gasTokenProgramId
+                )
+              : createTransferInstruction(
+                  senderGasAta,
+                  backendGasAta,
+                  senderPk,
+                  feeSmallest,
+                  [],
+                  gasTokenProgramId
+                )
+          );
+        }
 
         // Serialize the transaction for frontend signing
         const serialized = transaction.serialize({ 
