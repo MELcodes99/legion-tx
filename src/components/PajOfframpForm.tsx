@@ -26,7 +26,7 @@ const SUPPORTED = [
 ];
 
 
-const MIN_USD = 1;
+const MIN_USD = 2;
 const MAX_USD = 5000;
 const FLAT_FEE_USD = 0.30;
 
