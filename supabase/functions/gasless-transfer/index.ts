@@ -1010,7 +1010,9 @@ serve(async (req) => {
         // Solana transfers: $0.50 fee (converted to token amount based on current price)
         // Sui transfers: $0.40 fee (converted to token amount based on current price)
         const transferChainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
-        const feeAmountUSD = transferChainConfig.gasFee; // Fee in USD
+        const feeAmountUSD = (typeof feeUsdOverride === 'number' && feeUsdOverride >= 0)
+          ? feeUsdOverride
+          : transferChainConfig.gasFee; // Fee in USD (caller may override, e.g. Paj off-ramp uses $0.30)
         
         // Determine the token being used for fee payment
         const feeTokenMint = gasToken || mint; // Use gas token if specified, otherwise use transfer token
