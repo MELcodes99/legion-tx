@@ -267,11 +267,12 @@ serve(async (req) => {
       }
 
       // Create the Paj off-ramp order — returns the deposit address we send tokens to.
+      // We send the FULL gross to the deposit address; Paj nets out businessUSDCFee.
       const order = await paj.createOfframp(sessionToken, {
         bank: finalBankId,
         accountNumber: finalAccountNumber,
         currency: "NGN",
-        amount: netToken,
+        amount: amountToken,
         mint,
         chain: "SOLANA",
         webhookURL: PAJ_WEBHOOK_URL,
@@ -294,8 +295,8 @@ serve(async (req) => {
           bank_account_name: finalAccountName ?? null,
           token_mint: mint,
           token_symbol: tokenSymbol ?? null,
-          amount_sent: netToken,
-          usdc_amount: netUsd,
+          amount_sent: amountToken,
+          usdc_amount: grossUsd,
           fiat_amount: order.fiatAmount ?? null,
           rate: order.rate ?? null,
           fee_usd: FLAT_FEE_USD,
