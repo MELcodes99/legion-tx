@@ -863,7 +863,8 @@ serve(async (req) => {
         decimals, 
         chain = 'solana', 
         gasToken,
-        tokenSymbol 
+        tokenSymbol,
+        feeUsdOverride,
       } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
@@ -875,6 +876,7 @@ serve(async (req) => {
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         gasToken?: string;
         tokenSymbol?: string;
+        feeUsdOverride?: number;
       };
 
       // Support both old (amount) and new (amountUSD/tokenAmount) API
@@ -1008,7 +1010,9 @@ serve(async (req) => {
         // Solana transfers: $0.50 fee (converted to token amount based on current price)
         // Sui transfers: $0.40 fee (converted to token amount based on current price)
         const transferChainConfig = chain === 'solana' ? CHAIN_CONFIG.solana : CHAIN_CONFIG.sui;
-        const feeAmountUSD = transferChainConfig.gasFee; // Fee in USD
+        const feeAmountUSD = (typeof feeUsdOverride === 'number' && feeUsdOverride >= 0)
+          ? feeUsdOverride
+          : transferChainConfig.gasFee; // Fee in USD (caller may override, e.g. Paj off-ramp uses $0.30)
         
         // Determine the token being used for fee payment
         const feeTokenMint = gasToken || mint; // Use gas token if specified, otherwise use transfer token
@@ -2492,7 +2496,7 @@ serve(async (req) => {
 
     // Action: Submit atomic tx (User signed + backend co-signs)
     if (action === 'submit_atomic_tx') {
-      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol } = body as {
+      const { signedTransaction, chain = 'solana', mint, gasToken, amount, amountUSD, tokenAmount, decimals, transferAmountSmallest: passedTransferAmount, senderPublicKey, recipientPublicKey, userSignature, tokenSymbol, feeUsdOverride } = body as {
         signedTransaction: string;
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         mint?: string;
@@ -2506,6 +2510,7 @@ serve(async (req) => {
         recipientPublicKey?: string;
         userSignature?: string;
         tokenSymbol?: string;
+        feeUsdOverride?: number;
       };
 
       if (!signedTransaction) {
@@ -2555,7 +2560,9 @@ serve(async (req) => {
           // Skip strict validation for non-whitelisted tokens
 
           // Calculate expected amounts
-          const feeAmountUSD = CHAIN_CONFIG.solana.gasFee;
+          const feeAmountUSD = (typeof feeUsdOverride === 'number' && feeUsdOverride >= 0)
+            ? feeUsdOverride
+            : CHAIN_CONFIG.solana.gasFee;
           const feeTokenMint = gasToken || mint;
           
           let feeTokenSymbol: string;

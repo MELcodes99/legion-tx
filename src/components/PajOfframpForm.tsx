@@ -293,6 +293,7 @@ export const PajOfframpForm = () => {
           decimals: selected.decimals,
           gasToken: selected.symbol,
           tokenSymbol: selected.symbol,
+          feeUsdOverride: FLAT_FEE_USD,
         },
       });
       if (build.error) throw new Error(build.error.message);
@@ -331,6 +332,7 @@ export const PajOfframpForm = () => {
           decimals: selected.decimals,
           gasToken: selected.symbol,
           tokenSymbol: selected.symbol,
+          feeUsdOverride: FLAT_FEE_USD,
         },
       });
       if (submit.error) throw new Error(submit.error.message);
