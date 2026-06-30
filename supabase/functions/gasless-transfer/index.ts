@@ -738,6 +738,7 @@ serve(async (req) => {
     const getOrCreateAssociatedTokenAccount = _sol?.getOrCreateAssociatedTokenAccount;
     const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
     const createTransferInstruction = _sol?.createTransferInstruction;
+    const createTransferCheckedInstruction = _sol?.createTransferCheckedInstruction;
     const TOKEN_PROGRAM_ID = _sol?.TOKEN_PROGRAM_ID;
     const TOKEN_2022_PROGRAM_ID = _sol?.TOKEN_2022_PROGRAM_ID;
     // Lazy-load ethers only for EVM-touching actions.
