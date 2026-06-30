@@ -863,7 +863,8 @@ serve(async (req) => {
         decimals, 
         chain = 'solana', 
         gasToken,
-        tokenSymbol 
+        tokenSymbol,
+        feeUsdOverride,
       } = body as { 
         senderPublicKey?: string;
         recipientPublicKey?: string;
@@ -875,6 +876,7 @@ serve(async (req) => {
         chain?: 'solana' | 'sui' | 'base' | 'ethereum';
         gasToken?: string;
         tokenSymbol?: string;
+        feeUsdOverride?: number;
       };
 
       // Support both old (amount) and new (amountUSD/tokenAmount) API
