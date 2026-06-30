@@ -747,6 +747,7 @@ serve(async (req) => {
     const getAssociatedTokenAddress = _sol?.getAssociatedTokenAddress;
     const createTransferInstruction = _sol?.createTransferInstruction;
     const createTransferCheckedInstruction = _sol?.createTransferCheckedInstruction;
+    const createTransferCheckedWithFeeInstruction = _sol?.createTransferCheckedWithFeeInstruction;
     const createTransferCheckedWithFeeAndTransferHookInstruction = _sol?.createTransferCheckedWithFeeAndTransferHookInstruction;
     const createTransferCheckedWithTransferHookInstruction = _sol?.createTransferCheckedWithTransferHookInstruction;
     const getMint = _sol?.getMint;
