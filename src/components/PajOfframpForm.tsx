@@ -43,8 +43,8 @@ export const PajOfframpForm = () => {
 
   const [selectedMint, setSelectedMint] = useState(SUPPORTED[0].mint);
   const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState<"USD" | "NGN">("USD");
   const [flow, setFlow] = useState<"saved" | "new_wallet">("saved");
-  const [destWallet, setDestWallet] = useState("");
   const [bankModalOpen, setBankModalOpen] = useState(false);
 
   const [rate, setRate] = useState<number | null>(null);
