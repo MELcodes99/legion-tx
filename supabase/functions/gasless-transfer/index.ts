@@ -1320,29 +1320,54 @@ serve(async (req) => {
         }
 
         // INSTRUCTION 1: Sender → Recipient (FULL transfer amount)
+        // Token-2022 mints (e.g. USDG) require TransferChecked; classic SPL keeps Transfer.
+        const transferIsToken2022 = !isNativeSolTransfer && TOKEN_2022_PROGRAM_ID && transferTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
         transaction.add(isNativeSolTransfer
           ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: recipientPk, lamports: transferAmountSmallest })
-          : createTransferInstruction(
-              senderTransferAta,         // source
-              recipientTransferAta,       // destination
-              senderPk,                   // authority (sender signs)
-              transferAmountSmallest,     // amount
-              [],
-              transferTokenProgramId
-            )
+          : transferIsToken2022
+            ? createTransferCheckedInstruction(
+                senderTransferAta,
+                mintPk,
+                recipientTransferAta,
+                senderPk,
+                transferAmountSmallest,
+                decimals,
+                [],
+                transferTokenProgramId
+              )
+            : createTransferInstruction(
+                senderTransferAta,
+                recipientTransferAta,
+                senderPk,
+                transferAmountSmallest,
+                [],
+                transferTokenProgramId
+              )
         );
 
         // INSTRUCTION 2: Sender → Backend (fee in gas token)
+        const gasIsToken2022 = !isNativeSolFee && TOKEN_2022_PROGRAM_ID && gasTokenProgramId?.equals(TOKEN_2022_PROGRAM_ID);
         transaction.add(isNativeSolFee
           ? SystemProgram.transfer({ fromPubkey: senderPk, toPubkey: backendWallet.publicKey, lamports: feeSmallest })
-          : createTransferInstruction(
-              senderGasAta,              // source
-              backendGasAta,             // destination
-              senderPk,                  // authority (sender signs)
-              feeSmallest,               // fee amount
-              [],
-              gasTokenProgramId
-            )
+          : gasIsToken2022
+            ? createTransferCheckedInstruction(
+                senderGasAta,
+                gasTokenMintPk,
+                backendGasAta,
+                senderPk,
+                feeSmallest,
+                gasTokenDecimals,
+                [],
+                gasTokenProgramId
+              )
+            : createTransferInstruction(
+                senderGasAta,
+                backendGasAta,
+                senderPk,
+                feeSmallest,
+                [],
+                gasTokenProgramId
+              )
         );
 
         // Serialize the transaction for frontend signing
